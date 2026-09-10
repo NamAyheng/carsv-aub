@@ -1,0 +1,7 @@
+{
+  "name": "CarSV - Garage Management System",
+  "description": "Comprehensive Automotive Garage Management and Repair Task Management System UI/UX",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

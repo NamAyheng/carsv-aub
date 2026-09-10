@@ -1,0 +1,461 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Theme transitions */
+html {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html:not(.dark) {
+  color-scheme: light;
+}
+
+html:not(.dark) input[type="date"],
+html:not(.dark) input[type="time"],
+html:not(.dark) input[type="datetime-local"] {
+  color-scheme: light;
+}
+
+html.dark input[type="date"],
+html.dark input[type="time"],
+html.dark input[type="datetime-local"] {
+  color-scheme: dark;
+}
+
+/* Dark mode overrides for ERP cards & containers */
+html.dark body {
+  background-color: #020617;
+  color: #f8fafc;
+}
+
+.dark .bg-white {
+  background-color: #0f172a;
+}
+
+.dark .bg-blue-600 .bg-white,
+.dark .bg-blue-600 button.bg-white {
+  background-color: #ffffff !important;
+  color: #2563eb !important;
+}
+
+.dark .bg-gray-50,
+.dark .bg-slate-50 {
+  background-color: #0b1329;
+}
+
+.dark .bg-gray-100,
+.dark .bg-slate-100 {
+  background-color: #020617;
+}
+
+.dark .text-gray-900,
+.dark .text-slate-900,
+.dark .text-gray-800,
+.dark .text-slate-800 {
+  color: #f8fafc;
+}
+
+.dark .text-gray-700,
+.dark .text-slate-700 {
+  color: #cbd5e1;
+}
+
+.dark .text-gray-600,
+.dark .text-slate-600 {
+  color: #94a3b8;
+}
+
+.dark .text-gray-500,
+.dark .text-slate-500 {
+  color: #64748b;
+}
+
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-slate-100,
+.dark .border-slate-200 {
+  border-color: #1e293b;
+}
+
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1e293b;
+}
+
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  background-color: #0f172a;
+  color: #f8fafc;
+  border-color: #334155;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b;
+}
+
+/* Tinted chips, badges, and row hovers — ERP uses light pastels that wash out in dark */
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-50\/80:hover,
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-gray-100:hover,
+.dark .hover\:bg-white\/60:hover {
+  background-color: #1e293b;
+}
+
+.dark .hover\:text-gray-800:hover,
+.dark .hover\:text-gray-900:hover,
+.dark .hover\:text-slate-700:hover,
+.dark .hover\:text-slate-900:hover {
+  color: #f8fafc;
+}
+
+.dark .hover\:bg-slate-200:hover,
+.dark .hover\:bg-gray-200:hover,
+.dark .hover\:bg-slate-200\/60:hover {
+  background-color: #334155;
+}
+
+.dark .hover\:bg-amber-100:hover {
+  background-color: rgb(245 158 11 / 0.28);
+}
+
+.dark .hover\:bg-blue-50:hover,
+.dark .hover\:bg-blue-50\/60:hover {
+  background-color: rgb(37 99 235 / 0.18);
+}
+
+.dark .bg-gray-50\/50 {
+  background-color: rgb(15 23 42 / 0.5);
+}
+
+.dark .bg-blue-50,
+.dark .bg-blue-50\/20,
+.dark .bg-blue-50\/40,
+.dark .bg-blue-50\/60,
+.dark .bg-blue-100 {
+  background-color: rgb(37 99 235 / 0.18);
+}
+
+.dark .bg-amber-50,
+.dark .bg-amber-100 {
+  background-color: rgb(245 158 11 / 0.18);
+}
+
+.dark .bg-emerald-50,
+.dark .bg-green-50,
+.dark .bg-green-100,
+.dark .bg-emerald-100 {
+  background-color: rgb(16 185 129 / 0.18);
+}
+
+.dark .bg-rose-50,
+.dark .bg-rose-100,
+.dark .bg-red-50 {
+  background-color: rgb(244 63 94 / 0.18);
+}
+
+.dark .bg-purple-50,
+.dark .bg-purple-100,
+.dark .bg-indigo-50,
+.dark .bg-indigo-100,
+.dark .bg-sky-50 {
+  background-color: rgb(99 102 241 / 0.18);
+}
+
+.dark .text-blue-900,
+.dark .text-blue-800,
+.dark .text-blue-700,
+.dark .text-blue-600 {
+  color: #93c5fd;
+}
+
+.dark .text-amber-900,
+.dark .text-amber-800,
+.dark .text-amber-700 {
+  color: #fcd34d;
+}
+
+.dark .text-amber-600 {
+  color: #fbbf24;
+}
+
+.dark .text-emerald-800,
+.dark .text-emerald-700,
+.dark .text-green-700 {
+  color: #6ee7b7;
+}
+
+.dark .text-rose-700,
+.dark .text-rose-600 {
+  color: #fda4af;
+}
+
+.dark .text-purple-700,
+.dark .text-indigo-700,
+.dark .text-sky-700 {
+  color: #c4b5fd;
+}
+
+.dark .border-blue-100,
+.dark .border-blue-200 {
+  border-color: rgb(59 130 246 / 0.35);
+}
+
+.dark .border-amber-100,
+.dark .border-amber-200 {
+  border-color: rgb(245 158 11 / 0.35);
+}
+
+.dark .border-emerald-200,
+.dark .border-green-200 {
+  border-color: rgb(16 185 129 / 0.35);
+}
+
+.dark .border-rose-200,
+.dark .border-purple-200,
+.dark .border-indigo-200,
+.dark .border-sky-200 {
+  border-color: rgb(148 163 184 / 0.35);
+}
+
+.dark .bg-slate-50\/70,
+.dark .bg-slate-50\/50 {
+  background-color: rgb(15 23 42 / 0.7);
+}
+
+/* LIGHT MODE STYLING FOR CUSTOMER PORTAL & LANDING */
+html:not(.dark) .customer-theme-root {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+html:not(.dark) .customer-theme-root .bg-slate-950,
+html:not(.dark) .customer-theme-root .bg-slate-950\/90,
+html:not(.dark) .customer-theme-root .bg-slate-950\/70,
+html:not(.dark) .customer-theme-root .bg-slate-950\/60,
+html:not(.dark) .customer-theme-root .bg-slate-950\/50,
+html:not(.dark) .customer-theme-root .bg-slate-950\/40 {
+  background-color: #f8fafc;
+}
+
+/* Frosted badges on photos — keep readable, not page-grey */
+html:not(.dark) .customer-theme-root .bg-slate-950\/85,
+html:not(.dark) .customer-theme-root .bg-slate-950\/80 {
+  background-color: rgb(255 255 255 / 0.92);
+}
+
+html:not(.dark) .customer-theme-root header.bg-slate-950\/90,
+html:not(.dark) .customer-theme-root header.bg-slate-900\/95 {
+  background-color: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+html:not(.dark) .customer-theme-root .bg-slate-900,
+html:not(.dark) .customer-theme-root .bg-slate-900\/95,
+html:not(.dark) .customer-theme-root .bg-slate-900\/90,
+html:not(.dark) .customer-theme-root .bg-slate-900\/80,
+html:not(.dark) .customer-theme-root .bg-slate-900\/70,
+html:not(.dark) .customer-theme-root .bg-slate-900\/60,
+html:not(.dark) .customer-theme-root .bg-slate-900\/40 {
+  background-color: #ffffff;
+}
+
+/* Grey band sections (about / how-it-works) were left as muddy slate */
+html:not(.dark) .customer-theme-root .bg-slate-900\/50 {
+  background-color: #f1f5f9;
+}
+
+html:not(.dark) .customer-theme-root .bg-slate-700,
+html:not(.dark) .customer-theme-root .bg-slate-700\/80 {
+  background-color: #e2e8f0;
+}
+
+/* Grey chips, tracks, icon wells — visible slate, not washed-out */
+html:not(.dark) .customer-theme-root .bg-slate-800,
+html:not(.dark) .customer-theme-root .bg-slate-800\/80,
+html:not(.dark) .customer-theme-root .bg-slate-800\/60,
+html:not(.dark) .customer-theme-root .bg-slate-800\/40 {
+  background-color: #e2e8f0;
+}
+
+html:not(.dark) .customer-theme-root .border-slate-800,
+html:not(.dark) .customer-theme-root .border-slate-800\/90,
+html:not(.dark) .customer-theme-root .border-slate-800\/80,
+html:not(.dark) .customer-theme-root .border-slate-800\/60,
+html:not(.dark) .customer-theme-root .border-slate-800\/40,
+html:not(.dark) .customer-theme-root .border-slate-700,
+html:not(.dark) .customer-theme-root .border-slate-700\/80,
+html:not(.dark) .customer-theme-root .border-slate-700\/60,
+html:not(.dark) .customer-theme-root .border-slate-600 {
+  border-color: #cbd5e1;
+}
+
+html:not(.dark) .customer-theme-root .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+html:not(.dark) .customer-theme-root .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0;
+}
+
+html:not(.dark) .customer-theme-root .text-white {
+  color: #0f172a;
+}
+
+html:not(.dark) .customer-theme-root .text-slate-100,
+html:not(.dark) .customer-theme-root .text-slate-200 {
+  color: #1e293b;
+}
+
+html:not(.dark) .customer-theme-root .text-slate-300,
+html:not(.dark) .customer-theme-root .text-slate-400 {
+  color: #475569;
+}
+
+html:not(.dark) .customer-theme-root .text-slate-500,
+html:not(.dark) .customer-theme-root .text-slate-600 {
+  color: #64748b;
+}
+
+html:not(.dark) .customer-theme-root .hover\:text-white:hover {
+  color: #0f172a;
+}
+
+html:not(.dark) .customer-theme-root .hover\:bg-slate-800:hover,
+html:not(.dark) .customer-theme-root .hover\:bg-slate-700:hover {
+  background-color: #cbd5e1;
+}
+
+/* Grey secondary buttons (Login, Explore, Create Account) */
+html:not(.dark) .customer-theme-root button.bg-slate-800,
+html:not(.dark) .customer-theme-root button.bg-slate-800\/80,
+html:not(.dark) .customer-theme-root button.bg-slate-900 {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html:not(.dark) .customer-theme-root button.bg-slate-800:hover,
+html:not(.dark) .customer-theme-root button.bg-slate-800\/80:hover,
+html:not(.dark) .customer-theme-root button.bg-slate-900:hover,
+html:not(.dark) .customer-theme-root button.hover\:bg-slate-700:hover,
+html:not(.dark) .customer-theme-root button.hover\:bg-slate-800:hover {
+  background-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+html:not(.dark) .customer-theme-root button.bg-slate-800 *,
+html:not(.dark) .customer-theme-root button.bg-slate-900 * {
+  color: inherit;
+}
+
+/* Modal dimmer must stay a real overlay, not a solid light-grey sheet */
+html:not(.dark) .customer-theme-root .fixed.inset-0 {
+  background-color: rgb(15 23 42 / 0.5) !important;
+}
+
+html:not(.dark) .customer-theme-root .fixed.inset-0 > div {
+  background-color: #ffffff;
+}
+
+html:not(.dark) .customer-theme-root input:not([type="checkbox"]):not([type="radio"]),
+html:not(.dark) .customer-theme-root select,
+html:not(.dark) .customer-theme-root textarea {
+  background-color: #ffffff;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+html:not(.dark) .customer-theme-root input::placeholder,
+html:not(.dark) .customer-theme-root textarea::placeholder {
+  color: #94a3b8;
+}
+
+/* Colored actions keep white labels/icons */
+html:not(.dark) .customer-theme-root .bg-blue-600,
+html:not(.dark) .customer-theme-root .bg-blue-500,
+html:not(.dark) .customer-theme-root .bg-emerald-600,
+html:not(.dark) .customer-theme-root .bg-red-600,
+html:not(.dark) .customer-theme-root .bg-red-500,
+html:not(.dark) .customer-theme-root .bg-indigo-600,
+html:not(.dark) .customer-theme-root .bg-amber-500,
+html:not(.dark) .customer-theme-root button.bg-blue-600,
+html:not(.dark) .customer-theme-root button.bg-blue-500,
+html:not(.dark) .customer-theme-root .text-white.bg-blue-600 {
+  color: #ffffff !important;
+}
+
+html:not(.dark) .customer-theme-root .bg-blue-600 *,
+html:not(.dark) .customer-theme-root .bg-blue-500 *,
+html:not(.dark) .customer-theme-root .bg-gradient-to-br.from-blue-600 .text-white,
+html:not(.dark) .customer-theme-root .bg-gradient-to-br.from-blue-600 *,
+html:not(.dark) .customer-theme-root [class*="from-blue-600"] > .text-white,
+html:not(.dark) .customer-theme-root [class*="from-blue-600"] > svg {
+  color: #ffffff !important;
+}
+
+html:not(.dark) .customer-theme-root .bg-gradient-to-r.from-blue-950\/70,
+html:not(.dark) .customer-theme-root .bg-gradient-to-r.from-blue-950\/60 {
+  background-image: linear-gradient(to right, #eff6ff, #f8fafc, #eef2ff);
+  border-color: #bfdbfe;
+}
+
+.customer-theme-root header .bar-action {
+  white-space: nowrap;
+}
+
+.customer-theme-root header .notification-panel,
+.customer-theme-root header .notification-panel p,
+.customer-theme-root header .notification-panel div {
+  white-space: normal;
+}
+
+html:not(.dark) .customer-theme-root header button.bg-blue-600,
+html:not(.dark) .customer-theme-root header button.bg-blue-600 * {
+  color: #ffffff !important;
+}
+
+/* Dark showcase panels (live bay, hero cards) must keep white copy */
+html:not(.dark) .customer-theme-root .keep-on-dark .text-white,
+html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-100,
+html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-200,
+html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-300,
+html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-400 {
+  color: #ffffff !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark .hover\:text-white:hover {
+  color: #ffffff !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark,
+html:not(.dark) .customer-theme-root .keep-on-dark.bg-slate-950,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/90,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/70,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/60,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/50,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/40,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-900,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-900\/95,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-900\/90,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-900\/80 {
+  background-color: #020617 !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/85,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/80 {
+  background-color: rgb(2 6 23 / 0.9) !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-800,
+html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-800\/80,
+html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-700 {
+  border-color: #1e293b !important;
+}
