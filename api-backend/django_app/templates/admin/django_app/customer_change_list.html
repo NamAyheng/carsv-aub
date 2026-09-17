@@ -1,0 +1,144 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Customers | {{ site_title }}{% endblock %}
+
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-customer change-list{% endblock %}
+
+{% block content %}
+<div class="carsv-customers" x-data="{ view: 'table' }">
+    <section class="cc-hero">
+        <div>
+            <div class="cc-hero-title">
+                <h1>Customer Management</h1>
+                <span class="cc-count">{{ account_count }} Accounts</span>
+            </div>
+            <p>Directory of clients, contact profiles, vehicle ownership, and billing records.</p>
+        </div>
+        <div class="cc-hero-actions">
+            <a class="cc-btn-ghost" href="?export=csv{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}">
+                <span class="material-symbols-outlined md-18">download</span>
+                Export CSV
+            </a>
+            <a class="cc-btn-primary" href="{% url 'admin:django_app_customer_add' %}">
+                <span class="material-symbols-outlined md-18">add</span>
+                New Customer
+            </a>
+        </div>
+    </section>
+
+    <section class="cc-toolbar">
+        <form method="get" class="cc-search">
+            {% if status_filter and status_filter != "ALL" %}
+                <input type="hidden" name="status" value="{{ status_filter }}">
+            {% endif %}
+            <span class="material-symbols-outlined cc-search-icon">search</span>
+            <input type="search" name="q" value="{{ search_query }}" placeholder="Search by customer name, telephone, or email...">
+        </form>
+
+        <div class="cc-pills">
+            <a href="?{% if search_query %}q={{ search_query|urlencode }}{% endif %}" class="{% if status_filter == 'ALL' %}is-on{% endif %}">ALL</a>
+            <a href="?status=ACTIVE{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}" class="{% if status_filter == 'ACTIVE' %}is-on{% endif %}">ACTIVE</a>
+            <a href="?status=INACTIVE{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}" class="{% if status_filter == 'INACTIVE' %}is-on{% endif %}">INACTIVE</a>
+        </div>
+
+        <div class="cc-pills">
+            <button type="button" class="cc-toggle" :class="view === 'table' && 'is-on'" x-on:click="view = 'table'">Table</button>
+            <button type="button" class="cc-toggle" :class="view === 'cards' && 'is-on'" x-on:click="view = 'cards'">Cards</button>
+        </div>
+    </section>
+
+                            <section class="cc-table-card" x-show="view === 'table'">
+        <table class="cc-table">
+            <thead>
+                <tr>
+                    <th>Customer Name</th>
+                    <th>Contact Info</th>
+                    <th>Status</th>
+                    <th>Vehicles</th>
+                    <th>Total Spent</th>
+                    <th>Last Visit</th>
+                    <th class="cc-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in customer_rows %}
+                    <tr{% if row.status == 'INACTIVE' %} class="is-off"{% endif %}>
+                        <td>
+                            <div class="cc-person">
+                                {% if row.photo %}
+                                    <img src="{{ row.photo }}" alt="">
+                                {% else %}
+                                    <span class="cc-avatar">{{ row.initials }}</span>
+                                {% endif %}
+                                <div>
+                                    <a class="cc-name" href="{{ row.view_url }}">{{ row.name }}</a>
+                                    <div class="cc-id">ID: #{{ row.code }}</div>
+                                    {% if row.user_code %}<div class="cc-id">User: #{{ row.user_code }}{% if row.username %} · {{ row.username }}{% endif %}</div>{% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="cc-phone">{{ row.phone|default:"—" }}</div>
+                            <div class="cc-email">{{ row.email }}</div>
+                        </td>
+                        <td>
+                            <span class="cc-status {{ row.status|lower }}">{{ row.status_label|upper }}</span>
+                        </td>
+                        <td>
+                            <span class="cc-vehicles">
+                                <span class="material-symbols-outlined">directions_car</span>
+                                {{ row.vehicle_count }}
+                            </span>
+                        </td>
+                        <td class="cc-spent">${{ row.total_spent|floatformat:0 }}</td>
+                        <td class="cc-date">{% if row.last_visit %}{{ row.last_visit|date:"Y-m-d" }}{% else %}—{% endif %}</td>
+                        <td class="cc-right cc-actions">
+                            <a href="{{ row.view_url }}" title="View"><span class="material-symbols-outlined">visibility</span></a>
+                            <a href="{{ row.edit_url }}" title="Edit"><span class="material-symbols-outlined">edit</span></a>
+                            {% include "admin/django_app/_delete_icon.html" with delete_url=row.delete_url can_delete=row.can_delete delete_warn=row.delete_warn %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="cc-empty">No customers match this search.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="cc-cards" x-show="view === 'cards'" x-cloak>
+        {% for row in customer_rows %}
+            <article class="cc-card {% if row.status == 'INACTIVE' %}is-off{% endif %}">
+                <div class="cc-person">
+                    {% if row.photo %}
+                        <img src="{{ row.photo }}" alt="">
+                    {% else %}
+                        <span class="cc-avatar lg">{{ row.initials }}</span>
+                    {% endif %}
+                    <div>
+                        <a class="cc-name" href="{{ row.view_url }}">{{ row.name }}</a>
+                        <div class="cc-id">ID: #{{ row.code }}</div>
+                        {% if row.user_code %}<div class="cc-id">User: #{{ row.user_code }}{% if row.username %} · {{ row.username }}{% endif %}</div>{% endif %}
+                        <span class="cc-status {{ row.status|lower }}">{{ row.status_label|upper }}</span>
+                    </div>
+                </div>
+                <p class="cc-email">{{ row.phone|default:"—" }}</p>
+                <p class="cc-email">{{ row.email }}</p>
+                <div class="cc-card-foot">
+                    <span>Vehicles: <strong>{{ row.vehicle_count }}</strong></span>
+                    <span>Total spent: <strong>${{ row.total_spent|floatformat:0 }}</strong></span>
+                </div>
+            </article>
+        {% empty %}
+            <p class="cc-empty">No customers match this search.</p>
+        {% endfor %}
+    </section>
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

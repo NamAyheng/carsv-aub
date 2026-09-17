@@ -1,0 +1,30 @@
+{% load i18n %}
+<div class="cf-fields">
+    {% for field in adminform.form.visible_fields %}
+        {% if field.field.widget.input_type == "checkbox" %}
+            <div class="cf-check cf-span {% if field.field.disabled %}is-locked{% endif %}">
+                {{ field }}
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field.errors }}
+            </div>
+        {% elif field.name == "user" and field.field.disabled %}
+            <div class="cf-field is-locked">
+                <label>User</label>
+                <div class="cf-locked-value">
+                    {% with u=adminform.form.instance.user %}
+                        {% if u %}#USR-{{ u.id|stringformat:"04d" }} · {{ u.username }} · {{ u.get_full_name|default:u.username }}{% else %}—{% endif %}
+                    {% endwith %}
+                </div>
+                {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
+            </div>
+        {% else %}
+            <div class="cf-field {% if field.widget_type == "textarea" %}cf-span{% endif %} {% if field.field.disabled %}is-locked{% endif %}">
+                <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+                {{ field }}
+                {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
+                {{ field.errors }}
+            </div>
+        {% endif %}
+    {% endfor %}
+    {% for field in adminform.form.hidden_fields %}{{ field }}{% endfor %}
+</div>

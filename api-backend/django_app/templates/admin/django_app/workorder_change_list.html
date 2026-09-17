@@ -1,0 +1,109 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Work orders | {{ site_title }}{% endblock %}
+
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-repairjob change-list{% endblock %}
+
+{% block content %}
+<div class="carsv-customers carsv-workorders">
+    <section class="cc-hero">
+        <div>
+            <div class="cc-hero-title">
+                <h1>Repair Work Orders</h1>
+                <span class="cc-count">{{ order_count }} Orders</span>
+            </div>
+            <p>Repair jobs for the workshop. Mechanic task cards live on the Task board.</p>
+        </div>
+        <div class="cc-hero-actions">
+            <a class="cc-btn-ghost" href="?export=csv{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}">
+                <span class="material-symbols-outlined md-18">download</span>
+                Export
+            </a>
+            <a class="cc-btn-primary" href="{% url 'admin:django_app_repairjob_add' %}">
+                <span class="material-symbols-outlined md-18">add</span>
+                Create Work Order
+            </a>
+        </div>
+    </section>
+
+    <section class="cc-toolbar">
+        <form method="get" class="cc-search">
+            {% if status_filter and status_filter != "ALL" %}
+                <input type="hidden" name="status" value="{{ status_filter }}">
+            {% endif %}
+            <span class="material-symbols-outlined cc-search-icon">search</span>
+            <input type="search" name="q" value="{{ search_query }}" placeholder="Search by WO#, customer, vehicle plate, or problem...">
+        </form>
+        <form method="get" class="cc-selects">
+            {% if search_query %}
+                <input type="hidden" name="q" value="{{ search_query }}">
+            {% endif %}
+            <select name="status" onchange="this.form.submit()">
+                <option value="">All Statuses</option>
+                <option value="WAITING" {% if status_filter == "WAITING" %}selected{% endif %}>Pending</option>
+                <option value="WAITING_APPROVAL" {% if status_filter == "WAITING_APPROVAL" %}selected{% endif %}>Assigned</option>
+                <option value="REPAIRING" {% if status_filter == "REPAIRING" %}selected{% endif %}>In progress</option>
+                <option value="QUALITY_CHECK" {% if status_filter == "QUALITY_CHECK" %}selected{% endif %}>Quality check</option>
+                <option value="READY_FOR_PICKUP" {% if status_filter == "READY_FOR_PICKUP" %}selected{% endif %}>Ready for pickup</option>
+                <option value="COMPLETED" {% if status_filter == "COMPLETED" %}selected{% endif %}>Completed</option>
+            </select>
+        </form>
+    </section>
+
+    <section class="cc-table-card">
+        <table class="cc-table">
+            <thead>
+                <tr>
+                    <th>WO Number</th>
+                    <th>Customer</th>
+                    <th>Vehicle</th>
+                    <th>Technician &amp; Bay</th>
+                    <th>Status</th>
+                    <th>Est. Cost</th>
+                    <th class="cc-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in workorder_rows %}
+                    <tr>
+                        <td>
+                            <a class="wo-num" href="{{ row.view_url }}">#{{ row.number }}</a>
+                            <div class="cc-id">{% if row.created %}{{ row.created|date:"Y-m-d H:i" }}{% endif %}</div>
+                        </td>
+                        <td>
+                            <div class="cc-name">{{ row.customer }}</div>
+                            <div class="cc-id">{{ row.problem }}</div>
+                        </td>
+                        <td>
+                            <div class="cc-name">{{ row.vehicle }}</div>
+                            <span class="cc-plate">{{ row.plate }}</span>
+                        </td>
+                        <td>
+                            <div>{{ row.tech }}</div>
+                            <div class="wo-bay">{{ row.bay }}</div>
+                        </td>
+                        <td><span class="cc-status {{ row.status_class }}">{{ row.status_label }}</span></td>
+                        <td class="cc-spent">{% if row.cost %}${{ row.cost|floatformat:0 }}{% else %}—{% endif %}</td>
+                        <td class="cc-right">
+                            <a class="wo-open" href="{{ row.view_url }}">Open Workspace <span class="material-symbols-outlined">chevron_right</span></a>
+                            <span class="cc-actions">
+                                {% include "admin/django_app/_delete_icon.html" with delete_url=row.delete_url can_delete=row.can_delete delete_warn=row.delete_warn %}
+                            </span>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="cc-empty">No work orders match this search.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

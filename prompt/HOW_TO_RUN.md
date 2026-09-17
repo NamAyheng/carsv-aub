@@ -1,5 +1,24 @@
 # How to run CarSV
 
+Django admin + API live in `carsv-aub/api-backend`. React demo lives in `carsv-aub/web-frontend`.
+
+## Django API
+
+```powershell
+cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\api-backend"
+.\env\Scripts\Activate.ps1
+python manage.py runserver
+```
+
+- **API root:** http://127.0.0.1:8000/api/
+- Admin: http://127.0.0.1:8000/admin/
+- Login API: http://127.0.0.1:8000/api/login/
+- Admin login: `administrator` / `Admin123!@#`
+
+The API root is a Django REST Framework page that lists every endpoint (`/api/users/`, `/api/customers/`, `/api/vehicles/`, …). Open any of those links to browse JSON. If port 8000 is busy, use `python manage.py runserver 8001` and change the host to `http://127.0.0.1:8001/api/`.
+
+## React frontend
+
 Frontend-only React demo. No server, no real passwords. App folder: `carsv-aub/web-frontend`.
 
 **Node.js 18+** → https://nodejs.org

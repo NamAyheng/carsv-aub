@@ -1,0 +1,192 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{% if booking_is_add %}New booking{% else %}{{ profile.number }}{% endif %} | {{ site_title }}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-booking change-form{% endblock %}
+
+{% block content %}
+<div class="cp-page">
+    {% if profile %}
+        <div class="cp-toolbar">
+            <a class="cc-btn-ghost" href="{% url 'admin:django_app_booking_changelist' %}">
+                <span class="material-symbols-outlined md-18">arrow_back</span>
+                Back to Bookings
+            </a>
+            <div class="cp-toolbar-actions">
+                <a class="cc-btn-ghost" href="{{ edit_url }}">
+                    <span class="material-symbols-outlined md-18">edit</span>
+                    Edit Booking
+                </a>
+                {% if not profile.job_url %}
+                    <a class="cc-btn-primary" href="{{ profile.add_job_url }}">
+                        <span class="material-symbols-outlined md-18">add</span>
+                        New Work Order
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <section class="cp-banner">
+            <div class="cp-identity">
+                <span class="vp-mark">
+                    <span class="material-symbols-outlined">calendar_month</span>
+                </span>
+                <div>
+                    <div class="cp-name-row">
+                        <span class="cp-plate">{{ profile.number }}</span>
+                        <span class="cc-status {{ profile.status_class }}">{{ profile.status_label }}</span>
+                    </div>
+                    <h1>{{ profile.customer }}</h1>
+                    <p class="cp-id">
+                        {{ profile.service }}
+                        · {{ profile.date|date:"Y-m-d" }} at {{ profile.time }}
+                    </p>
+                    <div class="cp-contacts">
+                        <div class="cp-contact-row">
+                            <span><span class="material-symbols-outlined">call</span>{{ profile.customer_phone }}</span>
+                            <span><span class="material-symbols-outlined">mail</span>{{ profile.customer_email }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="cp-stats">
+                <div>
+                    <span>Duration</span>
+                    <strong>{{ profile.duration }}</strong>
+                </div>
+                <div>
+                    <span>Service price</span>
+                    <strong class="ok">${{ profile.service_price }}</strong>
+                </div>
+                <div>
+                    <span>Created</span>
+                    <strong>{% if profile.created %}{{ profile.created|date:"Y-m-d" }}{% else %}—{% endif %}</strong>
+                </div>
+            </div>
+        </section>
+
+        <div class="bk-quick">
+            {% if profile.can_confirm %}
+                <a class="ap-btn ghost" href="?action=confirm">Confirm</a>
+            {% endif %}
+            {% if profile.can_checkin %}
+                <a class="ap-btn primary" href="?action=checkin">Check In Vehicle</a>
+            {% endif %}
+            {% if profile.can_finish %}
+                <a class="ap-btn done" href="?action=finish">Mark Finished</a>
+            {% endif %}
+            {% if profile.can_cancel %}
+                <a class="ap-btn cancel" href="?action=cancel">Cancel Booking</a>
+            {% endif %}
+        </div>
+
+        <section class="cp-grid">
+            <article class="cp-card">
+                <h2>Appointment Details</h2>
+                <dl>
+                    <div><dt>Service</dt><dd>{{ profile.service }}</dd></div>
+                    <div>
+                        <dt>Vehicle</dt>
+                        <dd><a href="{{ profile.vehicle_url }}">{{ profile.plate }} · {{ profile.vehicle }}</a></dd>
+                    </div>
+                    <div><dt>Date &amp; time</dt><dd>{{ profile.date|date:"Y-m-d" }} at {{ profile.time }}</dd></div>
+                    <div>
+                        <dt>Customer</dt>
+                        <dd><a href="{{ profile.customer_url }}">{{ profile.customer }}</a></dd>
+                    </div>
+                    <div><dt>Assigned staff</dt><dd>{{ profile.staff }}</dd></div>
+                    <div><dt>Status</dt><dd><span class="cc-status {{ profile.status_class }}">{{ profile.status_label }}</span></dd></div>
+                </dl>
+            </article>
+            <article class="cp-card">
+                <h2>Symptoms &amp; Notes</h2>
+                <div class="cp-notes">
+                    <strong>Reported symptoms:</strong><br>
+                    {% if profile.problem %}{{ profile.problem|linebreaksbr }}{% else %}No symptoms recorded.{% endif %}
+                </div>
+                {% if profile.note %}
+                    <div class="cp-notes" style="margin-top: 0.75rem;">
+                        <strong>Front desk note:</strong><br>
+                        {{ profile.note|linebreaksbr }}
+                    </div>
+                {% endif %}
+                {% if profile.is_cancelled %}
+                    <div class="cp-notes warn" style="margin-top: 0.75rem;">
+                        <strong>Cancellation:</strong><br>
+                        {{ profile.cancel_reason|default:"No reason stored" }}
+                        {% if profile.cancelled_at %} · {{ profile.cancelled_at|date:"Y-m-d H:i" }}{% endif %}
+                        {% if profile.cancelled_by %} · {{ profile.cancelled_by }}{% endif %}
+                    </div>
+                {% endif %}
+            </article>
+        </section>
+
+        <section class="cp-card bk-related">
+            <h2>Linked workshop records</h2>
+            <div class="bk-links">
+                {% if profile.job_url %}
+                    <a href="{{ profile.job_url }}">Work order {{ profile.job_number }} →</a>
+                {% endif %}
+                {% if profile.inspection_url %}
+                    <a href="{{ profile.inspection_url }}">Inspection report →</a>
+                {% endif %}
+                {% if profile.invoice_url %}
+                    <a href="{{ profile.invoice_url }}">Invoice {{ profile.invoice_number }} →</a>
+                {% endif %}
+                {% if not profile.job_url and not profile.inspection_url and not profile.invoice_url %}
+                    <p class="cc-empty">No work order, inspection, or invoice is linked yet.</p>
+                {% endif %}
+            </div>
+        </section>
+    {% endif %}
+
+    {% if booking_editing %}
+        <div class="cf-overlay">
+            <div class="cf-modal cf-modal-wide" role="dialog" aria-modal="true">
+                <div class="cf-head">
+                    <div>
+                        <h1>{% if booking_is_add %}Book Service Appointment{% else %}Edit Booking{% endif %}</h1>
+                        <p>Schedule intake slot and assign preliminary service</p>
+                    </div>
+                    <a class="cf-close" href="{% if booking_is_add %}{% url 'admin:django_app_booking_changelist' %}{% else %}{% url 'admin:django_app_booking_change' profile.id %}{% endif %}" title="Close">
+                        <span class="material-symbols-outlined">close</span>
+                    </a>
+                </div>
+                <form method="post" novalidate x-data x-init="
+                    const customer = document.getElementById('id_customer');
+                    const vehicle = document.getElementById('id_vehicle');
+                    if (!customer || !vehicle) return;
+                    const apply = () => {
+                        const cid = customer.value;
+                        let keep = false;
+                        [...vehicle.options].forEach((opt) => {
+                            if (!opt.value) return;
+                            const match = !cid || !opt.dataset.customer || opt.dataset.customer === cid;
+                            opt.hidden = !match;
+                            if (opt.selected && match) keep = true;
+                        });
+                        if (cid && !keep) vehicle.value = '';
+                    };
+                    customer.addEventListener('change', apply);
+                    apply();
+                ">
+                    {% csrf_token %}
+                    {{ adminform.form.non_field_errors }}
+                    {% include "admin/django_app/booking_form_fields.html" %}
+                    <div class="cf-actions">
+                        <a class="cc-btn-ghost" href="{% if booking_is_add %}{% url 'admin:django_app_booking_changelist' %}{% else %}{% url 'admin:django_app_booking_change' profile.id %}{% endif %}">Cancel</a>
+                        <button type="submit" name="_save" class="cc-btn-primary">
+                            {% if booking_is_add %}Schedule Booking{% else %}Save Booking{% endif %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

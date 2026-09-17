@@ -1,0 +1,146 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ page.title }} | {{ site_title }}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-{{ page.model }} change-list carsv-page{% endblock %}
+
+{% block content %}
+<div class="carsv-customers">
+    <section class="cc-hero">
+        <div>
+            <div class="cc-hero-title">
+                <h1>{{ page.title }}</h1>
+                <span class="cc-count">{{ page.count }} {{ page.count_label }}</span>
+            </div>
+            <p>{{ page.subtitle }}</p>
+        </div>
+        <div class="cc-hero-actions">
+            {% if page.extra_link %}
+                <a class="cc-btn-ghost" href="{{ page.extra_link.url }}">{{ page.extra_link.label }}</a>
+            {% endif %}
+            {% if page.export %}
+                <a class="cc-btn-ghost" href="?export=csv{% if page.search_query %}&amp;q={{ page.search_query|urlencode }}{% endif %}{% for key, value in page.hidden.items %}&amp;{{ key }}={{ value|urlencode }}{% endfor %}">
+                    <span class="material-symbols-outlined md-18">download</span>
+                    {{ page.export_label|default:"Export" }}
+                </a>
+            {% endif %}
+            {% if page.add_url %}
+                <a class="cc-btn-primary" href="{{ page.add_url }}">
+                    <span class="material-symbols-outlined md-18">add</span>
+                    {{ page.add_label }}
+                </a>
+            {% endif %}
+        </div>
+    </section>
+
+    {% if page.kpis %}
+        <section class="carsv-kpis" style="grid-template-columns: repeat({{ page.kpis|length }}, minmax(0, 1fr));">
+            {% for kpi in page.kpis %}
+                <div class="carsv-card carsv-kpi">
+                    <div class="carsv-kpi-top"><span>{{ kpi.label }}</span></div>
+                    <div class="carsv-kpi-value {% if kpi.tone %}{{ kpi.tone }}{% endif %}">{{ kpi.value }}</div>
+                    <div class="carsv-kpi-sub">{{ kpi.hint }}</div>
+                </div>
+            {% endfor %}
+        </section>
+    {% endif %}
+
+    {% if page.banner %}
+        <div class="inv-banner">
+            <div>
+                <strong>{{ page.banner.title }}</strong>
+                <p>{{ page.banner.text }}</p>
+            </div>
+            {% if page.banner.href %}
+                <a class="cc-btn-primary" href="{{ page.banner.href }}">{{ page.banner.cta }}</a>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    <section class="cc-toolbar">
+        <form method="get" class="cc-search">
+            {% for key, value in page.hidden.items %}
+                <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endfor %}
+            <span class="material-symbols-outlined cc-search-icon">search</span>
+            <input type="search" name="q" value="{{ page.search_query }}" placeholder="{{ page.search_placeholder }}">
+        </form>
+        {% if page.filters %}
+            <form method="get" class="cc-selects">
+                {% if page.search_query %}
+                    <input type="hidden" name="q" value="{{ page.search_query }}">
+                {% endif %}
+                {% for filt in page.filters %}
+                    <select name="{{ filt.name }}" onchange="this.form.submit()">
+                        {% for opt in filt.options %}
+                            <option value="{{ opt.value }}" {% if opt.value == filt.value %}selected{% endif %}>{{ opt.label }}</option>
+                        {% endfor %}
+                    </select>
+                {% endfor %}
+            </form>
+        {% endif %}
+    </section>
+
+    {% if page.layout == "cards" %}
+        <section class="sv-grid">
+            {% for card in page.cards %}
+                <article class="sv-card {% if card.status_class == 'inactive' %}is-off{% endif %}">
+                    <div class="sv-top">
+                        <div class="cc-person">
+                            <span class="cc-avatar">{{ card.initials }}</span>
+                            <div>
+                                <a class="cc-name" href="{{ card.view_url }}">{{ card.title }}</a>
+                                {% if card.record_id %}<div class="cc-id">{{ card.record_id }}</div>{% endif %}
+                                <div class="cc-id">{{ card.kicker }}</div>
+                            </div>
+                        </div>
+                        <span class="cc-status {{ card.status_class }}">{{ card.status_label }}</span>
+                    </div>
+                    {% for line in card.lines %}
+                        <p>{{ line }}</p>
+                    {% endfor %}
+                    <div class="sv-foot">
+                        <span class="cc-email">{{ card.footer }}</span>
+                        <div class="cc-actions">
+                            <a href="{{ card.view_url }}" title="Edit"><span class="material-symbols-outlined">edit</span></a>
+                            {% include "admin/django_app/_delete_icon.html" with delete_url=card.delete_url can_delete=card.can_delete delete_warn=card.delete_warn %}
+                        </div>
+                    </div>
+                </article>
+            {% empty %}
+                <div class="cc-empty">{{ page.empty }}</div>
+            {% endfor %}
+        </section>
+    {% else %}
+        <section class="cc-table-card">
+            <table class="cc-table">
+                <thead>
+                    <tr>
+                        {% for col in page.columns %}
+                            <th {% if forloop.last %}class="cc-right"{% endif %}>{{ col }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in page.rows %}
+                        <tr{% if row.off %} class="is-off"{% endif %}>
+                            {% for cell in row.cells %}
+                                <td {% if forloop.last %}class="cc-right"{% endif %}>{{ cell }}</td>
+                            {% endfor %}
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="{{ page.columns|length }}" class="cc-empty">{{ page.empty }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

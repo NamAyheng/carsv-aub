@@ -1,0 +1,62 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Service categories | {{ site_title }}{% endblock %}
+
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-servicecategory change-list{% endblock %}
+
+{% block content %}
+<div class="carsv-customers carsv-service-cats">
+    <section class="cc-hero">
+        <div>
+            <div class="cc-hero-title">
+                <h1>Service Categories</h1>
+                <span class="cc-count">{{ category_count }} Categories</span>
+            </div>
+            <p>Groups used to filter and manage the service catalog.</p>
+        </div>
+        <div class="cc-hero-actions">
+            <a class="cc-btn-ghost" href="{% url 'admin:django_app_service_changelist' %}">View catalog</a>
+            <a class="cc-btn-primary" href="{% url 'admin:django_app_servicecategory_add' %}">
+                <span class="material-symbols-outlined md-18">add</span>
+                Add Category
+            </a>
+        </div>
+    </section>
+
+    <section class="cc-toolbar">
+        <form method="get" class="cc-search">
+            <span class="material-symbols-outlined cc-search-icon">search</span>
+            <input type="search" name="q" value="{{ search_query }}" placeholder="Search categories...">
+        </form>
+    </section>
+
+    <section class="sv-grid">
+        {% for row in category_rows %}
+            <article class="sv-card {% if row.status != 'ACTIVE' %}is-off{% endif %}">
+                <div class="sv-top">
+                    <span class="sv-cat">{{ row.name }}</span>
+                    <span class="cc-status {% if row.status == 'ACTIVE' %}ready{% else %}inactive{% endif %}">{{ row.status_label }}</span>
+                </div>
+                <h3>{{ row.name }}</h3>
+                <p class="cc-id">ID: #{{ row.code }}</p>
+                <p>{{ row.service_count }} service{{ row.service_count|pluralize }} in this category.</p>
+                <div class="sv-foot">
+                    <a class="cc-link" href="{% url 'admin:django_app_service_changelist' %}?category={{ row.id }}">Open in catalog →</a>
+                    <div class="cc-actions">
+                        <a href="{{ row.view_url }}" title="Edit"><span class="material-symbols-outlined">edit</span></a>
+                        {% include "admin/django_app/_delete_icon.html" with delete_url=row.delete_url can_delete=row.can_delete delete_warn=row.delete_warn %}
+                    </div>
+                </div>
+            </article>
+        {% empty %}
+            <div class="cc-empty">No categories match this search.</div>
+        {% endfor %}
+    </section>
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

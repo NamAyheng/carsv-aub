@@ -1,0 +1,142 @@
+{% load i18n admin_urls %}
+
+<div class="cd-page">
+    <div class="cd-toolbar">
+        <a class="cc-btn-ghost" href="{{ list_url }}">
+            <span class="material-symbols-outlined md-18">arrow_back</span>
+            Back to list
+        </a>
+    </div>
+
+    {% if perms_lacking %}
+        <section class="cd-card is-blocked">
+            <div class="cd-banner">
+                <span class="material-symbols-outlined">lock</span>
+                <div>
+                    <h1>Cannot delete {{ delete_noun }}</h1>
+                    <p>Your account does not have permission to delete some related records.</p>
+                </div>
+            </div>
+            <div class="cd-block">
+                <h2>Blocked types</h2>
+                <ul class="cd-list">
+                    {% for item in perms_lacking %}
+                        <li><span class="cd-tag blocked">No permission</span> {{ item }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </section>
+    {% elif protected %}
+        <section class="cd-card is-blocked">
+            <div class="cd-banner">
+                <span class="material-symbols-outlined">block</span>
+                <div>
+                    <h1>Cannot delete {{ delete_noun }}</h1>
+                    <p>
+                        {% if escaped_object %}
+                            <strong>{{ escaped_object }}</strong> cannot be deleted while other records still depend on it.
+                        {% else %}
+                            These {{ delete_noun }} cannot be deleted while other records still depend on them.
+                        {% endif %}
+                    </p>
+                    {% if protect_reason %}<p>{{ protect_reason }}</p>{% endif %}
+                </div>
+            </div>
+            <div class="cd-block">
+                <h2>Cannot be removed</h2>
+                <p class="cd-help">These related records are protected by a foreign key. Reassign or delete them first, then try again.</p>
+                <ul class="cd-list">
+                    {% for item in protected %}
+                        <li><span class="cd-tag blocked">Protected</span> {{ item }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="cd-actions">
+                <a class="cc-btn-ghost" href="{{ list_url }}">Back to list</a>
+            </div>
+        </section>
+    {% else %}
+        <section class="cd-card {% if has_fk_warning %}is-blocked{% else %}is-danger{% endif %}">
+            <div class="cd-banner">
+                <span class="material-symbols-outlined">{% if has_fk_warning %}warning{% else %}delete{% endif %}</span>
+                <div>
+                    <h1>{% if has_fk_warning %}Delete {{ delete_noun }} — related records{% else %}Delete {{ delete_noun }}{% endif %}</h1>
+                    <p>
+                        {% if escaped_object %}
+                            You are about to permanently delete <strong>{{ escaped_object }}</strong>.
+                        {% else %}
+                            You are about to permanently delete the selected {{ delete_noun }}.
+                        {% endif %}
+                        This cannot be undone.
+                    </p>
+                    {% if warn_reason %}<p>{{ warn_reason }}</p>{% endif %}
+                </div>
+            </div>
+
+            {% if model_count %}
+                <div class="cd-block">
+                    <h2>Summary</h2>
+                    <ul class="cd-summary">
+                        {% for model_name, object_count in model_count %}
+                            <li><strong>{{ object_count }}</strong> {{ model_name }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            <div class="cd-block">
+                <h2>Will be deleted</h2>
+                <p class="cd-help">
+                    {% if has_fk_warning %}
+                        Related records linked by a cascade foreign key will be deleted together with this {{ delete_noun }}.
+                    {% else %}
+                        This record is not used by other tables.
+                    {% endif %}
+                </p>
+                <div class="cd-cascade">
+                    {% if deleted_objects %}
+                        <ul>{{ deleted_objects|unordered_list }}</ul>
+                    {% endif %}
+                    {% if deletable_objects %}
+                        {% for group in deletable_objects %}
+                            <ul>{{ group|unordered_list }}</ul>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if unlink_rows %}
+                <div class="cd-block keep">
+                    <h2>Will not be deleted</h2>
+                    <p class="cd-help">These records stay. Their optional link to this item will be cleared.</p>
+                    <ul class="cd-list">
+                        {% for row in unlink_rows %}
+                            <li>
+                                <span class="cd-tag keep">Kept</span>
+                                <span>{{ row.kind }}: {{ row.label }}</span>
+                                <span class="cd-hint">{{ row.hint }}</span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            <form method="post" class="cd-form">
+                {% csrf_token %}
+                <input type="hidden" name="post" value="yes">
+                {% if is_popup %}<input type="hidden" name="_popup" value="1">{% endif %}
+                {% if to_field %}<input type="hidden" name="_to_field" value="{{ to_field }}">{% endif %}
+                {% if action_checkbox_name %}
+                    {% for obj in queryset %}
+                        <input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj.pk }}">
+                    {% endfor %}
+                    <input type="hidden" name="action" value="delete_selected">
+                {% endif %}
+                <div class="cd-actions">
+                    <a class="cc-btn-ghost" href="{{ list_url }}">Cancel</a>
+                    <button type="submit" class="cd-delete">Yes, delete</button>
+                </div>
+            </form>
+        </section>
+    {% endif %}
+</div>

@@ -1,0 +1,81 @@
+{% load i18n %}
+<div class="cf-field">
+    <label for="{{ adminform.form.customer.id_for_label }}">Registered owner (customer) *</label>
+    {{ adminform.form.customer }}
+    {{ adminform.form.customer.errors }}
+</div>
+<div class="cf-grid-3">
+    <div class="cf-field">
+        <label for="{{ adminform.form.brand.id_for_label }}">Make / brand *</label>
+        {{ adminform.form.brand }}
+        {{ adminform.form.brand.errors }}
+    </div>
+    <div class="cf-field">
+        <label for="{{ adminform.form.model.id_for_label }}">Model *</label>
+        {{ adminform.form.model }}
+        {{ adminform.form.model.errors }}
+    </div>
+    <div class="cf-field">
+        <label for="{{ adminform.form.year.id_for_label }}">Year *</label>
+        {{ adminform.form.year }}
+        {{ adminform.form.year.errors }}
+    </div>
+</div>
+<div class="cf-grid">
+    <div class="cf-field">
+        <label for="{{ adminform.form.plate.id_for_label }}">License plate *</label>
+        {{ adminform.form.plate }}
+        {{ adminform.form.plate.errors }}
+    </div>
+    <div class="cf-field">
+        <label for="{{ adminform.form.vin.id_for_label }}">VIN</label>
+        {{ adminform.form.vin }}
+        {{ adminform.form.vin.errors }}
+    </div>
+</div>
+<div class="cf-grid-3">
+    <div class="cf-field">
+        <label for="{{ adminform.form.color.id_for_label }}">Body color</label>
+        {{ adminform.form.color }}
+        {{ adminform.form.color.errors }}
+    </div>
+    <div class="cf-field">
+        <label for="{{ adminform.form.mileage.id_for_label }}">Mileage (km)</label>
+        {{ adminform.form.mileage }}
+        {{ adminform.form.mileage.errors }}
+    </div>
+    <div class="cf-field">
+        <label for="{{ adminform.form.vehicle_type.id_for_label }}">Type</label>
+        {{ adminform.form.vehicle_type }}
+        {{ adminform.form.vehicle_type.errors }}
+    </div>
+</div>
+<div class="cf-grid">
+    <div class="cf-field">
+        <label for="{{ adminform.form.engine_number.id_for_label }}">Engine number</label>
+        {{ adminform.form.engine_number }}
+        {{ adminform.form.engine_number.errors }}
+    </div>
+    <div class="cf-field">
+        <label for="{{ adminform.form.status.id_for_label }}">Status</label>
+        {{ adminform.form.status }}
+        {{ adminform.form.status.errors }}
+    </div>
+</div>
+<div class="cf-grid">
+    <div class="cf-field">
+        <label for="{{ adminform.form.next_service_date.id_for_label }}">Next service date</label>
+        {{ adminform.form.next_service_date }}
+        {{ adminform.form.next_service_date.errors }}
+    </div>
+    <div class="cf-field">
+        <label for="{{ adminform.form.next_service_mileage.id_for_label }}">Next service mileage</label>
+        {{ adminform.form.next_service_mileage }}
+        {{ adminform.form.next_service_mileage.errors }}
+    </div>
+</div>
+<div class="cf-field">
+    <label for="{{ adminform.form.notes.id_for_label }}">Vehicle notes &amp; diagnostic observations</label>
+    {{ adminform.form.notes }}
+    {{ adminform.form.notes.errors }}
+</div>

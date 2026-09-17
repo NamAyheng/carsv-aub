@@ -1,0 +1,7 @@
+{% if not can_delete %}
+    <a class="blocked" href="{{ delete_url }}" title="Cannot delete — this record is still in use"><span class="material-symbols-outlined icon-delete-off">delete</span></a>
+{% elif delete_warn %}
+    <a class="warn" href="{{ delete_url }}" title="Delete with warning — related records will also be removed"><span class="material-symbols-outlined">delete</span></a>
+{% else %}
+    <a class="danger" href="{{ delete_url }}" title="Delete"><span class="material-symbols-outlined">delete</span></a>
+{% endif %}

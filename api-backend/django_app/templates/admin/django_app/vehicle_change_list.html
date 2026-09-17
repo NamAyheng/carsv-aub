@@ -1,0 +1,141 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Vehicles | {{ site_title }}{% endblock %}
+
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-vehicle change-list{% endblock %}
+
+{% block content %}
+<div class="carsv-customers carsv-vehicles" x-data="{ view: 'table' }">
+    <section class="cc-hero">
+        <div>
+            <div class="cc-hero-title">
+                <h1>Vehicle Fleet &amp; Registry</h1>
+                <span class="cc-count">{{ vehicle_count }} Vehicles</span>
+            </div>
+            <p>Comprehensive dossier of customer vehicles, specs, mileage, and active repairs.</p>
+        </div>
+        <div class="cc-hero-actions">
+            <a class="cc-btn-ghost" href="?export=csv{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if brand_filter and brand_filter != 'ALL' %}&amp;brand={{ brand_filter|urlencode }}{% endif %}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}">
+                <span class="material-symbols-outlined md-18">download</span>
+                Export Registry
+            </a>
+            <a class="cc-btn-primary" href="{% url 'admin:django_app_vehicle_add' %}">
+                <span class="material-symbols-outlined md-18">add</span>
+                Add Vehicle
+            </a>
+        </div>
+    </section>
+
+    <section class="cc-toolbar">
+        <form method="get" class="cc-search">
+            {% if brand_filter and brand_filter != "ALL" %}
+                <input type="hidden" name="brand" value="{{ brand_filter }}">
+            {% endif %}
+            {% if status_filter and status_filter != "ALL" %}
+                <input type="hidden" name="status" value="{{ status_filter }}">
+            {% endif %}
+            <span class="material-symbols-outlined cc-search-icon">search</span>
+            <input type="search" name="q" value="{{ search_query }}" placeholder="Search by license plate (e.g. KH-5521), brand, VIN, or owner...">
+        </form>
+
+        <form method="get" class="cc-selects">
+            {% if search_query %}
+                <input type="hidden" name="q" value="{{ search_query }}">
+            {% endif %}
+            <select name="brand" onchange="this.form.submit()">
+                <option value="">All Makes / Brands</option>
+                {% for brand in brand_options %}
+                    <option value="{{ brand }}" {% if brand_filter == brand %}selected{% endif %}>{{ brand }}</option>
+                {% endfor %}
+            </select>
+            <select name="status" onchange="this.form.submit()">
+                <option value="">All Statuses</option>
+                <option value="ACTIVE" {% if status_filter == "ACTIVE" %}selected{% endif %}>Ready</option>
+                <option value="IN_SHOP" {% if status_filter == "IN_SHOP" %}selected{% endif %}>In shop</option>
+                <option value="INACTIVE" {% if status_filter == "INACTIVE" %}selected{% endif %}>Inactive</option>
+            </select>
+        </form>
+
+        <div class="cc-pills">
+            <button type="button" class="cc-toggle" :class="view === 'table' && 'is-on'" x-on:click="view = 'table'">Table</button>
+            <button type="button" class="cc-toggle" :class="view === 'cards' && 'is-on'" x-on:click="view = 'cards'">Cards</button>
+        </div>
+    </section>
+
+    <section class="cc-table-card" x-show="view === 'table'">
+        <table class="cc-table">
+            <thead>
+                <tr>
+                    <th>License Plate</th>
+                    <th>Vehicle Make &amp; Model</th>
+                    <th>Owner / Customer</th>
+                    <th>Mileage</th>
+                    <th>Status</th>
+                    <th>Next Service</th>
+                    <th class="cc-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in vehicle_rows %}
+                    <tr{% if row.status_class == 'inactive' %} class="is-off"{% endif %}>
+                        <td>
+                            <a class="cc-plate" href="{{ row.view_url }}">{{ row.plate }}</a>
+                            <div class="cc-id">ID: #{{ row.code }}</div>
+                        </td>
+                        <td>
+                            <div class="cc-name">{{ row.title }}</div>
+                            <div class="cc-id">VIN: {{ row.vin }}</div>
+                        </td>
+                        <td>
+                            <a class="cc-name" href="{{ row.owner_url }}">{{ row.owner }}</a>
+                        </td>
+                        <td class="cc-spent">{{ row.mileage }} km</td>
+                        <td>
+                            <span class="cc-status {{ row.status_class }}">{{ row.status_label }}</span>
+                        </td>
+                        <td class="cc-date">{% if row.next_service %}{{ row.next_service|date:"Y-m-d" }}{% else %}—{% endif %}</td>
+                        <td class="cc-right cc-actions">
+                            <a href="{{ row.view_url }}" title="View"><span class="material-symbols-outlined">visibility</span></a>
+                            <a href="{{ row.edit_url }}" title="Edit"><span class="material-symbols-outlined">edit</span></a>
+                            {% include "admin/django_app/_delete_icon.html" with delete_url=row.delete_url can_delete=row.can_delete delete_warn=row.delete_warn %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="cc-empty">No vehicles match this search.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="cc-cards" x-show="view === 'cards'" x-cloak>
+        {% for row in vehicle_rows %}
+            <article class="cc-card {% if row.status_class == 'inactive' %}is-off{% endif %}">
+                <div class="cc-card-top">
+                    <div>
+                        <a class="cc-plate" href="{{ row.view_url }}">{{ row.plate }}</a>
+                        <div class="cc-id">ID: #{{ row.code }}</div>
+                        <a class="cc-name" href="{{ row.view_url }}">{{ row.title }}</a>
+                    </div>
+                    <span class="cc-status {{ row.status_class }}">{{ row.status_label }}</span>
+                </div>
+                <p class="cc-email">Owner: <strong>{{ row.owner }}</strong></p>
+                <p class="cc-email">Mileage: <strong>{{ row.mileage }} km</strong></p>
+                <div class="cc-card-foot">
+                    <span>VIN: <strong>{{ row.vin }}</strong></span>
+                    <a class="cc-link" href="{{ row.view_url }}">Vehicle dossier →</a>
+                </div>
+            </article>
+        {% empty %}
+            <p class="cc-empty">No vehicles match this search.</p>
+        {% endfor %}
+    </section>
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

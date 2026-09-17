@@ -1,0 +1,224 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{% if customer_is_add %}New customer{% else %}{{ profile.name }}{% endif %} | {{ site_title }}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-customer change-form{% endblock %}
+
+{% block content %}
+<div class="cp-page" {% if profile %}x-data="{ tab: 'overview' }"{% endif %}>
+    {% if profile %}
+        <div class="cp-toolbar">
+            <a class="cc-btn-ghost" href="{{ list_url }}">
+                <span class="material-symbols-outlined md-18">arrow_back</span>
+                Back to Customers
+            </a>
+            <div class="cp-toolbar-actions">
+                <a class="cc-btn-ghost" href="{{ edit_url }}">
+                    <span class="material-symbols-outlined md-18">edit</span>
+                    Edit Profile
+                </a>
+                <a class="cc-btn-primary" href="{{ add_job_url }}">
+                    <span class="material-symbols-outlined md-18">add</span>
+                    New Work Order
+                </a>
+            </div>
+        </div>
+
+        <section class="cp-banner">
+            <div class="cp-identity">
+                {% if profile.photo %}
+                    <img src="{{ profile.photo }}" alt="">
+                {% else %}
+                    <span class="cc-avatar lg">{{ profile.initials }}</span>
+                {% endif %}
+                <div>
+                    <div class="cp-name-row">
+                        <h1>{{ profile.name }}</h1>
+                        <span class="cc-status {{ profile.status|lower }}">{{ profile.status_label|upper }}</span>
+                    </div>
+                    <p class="cp-id">Customer ID: #CUST-{{ profile.id }}</p>
+                    {% if profile.user_code %}
+                        <p class="cp-id">User ID: #{{ profile.user_code }}{% if profile.username %} · {{ profile.username }}{% endif %}</p>
+                    {% endif %}
+                    <div class="cp-contacts">
+                        <div class="cp-contact-row">
+                            {% if profile.phone %}
+                                <span><span class="material-symbols-outlined">call</span>{{ profile.phone }}</span>
+                            {% endif %}
+                            {% if profile.email %}
+                                <span><span class="material-symbols-outlined">mail</span>{{ profile.email }}</span>
+                            {% endif %}
+                        </div>
+                        {% if profile.address %}
+                            <div class="cp-contact-row">
+                                <span class="cp-pin"><span class="material-symbols-outlined">location_on</span>{{ profile.address }}</span>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="cp-stats">
+                <div>
+                    <span>Vehicles</span>
+                    <strong>{{ profile.vehicle_count }}</strong>
+                </div>
+                <div>
+                    <span>Total Spend</span>
+                    <strong class="ok">${{ profile.total_spent|floatformat:0 }}</strong>
+                </div>
+                <div>
+                    <span>Repairs</span>
+                    <strong class="jobs">{{ profile.repair_count }}</strong>
+                </div>
+            </div>
+        </section>
+
+        <nav class="cp-tabs">
+            <button type="button" :class="tab === 'overview' && 'is-on'" x-on:click="tab = 'overview'">
+                <span class="material-symbols-outlined">description</span> Overview
+            </button>
+            <button type="button" :class="tab === 'vehicles' && 'is-on'" x-on:click="tab = 'vehicles'">
+                <span class="material-symbols-outlined">directions_car</span> Vehicles
+                <em>{{ profile.vehicle_count }}</em>
+            </button>
+            <button type="button" :class="tab === 'bookings' && 'is-on'" x-on:click="tab = 'bookings'">
+                <span class="material-symbols-outlined">calendar_month</span> Bookings
+                <em>{{ profile.booking_count }}</em>
+            </button>
+            <button type="button" :class="tab === 'jobs' && 'is-on'" x-on:click="tab = 'jobs'">
+                <span class="material-symbols-outlined">assignment</span> Work orders
+                <em>{{ profile.repair_count }}</em>
+            </button>
+            <button type="button" :class="tab === 'invoices' && 'is-on'" x-on:click="tab = 'invoices'">
+                <span class="material-symbols-outlined">receipt_long</span> Invoices &amp; billing
+                <em>{{ profile.invoice_count }}</em>
+            </button>
+        </nav>
+
+        <section class="cp-grid" x-show="tab === 'overview'">
+            <article class="cp-card">
+                <h2>Demographic &amp; Contact Details</h2>
+                <dl>
+                    <div><dt>Full Name</dt><dd>{{ profile.name }}</dd></div>
+                    <div><dt>Phone Number</dt><dd>{{ profile.phone|default:"—" }}</dd></div>
+                    <div><dt>Email Address</dt><dd>{{ profile.email }}</dd></div>
+                    <div><dt>Home / Business Address</dt><dd>{{ profile.address|default:"—" }}</dd></div>
+                    <div><dt>Gender</dt><dd>{{ profile.gender|default:"—" }}</dd></div>
+                    <div><dt>Account Status</dt><dd>{{ profile.status_label }}</dd></div>
+                </dl>
+            </article>
+            <article class="cp-card">
+                <h2>Special Notes &amp; Preferences</h2>
+                <div class="cp-notes">{% if profile.notes %}{{ profile.notes|linebreaksbr }}{% else %}No special notes on file.{% endif %}</div>
+            </article>
+        </section>
+
+        <section class="cp-vehicles" x-show="tab === 'vehicles'" x-cloak>
+            <div class="cp-section-head">
+                <h2>Registered Vehicles ({{ profile.vehicle_count }})</h2>
+                <a class="cc-btn-primary" href="{{ add_vehicle_url }}?customer={{ profile.id }}">
+                    <span class="material-symbols-outlined md-18">directions_car</span>
+                    Add Vehicle
+                </a>
+            </div>
+            <div class="cp-vehicle-grid">
+                {% for vehicle in profile.vehicles %}
+                    <a class="cp-vcard {% if vehicle.status_class == 'inactive' %}is-off{% endif %}" href="{{ vehicle.url }}">
+                        <div class="cp-vcard-top">
+                            <div>
+                                <span class="cp-plate">{{ vehicle.plate }}</span>
+                                <h3>{{ vehicle.title }}</h3>
+                            </div>
+                            <span class="cc-status {{ vehicle.status_class }}">{{ vehicle.status_label }}</span>
+                        </div>
+                        <div class="cp-vcard-meta">
+                            <p>Mileage: <strong>{{ vehicle.mileage }} km</strong></p>
+                            <p>Color: <strong>{{ vehicle.color }}</strong></p>
+                            <p>VIN: <strong>{{ vehicle.vin }}</strong></p>
+                            <p>Type: <strong>{{ vehicle.vehicle_type }}</strong></p>
+                            <p>Engine #: <strong>{{ vehicle.engine }}</strong></p>
+                            <p>Next service: <strong>{{ vehicle.next_service }}</strong></p>
+                        </div>
+                    </a>
+                {% empty %}
+                    <p class="cc-empty">No vehicles on this account.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="cp-card" x-show="tab === 'bookings'" x-cloak>
+            <h2>Bookings ({{ profile.booking_count }})</h2>
+            <div class="cp-list">
+                {% for booking in profile.bookings %}
+                    <a class="cp-item" href="{% url 'admin:django_app_booking_change' booking.id %}">
+                        <strong>{{ booking.service }}</strong>
+                        <span>{{ booking.booking_date }} · {{ booking.vehicle.plate }} · {{ booking.get_status_display }}</span>
+                    </a>
+                {% empty %}
+                    <p class="cc-empty">No bookings on this account.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="cp-card" x-show="tab === 'jobs'" x-cloak>
+            <h2>Work orders ({{ profile.repair_count }})</h2>
+            <div class="cp-list">
+                {% for job in profile.jobs %}
+                    <a class="cp-item" href="{% url 'admin:django_app_repairjob_change' job.id %}">
+                        <strong>#JOB-{{ job.id|stringformat:"04d" }}</strong>
+                        <span>{{ job.vehicle.plate }} · {{ job.get_status_display }}{% if job.mechanic %} · {{ job.mechanic }}{% endif %}</span>
+                    </a>
+                {% empty %}
+                    <p class="cc-empty">No work orders on this account.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="cp-card" x-show="tab === 'invoices'" x-cloak>
+            <h2>Invoices ({{ profile.invoice_count }})</h2>
+            <div class="cp-list">
+                {% for invoice in profile.invoices %}
+                    <a class="cp-item" href="{% url 'admin:django_app_invoice_change' invoice.id %}">
+                        <strong>{{ invoice.number }}</strong>
+                        <span>${{ invoice.grand_total }} · {{ invoice.get_status_display }}</span>
+                    </a>
+                {% empty %}
+                    <p class="cc-empty">No invoices on this account.</p>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    {% if customer_editing %}
+        <div class="cf-overlay">
+            <div class="cf-modal" role="dialog" aria-modal="true">
+                <div class="cf-head">
+                    <div>
+                        <h1>{% if customer_is_add %}Register New Customer{% else %}Edit Customer Profile{% endif %}</h1>
+                        <p>Complete profile and contact information for garage records</p>
+                    </div>
+                    <a class="cf-close" href="{% if customer_is_add %}{{ list_url }}{% else %}{{ view_url }}{% endif %}" title="Close">
+                        <span class="material-symbols-outlined">close</span>
+                    </a>
+                </div>
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    {{ adminform.form.non_field_errors }}
+                    {% include "admin/django_app/customer_form_fields.html" %}
+                    <div class="cf-actions">
+                        <a class="cc-btn-ghost" href="{% if customer_is_add %}{{ list_url }}{% else %}{{ view_url }}{% endif %}">Cancel</a>
+                        <button type="submit" name="_save" class="cc-btn-primary">
+                            {% if customer_is_add %}Register Customer{% else %}Save Changes{% endif %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

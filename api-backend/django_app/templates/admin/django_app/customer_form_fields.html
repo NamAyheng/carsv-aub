@@ -1,0 +1,61 @@
+{% load i18n %}
+<div class="cf-field {% if adminform.form.user.field.disabled %}is-locked{% endif %}">
+    <label for="{{ adminform.form.user.id_for_label }}">User account *</label>
+    {% if adminform.form.user.field.disabled %}
+        <div class="cf-locked-value">
+            {% with u=adminform.form.instance.user %}
+                {% if u %}#USR-{{ u.id|stringformat:"04d" }} · {{ u.username }} · {{ u.get_full_name|default:u.username }}{% else %}—{% endif %}
+            {% endwith %}
+        </div>
+    {% else %}
+        {{ adminform.form.user }}
+    {% endif %}
+    {% if adminform.form.user.help_text %}<p class="cf-help">{{ adminform.form.user.help_text }}</p>{% endif %}
+    {{ adminform.form.user.errors }}
+</div>
+<div class="cf-field is-locked">
+    <label for="{{ adminform.form.name.id_for_label }}">Full name</label>
+    {{ adminform.form.name }}
+    <p class="cf-help">Comes from the linked User account and cannot be edited here.</p>
+    {{ adminform.form.name.errors }}
+</div>
+<div class="cf-grid">
+    <div class="cf-field is-locked">
+        <label for="{{ adminform.form.phone.id_for_label }}">Phone number</label>
+        {{ adminform.form.phone }}
+        {{ adminform.form.phone.errors }}
+    </div>
+    <div class="cf-field is-locked">
+        <label for="{{ adminform.form.email.id_for_label }}">Email address</label>
+        {{ adminform.form.email }}
+        {{ adminform.form.email.errors }}
+    </div>
+</div>
+<div class="cf-field">
+    <label for="{{ adminform.form.address.id_for_label }}">Home / business address</label>
+    {{ adminform.form.address }}
+    {{ adminform.form.address.errors }}
+</div>
+<div class="cf-grid">
+    <div class="cf-field">
+        <label for="{{ adminform.form.gender.id_for_label }}">Gender</label>
+        {{ adminform.form.gender }}
+        {{ adminform.form.gender.errors }}
+    </div>
+    <div class="cf-field is-locked">
+        <label for="{{ adminform.form.status.id_for_label }}">Account status</label>
+        {{ adminform.form.status }}
+        <p class="cf-help">Comes from the linked User account and cannot be edited here.</p>
+        {{ adminform.form.status.errors }}
+    </div>
+</div>
+<div class="cf-field is-locked">
+    <label for="{{ adminform.form.photo.id_for_label }}">Photo URL</label>
+    {{ adminform.form.photo }}
+    {{ adminform.form.photo.errors }}
+</div>
+<div class="cf-field">
+    <label for="{{ adminform.form.notes.id_for_label }}">Internal garage notes &amp; preferences</label>
+    {{ adminform.form.notes }}
+    {{ adminform.form.notes.errors }}
+</div>

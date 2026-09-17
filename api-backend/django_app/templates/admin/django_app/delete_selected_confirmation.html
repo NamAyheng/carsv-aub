@@ -1,0 +1,18 @@
+{% extends "admin/base.html" %}
+{% load i18n admin_urls %}
+
+{% block extrahead %}{{ block.super }}
+{{ media }}
+{% endblock %}
+
+{% block title %}Delete {{ delete_noun }} | {{ site_title }}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-{{ opts.app_label }} model-{{ opts.model_name }} delete-confirmation delete-selected-confirmation carsv-delete{% endblock %}
+
+{% block content %}
+{% include "admin/django_app/delete_body.html" %}
+{% endblock %}
+
+{% block footer %}{% endblock %}

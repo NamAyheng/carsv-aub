@@ -1,0 +1,191 @@
+{% load i18n %}
+
+<div class="carsv-dash">
+    <section class="carsv-hello">
+        <div>
+            <div class="carsv-hello-kicker">{{ carsv.role_desk }}</div>
+            <h1>Hello, {{ carsv.first_name }}</h1>
+            <p>{{ carsv.role_focus }}</p>
+        </div>
+        <span class="carsv-chip">Signed in as {{ carsv.role_label }}</span>
+    </section>
+
+    <section class="carsv-kpis">
+        <a class="carsv-card carsv-kpi" href="{% url 'admin:django_app_invoice_changelist' %}">
+            <div class="carsv-kpi-top">
+                <span>Total revenue</span>
+                <span class="carsv-kpi-sub ok">paid invoices</span>
+            </div>
+            <div class="carsv-kpi-value">${{ carsv.revenue|floatformat:0 }}</div>
+            <div class="carsv-kpi-sub">{{ carsv.paid_count }} payment{{ carsv.paid_count|pluralize }} recorded</div>
+        </a>
+
+        <a class="carsv-card carsv-kpi" href="{% url 'admin:django_app_repairjob_changelist' %}">
+            <div class="carsv-kpi-top">
+                <span>Active repairs</span>
+                <span class="carsv-kpi-icon">
+                    <span class="material-symbols-outlined md-18">directions_car</span>
+                </span>
+            </div>
+            <div class="carsv-kpi-value">{{ carsv.active_repairs|stringformat:"02d" }}</div>
+            <div class="carsv-kpi-sub blue">{{ carsv.on_hoist }} currently on hoist</div>
+        </a>
+
+        <a class="carsv-card carsv-kpi" href="{% url 'admin:django_app_booking_changelist' %}">
+            <div class="carsv-kpi-top">
+                <span>Bookings</span>
+                <span class="carsv-kpi-icon">
+                    <span class="material-symbols-outlined md-18">event</span>
+                </span>
+            </div>
+            <div class="carsv-kpi-value">{{ carsv.appointments|stringformat:"02d" }}</div>
+            <div class="carsv-kpi-sub">{{ carsv.confirmed_today }} confirmed for today</div>
+        </a>
+
+        <a class="carsv-card carsv-kpi" href="{% url 'admin:django_app_sparepart_changelist' %}">
+            <div class="carsv-kpi-top">
+                <span>Low stock items</span>
+                <span class="carsv-kpi-icon danger">
+                    <span class="material-symbols-outlined md-18">warning</span>
+                </span>
+            </div>
+            <div class="carsv-kpi-value danger">{{ carsv.low_stock_count|stringformat:"02d" }}</div>
+            <div class="carsv-kpi-sub danger">Requires reordering</div>
+        </a>
+    </section>
+
+    <section class="carsv-mid">
+        <div class="carsv-card carsv-table-wrap">
+            <div class="carsv-table-head">
+                <h2>Live work orders</h2>
+                <a class="carsv-link" href="{% url 'admin:django_app_repairjob_changelist' %}">View all ({{ carsv.job_total }})</a>
+            </div>
+            {% if carsv.live_jobs %}
+                <table class="carsv-table">
+                    <thead>
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Vehicle</th>
+                            <th>Service</th>
+                            <th>Technician</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for job in carsv.live_jobs %}
+                            <tr>
+                                <td class="carsv-mono">#{{ job.number }}</td>
+                                <td>
+                                    <div class="carsv-vehicle">{{ job.vehicle }}</div>
+                                    <div class="carsv-plate">{{ job.plate }}</div>
+                                </td>
+                                <td class="carsv-muted">{{ job.service }}</td>
+                                <td>{{ job.tech }}</td>
+                                <td><span class="carsv-badge {{ job.badge_class }}">{{ job.badge_label }}</span></td>
+                                <td><a class="carsv-link" href="{{ job.url }}">Details →</a></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <div class="carsv-table-foot">
+                    <span>Showing garage jobs from the database</span>
+                    <span>{{ carsv.active_repairs }} active</span>
+                </div>
+            {% else %}
+                <div class="carsv-empty">No repair jobs yet.</div>
+            {% endif %}
+        </div>
+
+        <div class="carsv-bay">
+            <div class="carsv-bay-head">
+                <span>Workshop bay</span>
+                <span class="carsv-rec"><i></i> LIVE</span>
+            </div>
+            <div class="carsv-bay-body">
+                <div class="carsv-bay-cam">BAY 01 • in-shop vehicles</div>
+                {% if carsv.bay_vehicle %}
+                    <div class="carsv-bay-title">{{ carsv.bay_vehicle.brand }} {{ carsv.bay_vehicle.model }} ({{ carsv.bay_vehicle.plate }})</div>
+                    <div class="carsv-bay-sub">
+                        {% if carsv.bay_job and carsv.bay_job.mechanic %}Tech: {{ carsv.bay_job.mechanic }}{% else %}Awaiting assignment{% endif %}
+                    </div>
+                {% else %}
+                    <div class="carsv-bay-title">Bay empty</div>
+                    <div class="carsv-bay-sub">No vehicle marked in shop</div>
+                {% endif %}
+            </div>
+            <div class="carsv-bay-foot">
+                {{ carsv.vehicle_count }} vehicles · {{ carsv.customer_count }} customers
+            </div>
+        </div>
+    </section>
+
+    <section class="carsv-bottom">
+        <div class="carsv-card carsv-panel">
+            <div>
+                <div class="carsv-table-head" style="padding: 0 0 0.75rem; border: 0;">
+                    <h3>Technician status</h3>
+                    <a class="carsv-link" href="{% url 'admin:django_app_mechanic_changelist' %}">Schedule</a>
+                </div>
+                {% for tech in carsv.technicians %}
+                    <div class="carsv-row">
+                        <div style="display:flex;gap:0.75rem;align-items:center;min-width:0;">
+                            <div class="carsv-avatar">{{ tech.initials }}</div>
+                            <div>
+                                <div class="carsv-tech-name">{{ tech.name }}</div>
+                                <div class="carsv-tech-sub">{{ tech.specialization }}</div>
+                            </div>
+                        </div>
+                        {% if tech.busy %}
+                            <span class="carsv-pill busy">BUSY ({{ tech.jobs }})</span>
+                        {% else %}
+                            <span class="carsv-pill idle">IDLE</span>
+                        {% endif %}
+                    </div>
+                {% empty %}
+                    <div class="carsv-empty">No mechanics yet.</div>
+                {% endfor %}
+            </div>
+            <div class="carsv-table-foot" style="margin: 0.75rem -1rem -1rem; border-radius: 0 0 0.75rem 0.75rem;">
+                <span>On-duty mechanics</span>
+                <span>{{ carsv.busy_techs }} active jobs</span>
+            </div>
+        </div>
+
+        <div class="carsv-card carsv-panel">
+            <div>
+                <div class="carsv-table-head" style="padding: 0 0 0.75rem; border: 0;">
+                    <h3>Inventory alerts</h3>
+                    <a class="carsv-link" href="{% url 'admin:django_app_sparepart_changelist' %}">Stockroom</a>
+                </div>
+                {% for part in carsv.low_stock %}
+                    <div class="carsv-alert">
+                        <div>
+                            <strong>{{ part.name }}</strong>
+                            <span class="carsv-sku">SKU: {{ part.part_number }}</span>
+                        </div>
+                        <span class="carsv-qty">{{ part.quantity }} left</span>
+                    </div>
+                {% empty %}
+                    <div class="carsv-ok">All warehouse inventory stock levels nominal.</div>
+                {% endfor %}
+            </div>
+            <a class="carsv-stock-btn" href="{% url 'admin:django_app_sparepart_add' %}">Order replacement parts</a>
+        </div>
+
+        <div class="carsv-cta">
+            <div>
+                <span class="carsv-cta-tag">Dispatcher</span>
+                <h3>Quick action</h3>
+                <p>New service entry, customer check-in, or repair job from the garage tables.</p>
+            </div>
+            <div>
+                <a class="carsv-cta-main" href="{% url 'admin:django_app_repairjob_add' %}">+ Create work order</a>
+                <div class="carsv-cta-row">
+                    <a href="{% url 'admin:django_app_customer_add' %}">+ Add customer</a>
+                    <a href="{% url 'admin:django_app_vehicle_add' %}">+ Add vehicle</a>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>

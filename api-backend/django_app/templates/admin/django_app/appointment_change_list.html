@@ -1,0 +1,155 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Bookings | {{ site_title }}{% endblock %}
+
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-booking change-list{% endblock %}
+
+{% block content %}
+<div class="carsv-customers carsv-appointments">
+    <section class="cc-hero">
+        <div>
+            <div class="cc-hero-title">
+                <h1>Service Bookings</h1>
+                <span class="cc-count">{{ booking_count }} Bookings</span>
+            </div>
+            <p>Schedule customer arrivals, bay capacity planning, and front desk intake.</p>
+        </div>
+        <div class="cc-hero-actions">
+            <a class="cc-btn-ghost" href="?export=csv{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}{% if view_mode == 'day' %}&amp;view=day&amp;date={{ day_filter }}{% endif %}">
+                <span class="material-symbols-outlined md-18">download</span>
+                Export
+            </a>
+            <a class="cc-btn-primary" href="{% url 'admin:django_app_booking_add' %}">
+                <span class="material-symbols-outlined md-18">add</span>
+                New Booking
+            </a>
+        </div>
+    </section>
+
+    <section class="cc-toolbar">
+        <form method="get" class="cc-search">
+            {% if status_filter and status_filter != "ALL" %}
+                <input type="hidden" name="status" value="{{ status_filter }}">
+            {% endif %}
+            {% if view_mode == "day" %}
+                <input type="hidden" name="view" value="day">
+                <input type="hidden" name="date" value="{{ day_filter }}">
+            {% endif %}
+            <span class="material-symbols-outlined cc-search-icon">search</span>
+            <input type="search" name="q" value="{{ search_query }}" placeholder="Search by customer, vehicle plate, phone, or service...">
+        </form>
+
+        <form method="get" class="cc-selects">
+            {% if search_query %}
+                <input type="hidden" name="q" value="{{ search_query }}">
+            {% endif %}
+            {% if view_mode == "day" %}
+                <input type="hidden" name="view" value="day">
+                <input type="hidden" name="date" value="{{ day_filter }}">
+            {% endif %}
+            <select name="status" onchange="this.form.submit()">
+                <option value="">All Statuses</option>
+                <option value="PENDING" {% if status_filter == "PENDING" %}selected{% endif %}>Pending</option>
+                <option value="CONFIRMED" {% if status_filter == "CONFIRMED" %}selected{% endif %}>Confirmed</option>
+                <option value="CHECKED_IN" {% if status_filter == "CHECKED_IN" %}selected{% endif %}>Checked in</option>
+                <option value="IN_SERVICE" {% if status_filter == "IN_SERVICE" %}selected{% endif %}>In service</option>
+                <option value="COMPLETED" {% if status_filter == "COMPLETED" %}selected{% endif %}>Completed</option>
+                <option value="CANCELLED" {% if status_filter == "CANCELLED" %}selected{% endif %}>Cancelled</option>
+            </select>
+        </form>
+
+        <div class="cc-pills">
+            <a href="?{% if search_query %}q={{ search_query|urlencode }}{% endif %}{% if status_filter and status_filter != 'ALL' %}{% if search_query %}&amp;{% endif %}status={{ status_filter }}{% endif %}" class="{% if view_mode != 'day' %}is-on{% endif %}">List View</a>
+            <a href="?view=day&amp;date={% if view_mode == 'day' %}{{ day_filter }}{% else %}{{ today }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}" class="{% if view_mode == 'day' %}is-on{% endif %}">Day Schedule</a>
+        </div>
+    </section>
+
+    {% if view_mode == "day" %}
+        <form method="get" class="ap-daybar">
+            {% if search_query %}
+                <input type="hidden" name="q" value="{{ search_query }}">
+            {% endif %}
+            {% if status_filter and status_filter != "ALL" %}
+                <input type="hidden" name="status" value="{{ status_filter }}">
+            {% endif %}
+            <input type="hidden" name="view" value="day">
+            <div class="ap-daybar-left">
+                <span class="material-symbols-outlined">calendar_month</span>
+                <strong>Schedule for:</strong>
+                <input type="date" name="date" value="{{ day_filter }}" onchange="this.form.submit()">
+            </div>
+            <a class="ap-today" href="?view=day&amp;date={{ today }}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}">Today</a>
+        </form>
+    {% endif %}
+
+    {% if appointment_rows %}
+    <div class="ap-list">
+        {% for row in appointment_rows %}
+            <article class="ap-card {% if row.status == 'CANCELLED' %}is-cancelled{% endif %}">
+                <div class="ap-main">
+                    <div class="ap-time">
+                        <span class="ap-time-label">Slot</span>
+                        <strong>{{ row.time }}</strong>
+                        <small>{{ row.date|date:"d M Y" }}</small>
+                    </div>
+                    <div>
+                        <div class="ap-title">
+                            <a class="cc-name" href="{{ row.view_url }}">{{ row.customer }}</a>
+                            <span class="ap-id">#{{ row.code }}</span>
+                            <span class="cc-status {{ row.status_class }}">{{ row.status_label }}</span>
+                        </div>
+                        <p class="ap-vehicle">{{ row.vehicle }}</p>
+                        <p class="ap-meta">
+                            Service: <strong>{{ row.service }}</strong>
+                            <span>•</span>
+                            {{ row.phone|default:"—" }}
+                            {% if row.receptionist %}
+                                <span>•</span>
+                                Receptionist: <strong>{{ row.receptionist }}</strong>
+                            {% endif %}
+                        </p>
+                        {% if row.notes %}
+                            <p class="ap-notes">Notes: {{ row.notes }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="ap-actions">
+                    <a class="ap-icon" href="{{ row.edit_url }}" title="Edit booking">
+                        <span class="material-symbols-outlined">edit</span>
+                    </a>
+                    <span class="cc-actions">
+                        {% include "admin/django_app/_delete_icon.html" with delete_url=row.delete_url can_delete=row.can_delete delete_warn=row.delete_warn %}
+                    </span>
+                    {% if row.can_confirm %}
+                        <a class="ap-btn ghost" href="?action=confirm&amp;pk={{ row.id }}">Confirm</a>
+                    {% endif %}
+                    {% if row.can_checkin %}
+                        <a class="ap-btn primary" href="?action=checkin&amp;pk={{ row.id }}">Check In Vehicle</a>
+                    {% endif %}
+                    {% if row.can_finish %}
+                        <a class="ap-btn done" href="?action=finish&amp;pk={{ row.id }}">Mark Finished</a>
+                    {% endif %}
+                    {% if row.can_cancel %}
+                        <a class="ap-x" href="?action=cancel&amp;pk={{ row.id }}" title="Cancel booking">
+                            <span class="material-symbols-outlined">cancel</span>
+                        </a>
+                    {% endif %}
+                </div>
+            </article>
+        {% endfor %}
+    </div>
+    {% else %}
+        <div class="ap-empty">
+            <span class="material-symbols-outlined">calendar_month</span>
+            <h3>No Appointments Found</h3>
+            <p>There are no bookings matching your current filter criteria.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

@@ -1,0 +1,7 @@
+{% load admin_urls i18n %}
+
+{% if opts and adminform %}
+    <a href="{% url opts|admin_urlname:'changelist' %}" class="carsv-iconbtn" title="{% trans 'Go back' %}">
+        <span class="material-symbols-outlined">arrow_back</span>
+    </a>
+{% endif %}

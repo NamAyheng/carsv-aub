@@ -1,0 +1,276 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{% if vehicle_is_add %}New vehicle{% else %}{{ profile.title }}{% endif %} | {{ site_title }}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-vehicle change-form{% endblock %}
+
+{% block content %}
+<div class="cp-page" {% if profile %}x-data="{ tab: 'specs' }"{% endif %}>
+    {% if profile %}
+        <div class="cp-toolbar">
+            <a class="cc-btn-ghost" href="{{ list_url }}">
+                <span class="material-symbols-outlined md-18">arrow_back</span>
+                Back to Vehicles
+            </a>
+            <div class="cp-toolbar-actions">
+                <a class="cc-btn-ghost" href="{{ edit_url }}">
+                    <span class="material-symbols-outlined md-18">edit</span>
+                    Edit Vehicle
+                </a>
+                <a class="cc-btn-primary" href="{{ add_job_url }}">
+                    <span class="material-symbols-outlined md-18">add</span>
+                    New Work Order
+                </a>
+            </div>
+        </div>
+
+        <section class="cp-banner">
+            <div class="cp-identity">
+                <span class="vp-mark">
+                    <span class="material-symbols-outlined">directions_car</span>
+                </span>
+                <div>
+                    <div class="cp-name-row">
+                        <span class="cp-plate">{{ profile.plate }}</span>
+                        <span class="cc-status {{ profile.status_class }}">{{ profile.status_label }}</span>
+                    </div>
+                    <h1>{{ profile.title }}</h1>
+                    <p class="cp-id">
+                        VIN: {{ profile.vin }}
+                        · Owner:
+                        <a href="{{ profile.owner_url }}">{{ profile.owner }}</a>
+                    </p>
+                </div>
+            </div>
+            <div class="cp-stats">
+                <div>
+                    <span>Mileage</span>
+                    <strong>{{ profile.mileage }} km</strong>
+                </div>
+                <div>
+                    <span>Total repairs</span>
+                    <strong class="jobs">{{ profile.repair_count }}</strong>
+                </div>
+                <div>
+                    <span>Next due</span>
+                    <strong class="ok">{{ profile.next_due }}</strong>
+                </div>
+            </div>
+        </section>
+
+        <nav class="cp-tabs">
+            <button type="button" :class="tab === 'specs' && 'is-on'" x-on:click="tab = 'specs'">
+                <span class="material-symbols-outlined">description</span> Technical Specs
+            </button>
+            <button type="button" :class="tab === 'jobs' && 'is-on'" x-on:click="tab = 'jobs'">
+                <span class="material-symbols-outlined">build</span> Repair &amp; Work Orders
+                {% if profile.repair_count %}<em>{{ profile.repair_count }}</em>{% endif %}
+            </button>
+            <button type="button" :class="tab === 'bookings' && 'is-on'" x-on:click="tab = 'bookings'">
+                <span class="material-symbols-outlined">calendar_month</span> Appointments
+                {% if profile.booking_count %}<em>{{ profile.booking_count }}</em>{% endif %}
+            </button>
+            <button type="button" :class="tab === 'inspections' && 'is-on'" x-on:click="tab = 'inspections'">
+                <span class="material-symbols-outlined">verified_user</span> Multi-Point Inspection
+            </button>
+            <button type="button" :class="tab === 'invoices' && 'is-on'" x-on:click="tab = 'invoices'">
+                <span class="material-symbols-outlined">receipt_long</span> Invoices
+                <em>{{ profile.invoice_count }}</em>
+            </button>
+        </nav>
+
+        <section class="cp-grid" x-show="tab === 'specs'">
+            <article class="cp-card">
+                <h2>Factory Specifications &amp; Identifiers</h2>
+                <dl>
+                    <div><dt>Make / Manufacturer</dt><dd>{{ profile.brand }}</dd></div>
+                    <div><dt>Model Name</dt><dd>{{ profile.model }}</dd></div>
+                    <div><dt>Model Year</dt><dd>{{ profile.year }}</dd></div>
+                    <div><dt>License Plate</dt><dd>{{ profile.plate }}</dd></div>
+                    <div><dt>VIN (Vehicle Identification No.)</dt><dd>{{ profile.vin }}</dd></div>
+                    <div><dt>Type</dt><dd>{{ profile.vehicle_type }}</dd></div>
+                    <div><dt>Body Color</dt><dd>{{ profile.color }}</dd></div>
+                    <div><dt>Engine Number</dt><dd>{{ profile.engine }}</dd></div>
+                </dl>
+            </article>
+            <article class="cp-card">
+                <h2>Service Intervals &amp; Fleet Notes</h2>
+                <div class="cp-notes">
+                    <strong>Diagnostic Notes:</strong><br>
+                    {% if profile.notes %}{{ profile.notes|linebreaksbr }}{% else %}No diagnostic notes on file.{% endif %}
+                </div>
+                <div class="vp-dates">
+                    <div>
+                        <span>Last service date</span>
+                        <strong>{% if profile.last_service %}{{ profile.last_service|date:"Y-m-d" }}{% else %}—{% endif %}</strong>
+                    </div>
+                    <div class="next">
+                        <span>Next service target</span>
+                        <strong>{{ profile.next_due }}</strong>
+                    </div>
+                </div>
+            </article>
+        </section>
+
+        <section class="cp-card" x-show="tab === 'jobs'" x-cloak>
+            <div class="cp-section-head">
+                <h2>Repair History &amp; Work Orders</h2>
+                <a class="cc-btn-primary" href="{{ add_job_url }}?vehicle={{ profile.id }}">
+                    <span class="material-symbols-outlined md-18">add</span>
+                    Create Work Order
+                </a>
+            </div>
+            <div class="vd-stack">
+                {% for job in profile.jobs %}
+                    <article class="vd-job">
+                        <div class="vd-job-main">
+                            <div class="vd-job-top">
+                                <a class="vd-job-id" href="{{ job.url }}">#{{ job.number }}</a>
+                                <span class="cc-status {{ job.status_class }}">{{ job.status_label }}</span>
+                            </div>
+                            <p class="vd-job-problem">{{ job.problem }}</p>
+                            <p class="vd-job-meta">Assigned Tech: {{ job.tech }}{% if job.progress %} · {{ job.progress }}%{% endif %}</p>
+                        </div>
+                        <div class="vd-job-aside">
+                            {% if job.amount != None %}<strong>${{ job.amount }}</strong>{% endif %}
+                            <a href="{{ job.url }}">Inspect WO →</a>
+                        </div>
+                    </article>
+                {% empty %}
+                    <p class="cc-empty">No work orders for this vehicle.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="cp-card" x-show="tab === 'bookings'" x-cloak>
+            <div class="cp-section-head">
+                <h2>Service Appointments</h2>
+                <a class="cc-btn-primary" href="{{ add_booking_url }}?vehicle={{ profile.id }}">
+                    <span class="material-symbols-outlined md-18">add</span>
+                    Schedule Booking
+                </a>
+            </div>
+            <div class="vd-stack">
+                {% for booking in profile.bookings %}
+                    <a class="vd-appt" href="{{ booking.url }}">
+                        <span class="vd-time">{{ booking.time }}</span>
+                        <div class="vd-appt-body">
+                            <strong>{{ booking.service }}</strong>
+                            <span>{{ booking.date }}</span>
+                        </div>
+                        <span class="cc-status {{ booking.status_class }}">{{ booking.status_label }}</span>
+                    </a>
+                {% empty %}
+                    <p class="cc-empty">No appointments for this vehicle.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="cp-card" x-show="tab === 'inspections'" x-cloak>
+            {% if profile.inspection %}
+                <div class="vd-insp-head">
+                    <div>
+                        <h2>Multi-Point Safety Inspection Report</h2>
+                        <p>Digital vehicle condition scan logged upon workshop check-in</p>
+                    </div>
+                    <span class="vd-pass">Status: PASSED</span>
+                </div>
+                <div class="vd-insp-grid">
+                    <article class="vd-insp-tile">
+                        <span>Fuel Tank Level</span>
+                        <strong class="mono">{{ profile.inspection.fuel_value }}</strong>
+                        {% if profile.inspection.fuel_pct != None %}
+                            <div class="vd-fuel-bar"><i style="width: {{ profile.inspection.fuel_pct }}%"></i></div>
+                        {% endif %}
+                    </article>
+                    <article class="vd-insp-tile {{ profile.inspection.front.tone }}">
+                        <span>Front Brake Pads</span>
+                        <strong class="mono">{{ profile.inspection.front.value }}</strong>
+                        <em>{{ profile.inspection.front.hint }}</em>
+                    </article>
+                    <article class="vd-insp-tile {{ profile.inspection.rear.tone }}">
+                        <span>Rear Brake Pads</span>
+                        <strong class="mono">{{ profile.inspection.rear.value }}</strong>
+                        <em>{{ profile.inspection.rear.hint }}</em>
+                    </article>
+                    <article class="vd-insp-tile {{ profile.inspection.tread.tone }}">
+                        <span>Tire Tread Depth</span>
+                        <strong class="mono">{{ profile.inspection.tread.value }}</strong>
+                        <em>{{ profile.inspection.tread.hint }}</em>
+                    </article>
+                </div>
+            {% else %}
+                <div class="vd-insp-head">
+                    <div>
+                        <h2>Multi-Point Safety Inspection Report</h2>
+                        <p>Digital vehicle condition scan logged upon workshop check-in</p>
+                    </div>
+                </div>
+                <p class="cc-empty">No inspection has been logged for this vehicle yet.</p>
+            {% endif %}
+        </section>
+
+        <section class="cp-card" x-show="tab === 'invoices'" x-cloak>
+            <h2>Billing History for {{ profile.plate }}</h2>
+            <div class="vd-table-wrap">
+                <table class="vd-table">
+                    <thead>
+                        <tr>
+                            <th>Invoice #</th>
+                            <th>Date</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for invoice in profile.invoices %}
+                            <tr>
+                                <td>{{ invoice.number }}</td>
+                                <td>{% if invoice.date %}{{ invoice.date|date:"Y-m-d" }}{% else %}—{% endif %}</td>
+                                <td>${{ invoice.amount }}</td>
+                                <td><span class="cc-status {{ invoice.status_class }}">{{ invoice.status_label }}</span></td>
+                                <td><a href="{{ invoice.url }}">View →</a></td>
+                            </tr>
+                        {% empty %}
+                            <tr class="vd-empty-row"><td colspan="5"></td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    {% endif %}
+
+    {% if vehicle_editing %}
+        <div class="cf-overlay">
+            <div class="cf-modal cf-modal-wide" role="dialog" aria-modal="true">
+                <div class="cf-head">
+                    <div>
+                        <h1>{% if vehicle_is_add %}Register Vehicle to Fleet{% else %}Edit Vehicle Information{% endif %}</h1>
+                        <p>Enter vehicle specifications, VIN, and owner assignment</p>
+                    </div>
+                    <a class="cf-close" href="{% if vehicle_is_add %}{{ list_url }}{% else %}{{ view_url }}{% endif %}" title="Close">
+                        <span class="material-symbols-outlined">close</span>
+                    </a>
+                </div>
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    {{ adminform.form.non_field_errors }}
+                    {% include "admin/django_app/vehicle_form_fields.html" %}
+                    <div class="cf-actions">
+                        <a class="cc-btn-ghost" href="{% if vehicle_is_add %}{{ list_url }}{% else %}{{ view_url }}{% endif %}">Cancel</a>
+                        <button type="submit" name="_save" class="cc-btn-primary">
+                            {% if vehicle_is_add %}Register Vehicle{% else %}Save Vehicle{% endif %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

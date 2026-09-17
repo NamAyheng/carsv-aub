@@ -1,0 +1,7 @@
+<div id="site-name">
+    {% if site_dropdown %}
+        <span class="carsv-wordmark">Car<span>SV</span></span>
+    {% else %}
+        <a href="{% url 'admin:index' %}" class="carsv-wordmark">Car<span>SV</span></a>
+    {% endif %}
+</div>

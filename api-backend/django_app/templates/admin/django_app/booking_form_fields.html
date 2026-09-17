@@ -1,0 +1,48 @@
+{% load i18n %}
+<div class="cf-field">
+    <label for="{{ adminform.form.customer.id_for_label }}">Customer *</label>
+    {{ adminform.form.customer }}
+    {{ adminform.form.customer.errors }}
+</div>
+<div class="cf-field">
+    <label for="{{ adminform.form.vehicle.id_for_label }}">Customer vehicle *</label>
+    {{ adminform.form.vehicle }}
+    {{ adminform.form.vehicle.errors }}
+</div>
+<div class="cf-field">
+    <label for="{{ adminform.form.service.id_for_label }}">Primary requested service *</label>
+    {{ adminform.form.service }}
+    {{ adminform.form.service.errors }}
+</div>
+<div class="cf-grid">
+    <div class="cf-field">
+        <label for="{{ adminform.form.booking_date.id_for_label }}">Date *</label>
+        {{ adminform.form.booking_date }}
+        {{ adminform.form.booking_date.errors }}
+    </div>
+    <div class="cf-field">
+        <label for="{{ adminform.form.booking_time.id_for_label }}">Time slot</label>
+        {{ adminform.form.booking_time }}
+        {{ adminform.form.booking_time.errors }}
+    </div>
+</div>
+<div class="cf-field">
+    <label for="{{ adminform.form.status.id_for_label }}">Status</label>
+    {{ adminform.form.status }}
+    {{ adminform.form.status.errors }}
+</div>
+<div class="cf-field">
+    <label for="{{ adminform.form.problem.id_for_label }}">Customer description / symptoms</label>
+    {{ adminform.form.problem }}
+    {{ adminform.form.problem.errors }}
+</div>
+<div class="cf-field">
+    <label for="{{ adminform.form.note.id_for_label }}">Front desk note</label>
+    {{ adminform.form.note }}
+    {{ adminform.form.note.errors }}
+</div>
+<div class="cf-field">
+    <label for="{{ adminform.form.cancel_reason.id_for_label }}">Cancellation reason</label>
+    {{ adminform.form.cancel_reason }}
+    {{ adminform.form.cancel_reason.errors }}
+</div>

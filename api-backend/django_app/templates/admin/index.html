@@ -1,0 +1,13 @@
+{% extends "admin/base.html" %}
+
+{% load i18n %}
+
+{% block title %}Admin console | {{ site_title|default:_("CarSV") }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+    {% include "unfold/helpers/carsv_dashboard.html" %}
+{% endblock %}

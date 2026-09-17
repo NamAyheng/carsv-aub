@@ -1,0 +1,31 @@
+<div class="border-t border-base-200 px-4 py-4 relative dark:border-base-800" x-data="{ openUserLinks: false }">
+    <nav class="absolute bg-white border border-base-200 flex flex-col leading-none py-1 rounded-default shadow-lg bottom-[73px] left-2 right-2 z-50 dark:bg-base-800 dark:border-base-700" x-cloak x-show="openUserLinks" x-transition x-on:click.outside="openUserLinks = false">
+        {% include "unfold/helpers/theme_switch.html" %}
+        {% include "unfold/helpers/language_switch.html" %}
+        {% if extra_userlinks %}
+            {{ extra_userlinks }}
+        {% endif %}
+        {% include "unfold/helpers/account_links.html" %}
+    </nav>
+
+    <div class="cursor-pointer flex flex-row gap-3 items-center min-h-[64px] -mx-4 -my-3 px-4 py-3 hover:bg-white/5"
+         x-on:click="if (!$event.target.closest('a')) { openUserLinks = !openUserLinks }"
+         x-bind:class="{'bg-white/5': openUserLinks}">
+        <div class="carsv-avatar" style="background:#3b82f6;color:#fff;width:40px;height:40px;font-size:12px;">
+            {{ request.user.first_name|slice:":1"|upper }}{{ request.user.last_name|slice:":1"|upper }}
+        </div>
+
+        <div class="flex flex-col select-none min-w-0">
+            <div class="text-sm font-medium tracking-tight truncate" style="color:#fff;">
+                {{ request.user.get_full_name|default:request.user.get_username }}
+            </div>
+            <div class="text-xs truncate" style="color:#93c5fd;font-weight:600;">
+                {{ request.user.get_role_display }}
+            </div>
+        </div>
+
+        <span class="material-symbols-outlined ml-auto select-none" style="color:#9ca3af;">
+            unfold_more
+        </span>
+    </div>
+</div>

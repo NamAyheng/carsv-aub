@@ -1,0 +1,96 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Service catalog | {{ site_title }}{% endblock %}
+
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-service change-list{% endblock %}
+
+{% block content %}
+<div class="carsv-customers carsv-services">
+    <section class="cc-hero">
+        <div>
+            <div class="cc-hero-title">
+                <h1>Service &amp; Labor Catalog</h1>
+                <span class="cc-count">{{ service_count }} Services</span>
+            </div>
+            <p>Standardized repair rates, labor hours, maintenance packages, and diagnostic pricing.</p>
+        </div>
+        <div class="cc-hero-actions">
+            <a class="cc-btn-ghost" href="?export=csv{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if category_filter and category_filter != 'ALL' %}&amp;category={{ category_filter }}{% endif %}">
+                <span class="material-symbols-outlined md-18">download</span>
+                Export Rate Sheet
+            </a>
+            <a class="cc-btn-primary" href="{% url 'admin:django_app_service_add' %}">
+                <span class="material-symbols-outlined md-18">add</span>
+                Add Service
+            </a>
+        </div>
+    </section>
+
+    <section class="cc-toolbar">
+        <form method="get" class="cc-search">
+            {% if category_filter and category_filter != "ALL" %}
+                <input type="hidden" name="category" value="{{ category_filter }}">
+            {% endif %}
+            <span class="material-symbols-outlined cc-search-icon">search</span>
+            <input type="search" name="q" value="{{ search_query }}" placeholder="Search by service title, diagnostic type, or description...">
+        </form>
+        <form method="get" class="cc-selects">
+            {% if search_query %}
+                <input type="hidden" name="q" value="{{ search_query }}">
+            {% endif %}
+            <select name="category" onchange="this.form.submit()">
+                <option value="">All Categories</option>
+                {% for category in category_options %}
+                    <option value="{{ category.id }}" {% if category_filter == category.id|stringformat:"s" %}selected{% endif %}>{{ category.name }}</option>
+                {% endfor %}
+            </select>
+        </form>
+        <a class="cc-btn-ghost" href="{% url 'admin:django_app_servicecategory_changelist' %}">Manage categories</a>
+    </section>
+
+    <section class="sv-grid">
+        {% for row in service_rows %}
+            <article class="sv-card {% if not row.active %}is-off{% endif %}">
+                <div class="sv-top">
+                    <span class="sv-cat">{{ row.category }}</span>
+                    <span class="cc-status {% if row.active %}ready{% else %}inactive{% endif %}">{% if row.active %}Active{% else %}Disabled{% endif %}</span>
+                </div>
+                <h3>{{ row.name }}</h3>
+                <p class="cc-id">ID: #{{ row.code }}</p>
+                <p>{{ row.description|default:"No description." }}</p>
+                <div class="sv-stats">
+                    <div>
+                        <span>Est. Labor Time</span>
+                        <strong>
+                            <span class="material-symbols-outlined">schedule</span>
+                            {{ row.hours }}
+                        </strong>
+                    </div>
+                    <div>
+                        <span>Standard Labor Rate</span>
+                        <strong class="price">${{ row.price|floatformat:0 }}</strong>
+                    </div>
+                </div>
+                <div class="sv-foot">
+                    <a class="sv-offer" href="?action=toggle&amp;pk={{ row.id }}">
+                        <span class="sv-box {% if row.active %}on{% endif %}"></span>
+                        Offered in Shop
+                    </a>
+                    <div class="cc-actions">
+                        <a href="{{ row.view_url }}" title="Edit"><span class="material-symbols-outlined">edit</span></a>
+                        {% include "admin/django_app/_delete_icon.html" with delete_url=row.delete_url can_delete=row.can_delete delete_warn=row.delete_warn %}
+                    </div>
+                </div>
+            </article>
+        {% empty %}
+            <div class="cc-empty">No services match this search.</div>
+        {% endfor %}
+    </section>
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

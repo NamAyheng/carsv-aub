@@ -1,0 +1,90 @@
+{% load i18n unfold %}
+
+{% if has_permission %}
+<div class="carsv-topbar">
+    <div class="carsv-topbar-left">
+        {% if is_nav_sidebar_enabled and not is_popup %}
+            <button type="button" class="carsv-iconbtn carsv-topbar-menu" x-show="!sidebarOpen" x-cloak x-on:click="sidebarToggle()" title="Open sidebar">
+                <span class="material-symbols-outlined">menu</span>
+            </button>
+        {% endif %}
+        {% if not is_popup %}
+            {% include "unfold/helpers/header_back_button.html" %}
+        {% endif %}
+        <div class="carsv-topbar-titles min-w-0">
+            <h1>{{ carsv_header.title|default:"Admin console" }}</h1>
+            <p>Staff ERP / {{ carsv_header.role_label|default:"Staff" }}</p>
+        </div>
+    </div>
+
+    <div class="carsv-topbar-right">
+        <button type="button" class="carsv-search" x-on:click="$dispatch('opencommand')">
+            <span class="material-symbols-outlined">search</span>
+            <span class="carsv-search-ph">Search vehicles, customers...</span>
+            <kbd>⌘K</kbd>
+        </button>
+
+        <button type="button" class="carsv-iconbtn" title="Toggle theme" x-on:click="switchTheme(adminTheme === 'dark' ? 'light' : 'dark')">
+            <span class="material-symbols-outlined" x-show="adminTheme !== 'dark'">light_mode</span>
+            <span class="material-symbols-outlined" x-cloak x-show="adminTheme === 'dark'">dark_mode</span>
+        </button>
+
+        <div class="carsv-notify" x-data="{ open: false }" x-on:click.outside="open = false">
+            <button type="button" class="carsv-iconbtn" title="Staff notifications" x-on:click="open = !open">
+                <span class="material-symbols-outlined">notifications</span>
+                {% if carsv_header.alerts %}
+                    <span class="carsv-dot"></span>
+                {% endif %}
+            </button>
+            <div class="carsv-menu carsv-menu-wide" x-cloak x-show="open" x-transition>
+                <div class="carsv-menu-head">
+                    <strong>Staff notifications</strong>
+                    {% if carsv_header.alerts %}
+                        <span>{{ carsv_header.alerts|length }} new</span>
+                    {% endif %}
+                </div>
+                {% for alert in carsv_header.alerts %}
+                    <a href="{{ alert.url }}">
+                        <b>{{ alert.title }}</b>
+                        <small>{{ alert.message }}</small>
+                    </a>
+                {% empty %}
+                    <div class="carsv-menu-empty">No garage alerts right now.</div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="carsv-who" x-data="{ open: false }" x-on:click.outside="open = false">
+            <button type="button" class="carsv-who-btn" x-on:click="open = !open">
+                <span class="carsv-who-text">
+                    <b>{{ carsv_header.full_name }}</b>
+                    <small>{{ carsv_header.role_label }}</small>
+                </span>
+                {% if carsv_header.photo %}
+                    <img src="{{ carsv_header.photo }}" alt="" class="carsv-who-avatar">
+                {% else %}
+                    <span class="carsv-who-avatar carsv-who-initials">{{ carsv_header.initials }}</span>
+                {% endif %}
+                <span class="material-symbols-outlined carsv-who-chevron">expand_more</span>
+            </button>
+            <div class="carsv-menu" x-cloak x-show="open" x-transition>
+                <div class="carsv-menu-head">
+                    <strong>{{ carsv_header.full_name }}</strong>
+                    <small>{{ carsv_header.email }}</small>
+                </div>
+                <a href="{% url 'admin:password_change' %}">
+                    <span class="material-symbols-outlined">lock</span>
+                    Change password
+                </a>
+                <form method="post" action="{% url 'admin:logout' %}">
+                    {% csrf_token %}
+                    <button type="submit">
+                        <span class="material-symbols-outlined">logout</span>
+                        Log out
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
