@@ -29,7 +29,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '5 min',
     date: '2 Sep 2026',
     author: 'CarSV Workshop Desk',
-    image: 'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=900&auto=format&fit=crop&q=80',
+    image: '/images/others/engine-bay-serpentine-belt.jpg',
     featured: true,
     body: [
       'Engine oil cools, cleans, and protects metal parts. In Phnom Penh, long idle time at lights and 35°C afternoons cook the oil sooner than highway driving in a cooler country.',
@@ -50,7 +50,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '4 min',
     date: '28 Aug 2026',
     author: 'Dara Kim, Master Tech',
-    image: 'https://images.unsplash.com/photo-1487754180451-c456f719a1fc?w=900&auto=format&fit=crop&q=80',
+    image: '/images/others/oil-change-pouring-mobil1.jpg',
     body: [
       'Pads have a wear layer that squeals before metal hits the rotor. If you hear a sharp squeak at traffic lights, or the steering wheel shudders under braking, do not wait for the grinding stage.',
       'Wet-season traffic makes weak brakes more dangerous. Stopping distance grows quietly. We measure pad thickness, check fluid colour, and show the work on the bay camera so you see the old parts come off.'
@@ -69,7 +69,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '4 min',
     date: '20 Aug 2026',
     author: 'CarSV Electrical Bay',
-    image: 'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=900&auto=format&fit=crop&q=80',
+    image: '/images/others/mechanic-hands-wrench-engine.jpg',
     body: [
       'A typical 12V battery lasts about 2–3 years here because heat ages the plates and dries the cells. Dim headlights at idle or a starter that turns slowly means test both battery and alternator.',
       'Before a trip to Siem Reap or the coast, a 10-minute load test is cheaper than a roadside call. We clean terminals, check parasitic drain, and stock common Japanese and Korean sizes.'
@@ -88,7 +88,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '4 min',
     date: '12 Aug 2026',
     author: 'CarSV Climate Team',
-    image: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=900&auto=format&fit=crop&q=80',
+    image: '/images/cars/black-porsche-panamera-highway.jpg',
     body: [
       'Humidity works the compressor hard. A clogged cabin filter makes the blower smell and the glass fog. Low refrigerant makes the cabin stay warm even on max.',
       'A proper service is not only gas. We check performance, look for leaks, replace the pollen filter, and confirm the drain is not blocked so water does not sit on the evaporator.'
@@ -107,7 +107,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '5 min',
     date: '4 Aug 2026',
     author: 'Parts Counter',
-    image: 'https://images.unsplash.com/photo-1632823471565-1ecdf5c6da5d?w=900&auto=format&fit=crop&q=80',
+    image: '/images/inventory/catalog/tires-03-tread-closeup-warehouse.jpg',
     body: [
       'The first number (0W or 5W) is cold flow. The second (20 or 30) is thickness when hot. Newer hybrids often specify 0W-16 or 0W-20. Older or hotter engines may need 5W-30.',
       'Topping up with a random cheap bottle can raise wear. We stock OEM-matched grades and will read the cap and the service book with you before we pour.'
@@ -126,7 +126,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '4 min',
     date: '29 Jul 2026',
     author: 'CarSV Tire Bay',
-    image: 'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=900&auto=format&fit=crop&q=80',
+    image: '/images/inventory/catalog/brakes-01-disc-rotor-caliper.jpg',
     body: [
       'Use the PSI on the driver door sticker, not the maximum on the sidewall. Low pressure in rain reduces grip and grows stopping distance.',
       'Rotate about every 8,000–10,000 km. Replace when tread is under 3 mm if you drive in monsoon water. Uneven inner wear often means alignment, not only cheap tires.'
@@ -145,7 +145,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '5 min',
     date: '18 Jul 2026',
     author: 'Hybrid Specialist',
-    image: 'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?w=900&auto=format&fit=crop&q=80',
+    image: '/images/cars/grey-toyota-camry-industrial.jpg',
     body: [
       'Regenerative braking saves pads, but the hydraulic system still ages. Inverter coolant and the 12V auxiliary battery are common “surprise” items on Camrys and Crosses in this climate.',
       'We follow Toyota interval logic: oil, filters, brake fluid, and hybrid health screens. If you hear a pump after shutdown or see a triangle warning, stop and book — do not keep driving to “see if it clears”.'
@@ -164,7 +164,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '4 min',
     date: '6 Jul 2026',
     author: 'Service Advisor',
-    image: 'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=900&auto=format&fit=crop&q=80',
+    image: '/images/cars/white-camaro-luxury-garage.jpg',
     body: [
       'Think in layers: every visit we check lights, wipers, and fluids. Every oil change we inspect brakes and tires. Every 20,000–40,000 km we talk spark plugs, transmission service, or coolant — depending on the car.',
       'Bring the last invoice. It stops duplicate work and shows us what another shop already changed. You can store those PDFs in the customer portal after you create a free account — the blog itself stays open to everyone.'
@@ -183,7 +183,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '5 min',
     date: '22 Jun 2026',
     author: 'CarSV Safety Desk',
-    image: 'https://images.unsplash.com/photo-1465447142348-e9952c393450?w=900&auto=format&fit=crop&q=80',
+    image: '/images/others/aerial-city-highway-interchange.jpg',
     body: [
       'If the engine stumbled in water, stop. Restarting can bend rods. Tow it in. We check the air box, oil for milkiness, and electrical connectors.',
       'Even a successful crossing can soak carpets and grow mould. Dry the cabin, replace the cabin filter, and ask us to inspect brakes that were dunked — wet pads rust and pull to one side.'
@@ -202,7 +202,7 @@ export const PUBLIC_BLOG_POSTS: PublicBlogPost[] = [
     readTime: '3 min',
     date: '10 Jun 2026',
     author: 'CarSV Store',
-    image: 'https://images.unsplash.com/photo-1487754180451-c456f719a1fc?w=900&auto=format&fit=crop&q=80',
+    image: '/images/others/oil-change-pouring-mobil1.jpg',
     body: [
       'Public prices help you plan. A quality 4-litre synthetic fill often starts around the mid-range bottles we stock; OEM pads cost more than economy sets but last longer in city heat.',
       'We do not hide labour. The booking estimate and the final invoice list parts and hours separately. If a cheaper alternative exists, the advisor will say so before we start.'

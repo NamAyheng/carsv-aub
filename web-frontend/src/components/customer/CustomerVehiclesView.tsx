@@ -86,7 +86,7 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
       transmission,
       color,
       status: 'READY',
-      image: 'https://images.unsplash.com/photo-1590362891991-f776e747a588?w=500&auto=format&fit=crop&q=80'
+      image: '/images/cars/white-mercedes-suv-garage-neon.jpg'
     });
     if (!added) return;
     setShowAddVehicleModal(false);
@@ -147,7 +147,7 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                     src={
                       vehicle.imageUrl ||
                       vehicle.image ||
-                      'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=800&auto=format&fit=crop&q=80'
+                      '/images/cars/black-mercedes-amg-gt-harbor.jpg'
                     }
                     alt={`${vehicle.brand} ${vehicle.model}`}
                     className="w-full h-full object-cover opacity-85 hover:scale-105 transition-transform duration-500"

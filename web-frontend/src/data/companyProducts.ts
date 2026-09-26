@@ -1,12 +1,14 @@
-import brakePadsImg from '../assets/images/ceramic_brake_pads_1788665394851.jpg';
-import engineOilImg from '../assets/images/synthetic_motor_oil_1788665411205.jpg';
-import carBatteryImg from '../assets/images/car_battery_agm_1788665425187.jpg';
-import sparkPlugsImg from '../assets/images/spark_plugs_set_1788665439858.jpg';
-import brakeRotorImg from '../assets/images/slotted_brake_rotor_1788665452717.jpg';
-import airFilterImg from '../assets/images/cabin_air_filter_1788665469694.jpg';
-import performanceTireImg from '../assets/images/performance_car_tire_1788665484425.jpg';
-import oilFilterImg from '../assets/images/engine_oil_filter_1788665497534.jpg';
-import wiperBladesImg from '../assets/images/wiper_blades_set_1788665510956.jpg';
+
+const brakePadsImg = '/images/inventory/part-ceramic-brake-pads.jpg';
+const engineOilImg = '/images/inventory/part-synthetic-motor-oil.jpg';
+const carBatteryImg = '/images/inventory/part-car-battery-agm.jpg';
+const sparkPlugsImg = '/images/inventory/part-spark-plugs-set.jpg';
+const brakeRotorImg = '/images/inventory/part-slotted-brake-rotor.jpg';
+const airFilterImg = '/images/inventory/part-cabin-air-filter.jpg';
+const performanceTireImg = '/images/inventory/part-performance-tire.jpg';
+const oilFilterImg = '/images/inventory/part-engine-oil-filter.jpg';
+const wiperBladesImg = '/images/inventory/part-wiper-blades-set.jpg';
+
 
 export const CAR_BRANDS = [
   'ALL',

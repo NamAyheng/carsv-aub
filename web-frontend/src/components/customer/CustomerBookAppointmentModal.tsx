@@ -112,7 +112,7 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
       transmission: 'Automatic',
       color: 'Metallic Silver',
       status: 'READY',
-      image: 'https://images.unsplash.com/photo-1590362891991-f776e747a588?w=500&auto=format&fit=crop&q=80'
+      image: '/images/cars/white-mercedes-suv-garage-neon.jpg'
     });
     if (!created) return;
     setSelectedVehicleId(created.id);
@@ -287,7 +287,7 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                     }`}
                   >
                     <img
-                      src={v.imageUrl || 'https://images.unsplash.com/photo-1590362891991-f776e747a588?w=200'}
+                      src={v.imageUrl || '/images/cars/white-mercedes-suv-garage-neon.jpg'}
                       alt={v.model}
                       className="w-16 h-12 object-cover rounded-lg border border-slate-800 shrink-0"
                     />

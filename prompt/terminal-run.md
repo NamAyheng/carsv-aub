@@ -73,3 +73,24 @@ python manage.py makemigrations django_app
 python manage.py migrate
 ```
 
+Rerun both (26 Sep 2026):
+
+```powershell
+cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\api-backend"
+.\env\Scripts\Activate.ps1
+python manage.py runserver
+```
+
+```powershell
+cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\web-frontend"
+npm run dev
+```
+
+Added invoices INV-2026-0002 / INV-2026-0003 (26 Sep 2026):
+
+```powershell
+cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\api-backend"
+.\env\Scripts\Activate.ps1
+python manage.py seed_users
+```
+

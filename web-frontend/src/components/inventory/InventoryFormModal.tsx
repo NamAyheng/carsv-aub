@@ -32,11 +32,11 @@ export const InventoryFormModal: React.FC<InventoryFormModalProps> = ({
       setSku(itemToEdit.sku);
       setCategory(itemToEdit.category);
       setStockQuantity(itemToEdit.stockQuantity);
-      setMinStockThreshold(itemToEdit.minStockThreshold);
+      setMinStockThreshold(itemToEdit.minStockLevel ?? 5);
       setUnitPrice(itemToEdit.unitPrice);
       setCostPrice(itemToEdit.costPrice);
       setSupplierName(itemToEdit.supplierName);
-      setBinLocation(itemToEdit.binLocation);
+      setBinLocation(itemToEdit.location || 'Aisle A-01');
     } else {
       setName('');
       setSku(`SKU-${Math.floor(1000 + Math.random() * 9000)}`);
@@ -58,26 +58,27 @@ export const InventoryFormModal: React.FC<InventoryFormModalProps> = ({
       updateInventoryItem(itemToEdit.id, {
         name,
         sku: sku.toUpperCase(),
-        category,
+        category: category as InventoryItem['category'],
         stockQuantity,
-        minStockThreshold,
+        minStockLevel: minStockThreshold,
         unitPrice,
         costPrice,
         supplierName,
-        binLocation
+        location: binLocation,
       });
     } else {
       addInventoryItem({
         name,
         sku: sku.toUpperCase(),
-        category,
+        category: category as InventoryItem['category'],
         stockQuantity,
-        minStockThreshold,
+        minStockLevel: minStockThreshold,
         unitPrice,
         costPrice,
+        supplierId: 'sup-1',
         supplierName,
-        binLocation,
-        lastRestockedDate: new Date().toISOString().split('T')[0]
+        location: binLocation,
+        status: 'IN_STOCK',
       });
     }
 

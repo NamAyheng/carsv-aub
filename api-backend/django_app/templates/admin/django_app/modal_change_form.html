@@ -30,7 +30,7 @@
                     <span class="material-symbols-outlined">close</span>
                 </a>
             </div>
-            <form method="post" novalidate>
+            <form method="post" enctype="multipart/form-data" novalidate>
                 {% csrf_token %}
                 {{ adminform.form.non_field_errors }}
                 {% include "admin/django_app/modal_form_fields.html" %}

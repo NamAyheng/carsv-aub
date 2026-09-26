@@ -90,7 +90,16 @@ def carsv_header(request):
             "full_name": user.get_full_name() or user.username,
             "email": user.email,
             "initials": initials,
-            "photo": getattr(user, "photo", "") or "",
+            "photo": _photo_url(getattr(user, "photo", None)),
             "alerts": _alerts(),
         }
     }
+
+
+def _photo_url(field):
+    if not field:
+        return ""
+    try:
+        return field.url
+    except (ValueError, AttributeError):
+        return ""

@@ -21,12 +21,12 @@ import {
   RolePermissions
 } from '../types';
 
-import serviceOilChangeImg from '../assets/images/service_oil_change_1788665849741.jpg';
-import serviceBrakeRepairImg from '../assets/images/service_brake_repair_1788665865322.jpg';
-import serviceEngineDiagImg from '../assets/images/service_engine_diag_1788665881703.jpg';
-import serviceWheelAlignImg from '../assets/images/service_wheel_align_1788665899428.jpg';
-import serviceAcChargeImg from '../assets/images/service_ac_charge_1788665939994.jpg';
-import serviceBatteryImg from '../assets/images/car_battery_agm_1788665425187.jpg';
+const serviceOilChangeImg = '/images/others/service-oil-change.jpg';
+const serviceBrakeRepairImg = '/images/others/service-brake-repair.jpg';
+const serviceEngineDiagImg = '/images/others/service-engine-diagnostic.jpg';
+const serviceWheelAlignImg = '/images/others/service-wheel-alignment.jpg';
+const serviceAcChargeImg = '/images/others/service-ac-charge.jpg';
+const serviceBatteryImg = '/images/inventory/part-car-battery-agm.jpg';
 
 export const initialUsers: User[] = [
   {
@@ -35,7 +35,7 @@ export const initialUsers: User[] = [
     email: 'admin@carsv.com',
     phone: '+855 12 888 901',
     role: 'ADMIN',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/woman-portrait-blue-lighting.jpg',
     status: 'ACTIVE',
     lastLogin: 'Today, 08:30 AM',
     createdAt: '2025-01-10'
@@ -46,7 +46,7 @@ export const initialUsers: User[] = [
     email: 'manager@carsv.com',
     phone: '+855 12 777 654',
     role: 'MANAGER',
-    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/woman-office-blazer-laptop.jpg',
     status: 'ACTIVE',
     lastLogin: 'Today, 07:45 AM',
     createdAt: '2025-01-15'
@@ -57,7 +57,7 @@ export const initialUsers: User[] = [
     email: 'staff@carsv.com',
     phone: '+855 10 999 123',
     role: 'STAFF',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/man-smiling-white-vneck.jpg',
     status: 'ACTIVE',
     lastLogin: 'Today, 08:15 AM',
     createdAt: '2025-02-01'
@@ -69,7 +69,7 @@ export const initialUsers: User[] = [
     phone: '+855 92 333 444',
     role: 'TECHNICIAN',
     specialization: 'Master Engine & Hybrid Specialist',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/man-grey-sweater-studio.jpg',
     status: 'ACTIVE',
     lastLogin: 'Today, 08:00 AM',
     createdAt: '2025-01-20'
@@ -81,7 +81,7 @@ export const initialUsers: User[] = [
     phone: '+855 93 444 555',
     role: 'TECHNICIAN',
     specialization: 'Brakes & Suspension Specialist',
-    avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/young-man-smiling-outdoor-jacket.jpg',
     status: 'ACTIVE',
     lastLogin: 'Yesterday, 05:40 PM',
     createdAt: '2025-02-10'
@@ -93,7 +93,7 @@ export const initialUsers: User[] = [
     phone: '+855 88 555 666',
     role: 'TECHNICIAN',
     specialization: 'Auto Electrical & AC Diagnostics',
-    avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/man-profile-curly-beard-bw.jpg',
     status: 'ACTIVE',
     lastLogin: 'Today, 08:10 AM',
     createdAt: '2025-02-15'
@@ -104,7 +104,7 @@ export const initialUsers: User[] = [
     email: 'john.doe@example.com',
     phone: '+855 12 345 678',
     role: 'CUSTOMER',
-    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/man-glasses-green-polo.jpg',
     status: 'ACTIVE',
     lastLogin: 'Today, 09:12 AM',
     createdAt: '2025-03-01'
@@ -118,7 +118,7 @@ export const initialCustomers: Customer[] = [
     phone: '+855 12 345 678',
     email: 'john.doe@example.com',
     address: 'St. 271, Sangkat Boeung Tumpun, Phnom Penh',
-    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/man-glasses-green-polo.jpg',
     notes: 'Prefers synthetic oil and OEM parts only. Regular corporate VIP.',
     status: 'VIP',
     createdAt: '2025-03-01',
@@ -132,7 +132,7 @@ export const initialCustomers: Customer[] = [
     phone: '+855 16 789 012',
     email: 'sokha.owner@gmail.com',
     address: 'St. 598, Toul Kork, Phnom Penh',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/woman-striped-shirt-outdoor.jpg',
     notes: 'Fleet manager for family logistics business.',
     status: 'ACTIVE',
     createdAt: '2025-03-15',
@@ -146,7 +146,7 @@ export const initialCustomers: Customer[] = [
     phone: '+855 77 456 123',
     email: 'darakim.arch@outlook.com',
     address: 'Norodom Blvd, Daun Penh, Phnom Penh',
-    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/young-man-beard-dark-sweater.jpg',
     notes: 'Requested WhatsApp invoice notification for accounting.',
     status: 'ACTIVE',
     createdAt: '2025-04-10',
@@ -160,7 +160,7 @@ export const initialCustomers: Customer[] = [
     phone: '+855 89 222 333',
     email: 'sopheak.lim@smartgroup.com',
     address: 'Russian Federation Blvd, Sen Sok, Phnom Penh',
-    avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/woman-smiling-hair-bun.jpg',
     notes: 'Always books morning appointments before 9:00 AM.',
     status: 'VIP',
     createdAt: '2025-04-20',
@@ -174,7 +174,7 @@ export const initialCustomers: Customer[] = [
     phone: '+855 95 111 222',
     email: 'linda.smith@un-kh.org',
     address: 'BKK1, St. 302, Phnom Penh',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/woman-portrait-blue-lighting.jpg',
     notes: 'Expat working at NGO, requires detailed English repair descriptions.',
     status: 'ACTIVE',
     createdAt: '2025-05-02',
@@ -200,7 +200,7 @@ export const initialVehicles: Vehicle[] = [
     transmission: 'Automatic',
     status: 'IN_REPAIR',
     lastServiceDate: '2026-08-28',
-    image: 'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fb?w=600&auto=format&fit=crop&q=80',
+    image: '/images/cars/grey-toyota-camry-industrial.jpg',
     notes: 'Brake pad replacement and hybrid inverter coolant check in progress.',
     vehicleType: 'Sedan',
     engineNumber: 'A25A-FXS-109283',
@@ -222,7 +222,7 @@ export const initialVehicles: Vehicle[] = [
     transmission: 'Automatic',
     status: 'READY',
     lastServiceDate: '2026-08-26',
-    image: 'https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?w=600&auto=format&fit=crop&q=80',
+    image: '/images/cars/yellow-mercedes-amg-gt-highway.jpg',
     notes: 'Full synthetic oil change and AC recharge completed.'
   },
   {
@@ -240,7 +240,7 @@ export const initialVehicles: Vehicle[] = [
     transmission: 'Automatic',
     status: 'WAITING_PARTS',
     lastServiceDate: '2026-08-15',
-    image: 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=600&auto=format&fit=crop&q=80',
+    image: '/images/cars/white-ford-expedition-desert.jpg',
     notes: 'Awaiting rear shock absorber kit from Denso distributor.'
   },
   {
@@ -258,7 +258,7 @@ export const initialVehicles: Vehicle[] = [
     transmission: 'Automatic',
     status: 'INSPECTION',
     lastServiceDate: '2026-08-28',
-    image: 'https://images.unsplash.com/photo-1563720223185-11003d516935?w=600&auto=format&fit=crop&q=80',
+    image: '/images/cars/black-range-rover-front.jpg',
     notes: 'Scheduled 20,000km periodic maintenance and wheel alignment.'
   },
   {
@@ -276,7 +276,7 @@ export const initialVehicles: Vehicle[] = [
     transmission: 'Automatic',
     status: 'READY',
     lastServiceDate: '2026-07-12',
-    image: 'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=600&auto=format&fit=crop&q=80',
+    image: '/images/cars/red-ferrari-laferrari-showroom.jpg',
     notes: 'Battery replaced last month with Bosch AGM. Ready for pickup after tire rotation.',
     vehicleType: 'SUV',
     engineNumber: 'PY-VPTS-192847',
@@ -298,7 +298,7 @@ export const initialVehicles: Vehicle[] = [
     transmission: 'Automatic',
     status: 'COMPLETED',
     lastServiceDate: '2026-07-30',
-    image: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=600&auto=format&fit=crop&q=80',
+    image: '/images/cars/orange-bmw-m3-palm-street.jpg',
     notes: 'Brake fluid flushed and wiper blades replaced.'
   }
 ];
@@ -386,7 +386,7 @@ export const initialServices: ServiceItem[] = [
     requiredParts: ['ATF WS Fluid 8L', 'Transmission Filter Kit'],
     status: 'ACTIVE',
     timesPerformed: 88,
-    imageUrl: 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=800&auto=format&fit=crop&q=80'
+    imageUrl: '/images/others/service-oil-change.jpg'
   },
   {
     id: 'srv-8',
@@ -398,7 +398,7 @@ export const initialServices: ServiceItem[] = [
     requiredParts: [],
     status: 'ACTIVE',
     timesPerformed: 410,
-    imageUrl: 'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=800&auto=format&fit=crop&q=80'
+    imageUrl: '/images/others/mechanic-hands-wrench-engine.jpg'
   }
 ];
 
@@ -701,11 +701,11 @@ export const initialWorkOrders: WorkOrder[] = [
       }
     ],
     beforePhotos: [
-      'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=600&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=600&auto=format&fit=crop&q=80'
+      '/images/others/service-oil-change.jpg',
+      '/images/cars/black-porsche-panamera-highway.jpg'
     ],
     afterPhotos: [
-      'https://images.unsplash.com/photo-1517524008697-84bbe3c3fd98?w=600&auto=format&fit=crop&q=80'
+      '/images/cars/white-audi-suv-snow-road.jpg'
     ],
     beforeInspection: {
       id: 'insp-1',
@@ -727,7 +727,7 @@ export const initialWorkOrders: WorkOrder[] = [
         { id: 'chk-5', category: 'Under Hood', label: 'Hybrid Inverter Coolant', status: 'PASS' }
       ],
       photos: [
-        'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=600&auto=format&fit=crop&q=80'
+        '/images/others/service-oil-change.jpg'
       ],
       customerSignatureDate: '2026-08-28 08:50 AM',
       notes: 'Customer agreed with preliminary walkaround condition.'
@@ -767,7 +767,7 @@ export const initialWorkOrders: WorkOrder[] = [
     tasks: [],
     partsUsed: [],
     beforePhotos: [],
-    afterPhotos: ['https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=600&auto=format&fit=crop&q=80'],
+    afterPhotos: ['/images/cars/red-ferrari-laferrari-showroom.jpg'],
     isPaid: true,
     createdAt: '2026-09-09 08:10',
     completedAt: '2026-09-10 11:20',
@@ -809,7 +809,7 @@ export const initialWorkOrders: WorkOrder[] = [
         totalPrice: 38
       }
     ],
-    beforePhotos: ['https://images.unsplash.com/photo-1563720223185-11003d516935?w=600&auto=format&fit=crop&q=80'],
+    beforePhotos: ['/images/cars/black-range-rover-front.jpg'],
     afterPhotos: [],
     invoiceId: 'inv-2026-090',
     isPaid: false,
@@ -857,8 +857,8 @@ export const initialWorkOrders: WorkOrder[] = [
         totalPrice: 12
       }
     ],
-    beforePhotos: ['https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?w=600&auto=format&fit=crop&q=80'],
-    afterPhotos: ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=600&auto=format&fit=crop&q=80'],
+    beforePhotos: ['/images/cars/yellow-mercedes-amg-gt-highway.jpg'],
+    afterPhotos: ['/images/cars/orange-bmw-m3-palm-street.jpg'],
     invoiceId: 'inv-2026-088',
     isPaid: true,
     createdAt: '2026-08-27 14:00',
@@ -888,7 +888,7 @@ export const initialWorkOrders: WorkOrder[] = [
     services: ['Complete Engine Diagnostic & ECU Scan'],
     tasks: [initialTasks[3]],
     partsUsed: [],
-    beforePhotos: ['https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=600&auto=format&fit=crop&q=80'],
+    beforePhotos: ['/images/cars/white-ford-expedition-desert.jpg'],
     afterPhotos: [],
     isPaid: false,
     createdAt: '2026-08-28 10:00'
@@ -901,7 +901,7 @@ export const initialTechnicians: Technician[] = [
     name: 'Dara Kim',
     email: 'dara.kim@carsv.com',
     phone: '+855 92 333 444',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/man-grey-sweater-studio.jpg',
     specialization: 'Master Engine & Hybrid Specialist',
     availability: 'BUSY',
     activeTaskCount: 3,
@@ -917,7 +917,7 @@ export const initialTechnicians: Technician[] = [
     name: 'Sokha Chan',
     email: 'sokha.chan@carsv.com',
     phone: '+855 93 444 555',
-    avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/young-man-smiling-outdoor-jacket.jpg',
     specialization: 'Brakes & Suspension Specialist',
     availability: 'AVAILABLE',
     activeTaskCount: 1,
@@ -933,7 +933,7 @@ export const initialTechnicians: Technician[] = [
     name: 'Vannak San',
     email: 'vannak.san@carsv.com',
     phone: '+855 88 555 666',
-    avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/man-profile-curly-beard-bw.jpg',
     specialization: 'Auto Electrical & AC Diagnostics',
     availability: 'BUSY',
     activeTaskCount: 2,
@@ -949,7 +949,7 @@ export const initialTechnicians: Technician[] = [
     name: 'David Meas',
     email: 'david.meas@carsv.com',
     phone: '+855 12 999 888',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    avatar: '/images/people/man-smiling-white-vneck.jpg',
     specialization: 'Transmission & Drivetrain Tech',
     availability: 'AVAILABLE',
     activeTaskCount: 0,
@@ -976,7 +976,8 @@ export const initialInventory: InventoryPart[] = [
     supplierName: 'Bosch Automotive Global',
     location: 'Shelf A-02',
     status: 'IN_STOCK',
-    lastRestockedDate: '2026-08-10'
+    lastRestockedDate: '2026-08-10',
+    imageUrl: '/images/inventory/part-ceramic-brake-pads.jpg',
   },
   {
     id: 'prt-2',
@@ -991,7 +992,8 @@ export const initialInventory: InventoryPart[] = [
     supplierName: 'Bosch Automotive Global',
     location: 'Shelf A-03',
     status: 'IN_STOCK',
-    lastRestockedDate: '2026-08-10'
+    lastRestockedDate: '2026-08-10',
+    imageUrl: '/images/inventory/catalog/brakes-01-disc-rotor-caliper.jpg',
   },
   {
     id: 'prt-3',
@@ -1006,7 +1008,8 @@ export const initialInventory: InventoryPart[] = [
     supplierName: 'Castrol Lubricants Asia',
     location: 'Oil Storage Bay-1',
     status: 'IN_STOCK',
-    lastRestockedDate: '2026-08-20'
+    lastRestockedDate: '2026-08-20',
+    imageUrl: '/images/inventory/part-synthetic-motor-oil.jpg',
   },
   {
     id: 'prt-4',
@@ -1021,7 +1024,8 @@ export const initialInventory: InventoryPart[] = [
     supplierName: 'Denso Parts Cambodia',
     location: 'Shelf C-04',
     status: 'LOW_STOCK',
-    lastRestockedDate: '2026-07-25'
+    lastRestockedDate: '2026-07-25',
+    imageUrl: '/images/inventory/part-cabin-air-filter.jpg',
   },
   {
     id: 'prt-5',
@@ -1036,7 +1040,8 @@ export const initialInventory: InventoryPart[] = [
     supplierName: 'Bosch Automotive Global',
     location: 'Battery Rack B-1',
     status: 'LOW_STOCK',
-    lastRestockedDate: '2026-07-15'
+    lastRestockedDate: '2026-07-15',
+    imageUrl: '/images/inventory/part-car-battery-agm.jpg',
   },
   {
     id: 'prt-6',
@@ -1051,7 +1056,8 @@ export const initialInventory: InventoryPart[] = [
     supplierName: 'Denso Parts Cambodia',
     location: 'Shelf D-01',
     status: 'OUT_OF_STOCK',
-    lastRestockedDate: '2026-07-01'
+    lastRestockedDate: '2026-07-01',
+    imageUrl: '/images/inventory/part-spark-plugs-set.jpg',
   },
   {
     id: 'prt-7',
@@ -1066,7 +1072,8 @@ export const initialInventory: InventoryPart[] = [
     supplierName: 'Denso Parts Cambodia',
     location: 'Shelf C-01',
     status: 'IN_STOCK',
-    lastRestockedDate: '2026-08-18'
+    lastRestockedDate: '2026-08-18',
+    imageUrl: '/images/inventory/part-engine-oil-filter.jpg',
   },
   {
     id: 'prt-8',
@@ -1081,8 +1088,57 @@ export const initialInventory: InventoryPart[] = [
     supplierName: 'Bosch Automotive Global',
     location: 'Shelf A-01',
     status: 'IN_STOCK',
-    lastRestockedDate: '2026-08-22'
-  }
+    lastRestockedDate: '2026-08-22',
+    imageUrl: '/images/inventory/catalog/brakes-02-brembo-caliper-assembly.jpg',
+  },
+  {
+    id: 'prt-9',
+    name: 'Performance Tire 18"',
+    sku: 'TIR-PERF-18',
+    category: 'Tires',
+    stockQuantity: 8,
+    minStockLevel: 4,
+    unitPrice: 210,
+    costPrice: 140,
+    supplierId: 'sup-1',
+    supplierName: 'Bosch Automotive Global',
+    location: 'Tire Rack T-1',
+    status: 'IN_STOCK',
+    lastRestockedDate: '2026-08-25',
+    imageUrl: '/images/inventory/part-performance-tire.jpg',
+  },
+  {
+    id: 'prt-10',
+    name: 'Slotted Brake Rotor',
+    sku: 'BRK-ROT-S01',
+    category: 'Brakes',
+    stockQuantity: 6,
+    minStockLevel: 2,
+    unitPrice: 95,
+    costPrice: 60,
+    supplierId: 'sup-1',
+    supplierName: 'Bosch Automotive Global',
+    location: 'Shelf A-05',
+    status: 'IN_STOCK',
+    lastRestockedDate: '2026-08-12',
+    imageUrl: '/images/inventory/part-slotted-brake-rotor.jpg',
+  },
+  {
+    id: 'prt-11',
+    name: 'Wiper Blades Set',
+    sku: 'WPR-SET-22',
+    category: 'Body & Trim',
+    stockQuantity: 16,
+    minStockLevel: 4,
+    unitPrice: 22,
+    costPrice: 12,
+    supplierId: 'sup-1',
+    supplierName: 'Bosch Automotive Global',
+    location: 'Shelf E-02',
+    status: 'IN_STOCK',
+    lastRestockedDate: '2026-08-19',
+    imageUrl: '/images/inventory/part-wiper-blades-set.jpg',
+  },
 ];
 
 export const initialSuppliers: Supplier[] = [
@@ -1432,7 +1488,7 @@ export const initialCCTVCameras: CCTVCamera[] = [
     status: 'ACTIVE_REPAIR',
     resolution: '4K UltraHD (3840x2160)',
     fps: 30,
-    thumbnailUrl: 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=600&auto=format&fit=crop&q=80',
+    thumbnailUrl: '/images/others/service-oil-change.jpg',
     streamPlaceholderType: 'lift'
   },
   {
@@ -1447,7 +1503,7 @@ export const initialCCTVCameras: CCTVCamera[] = [
     status: 'ACTIVE_REPAIR',
     resolution: '1080p FHD (1920x1080)',
     fps: 60,
-    thumbnailUrl: 'https://images.unsplash.com/photo-1563720223185-11003d516935?w=600&auto=format&fit=crop&q=80',
+    thumbnailUrl: '/images/cars/black-range-rover-front.jpg',
     streamPlaceholderType: 'engine'
   },
   {
@@ -1462,7 +1518,7 @@ export const initialCCTVCameras: CCTVCamera[] = [
     status: 'IDLE',
     resolution: '1080p FHD',
     fps: 30,
-    thumbnailUrl: 'https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?w=600&auto=format&fit=crop&q=80',
+    thumbnailUrl: '/images/cars/yellow-mercedes-amg-gt-highway.jpg',
     streamPlaceholderType: 'underbody'
   },
   {
@@ -1477,7 +1533,7 @@ export const initialCCTVCameras: CCTVCamera[] = [
     status: 'ACTIVE_REPAIR',
     resolution: '4K UltraHD',
     fps: 30,
-    thumbnailUrl: 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=600&auto=format&fit=crop&q=80',
+    thumbnailUrl: '/images/cars/white-ford-expedition-desert.jpg',
     streamPlaceholderType: 'engine'
   },
   {
@@ -1488,7 +1544,7 @@ export const initialCCTVCameras: CCTVCamera[] = [
     status: 'ONLINE',
     resolution: '1080p FHD',
     fps: 30,
-    thumbnailUrl: 'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=600&auto=format&fit=crop&q=80',
+    thumbnailUrl: '/images/cars/red-ferrari-laferrari-showroom.jpg',
     streamPlaceholderType: 'brakes'
   },
   {
@@ -1499,7 +1555,7 @@ export const initialCCTVCameras: CCTVCamera[] = [
     status: 'ONLINE',
     resolution: '4K UltraHD',
     fps: 30,
-    thumbnailUrl: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=600&auto=format&fit=crop&q=80',
+    thumbnailUrl: '/images/cars/orange-bmw-m3-palm-street.jpg',
     streamPlaceholderType: 'wash'
   }
 ];
@@ -1509,7 +1565,7 @@ export const initialFeedback: CustomerFeedback[] = [
     id: 'fb-1',
     customerId: 'cust-1',
     customerName: 'John Doe',
-    customerAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
+    customerAvatar: '/images/people/man-glasses-green-polo.jpg',
     workOrderId: 'WO-1024',
     vehicleInfo: 'Toyota Camry Hybrid (PP-1234)',
     overallRating: 5,
@@ -1525,7 +1581,7 @@ export const initialFeedback: CustomerFeedback[] = [
     id: 'fb-2',
     customerId: 'cust-2',
     customerName: 'Sokha Chan',
-    customerAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
+    customerAvatar: '/images/people/woman-striped-shirt-outdoor.jpg',
     workOrderId: 'WO-1023',
     vehicleInfo: 'Honda Civic RS (PP-5678)',
     overallRating: 5,
@@ -1540,7 +1596,7 @@ export const initialFeedback: CustomerFeedback[] = [
     id: 'fb-3',
     customerId: 'cust-5',
     customerName: 'Linda Smith',
-    customerAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    customerAvatar: '/images/people/woman-portrait-blue-lighting.jpg',
     workOrderId: 'WO-1018',
     vehicleInfo: 'Hyundai Tucson (PP-7711)',
     overallRating: 4,

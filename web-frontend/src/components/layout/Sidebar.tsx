@@ -139,18 +139,15 @@ export const Sidebar: React.FC = () => {
             onClick={() => handleNavigate('Dashboard')}
             className="flex items-center space-x-3 cursor-pointer group"
           >
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold shadow-md shadow-blue-600/30 group-hover:scale-105 transition-transform shrink-0">
-              C
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white shadow-lg shadow-blue-600/25 border border-blue-400/30 group-hover:scale-105 transition-transform shrink-0">
+              <Car className="w-5 h-5" />
             </div>
             {!sidebarCollapsed && (
-              <div className="min-w-0">
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-xl font-bold text-white tracking-tight">CarSV</span>
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                    ERP
-                  </span>
-                </div>
-                <p className="text-[10px] text-gray-500 truncate mt-0.5">{ROLE_DESK[currentRole]}</p>
+              <div className="min-w-0 leading-tight">
+                <span className="text-xl font-black text-white tracking-tight whitespace-nowrap">
+                  Car<span className="text-blue-500">SV</span>
+                </span>
+                <p className="text-[10px] text-slate-400 font-medium truncate mt-0.5">Precision garage</p>
               </div>
             )}
           </div>

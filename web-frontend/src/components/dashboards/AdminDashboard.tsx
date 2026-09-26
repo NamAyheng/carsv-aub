@@ -222,7 +222,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* Camera Video Viewport */}
           <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden group">
             <img
-              src={selectedCctv?.thumbnailUrl || 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=600'}
+              src={selectedCctv?.thumbnailUrl || '/images/cars/black-mercedes-amg-gt-harbor.jpg'}
               alt="Bay Feed"
               className="w-full h-full object-cover opacity-85 group-hover:scale-105 transition-transform duration-500"
             />

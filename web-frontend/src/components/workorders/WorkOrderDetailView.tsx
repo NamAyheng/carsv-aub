@@ -527,7 +527,7 @@ export const WorkOrderDetailView: React.FC<WorkOrderDetailViewProps> = ({
               <div className="space-y-1.5">
                 <span className="text-[10px] font-bold text-slate-400 uppercase">Initial Inspection</span>
                 <img
-                  src="https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=400"
+                  src="/images/others/service-oil-change.jpg"
                   alt="Before repair"
                   className="w-full h-32 object-cover rounded-xl border border-slate-200"
                 />
@@ -535,7 +535,7 @@ export const WorkOrderDetailView: React.FC<WorkOrderDetailViewProps> = ({
               <div className="space-y-1.5">
                 <span className="text-[10px] font-bold text-slate-400 uppercase">During Replacement</span>
                 <img
-                  src="https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=400"
+                  src="/images/others/mechanic-hands-wrench-engine.jpg"
                   alt="In progress"
                   className="w-full h-32 object-cover rounded-xl border border-slate-200"
                 />
@@ -543,7 +543,7 @@ export const WorkOrderDetailView: React.FC<WorkOrderDetailViewProps> = ({
               <div className="space-y-1.5">
                 <span className="text-[10px] font-bold text-slate-400 uppercase">Final Quality Check</span>
                 <img
-                  src="https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=400"
+                  src="/images/cars/silver-bmw-coupe-sunset.jpg"
                   alt="Finished work"
                   className="w-full h-32 object-cover rounded-xl border border-slate-200"
                 />
@@ -568,7 +568,7 @@ export const WorkOrderDetailView: React.FC<WorkOrderDetailViewProps> = ({
 
             <div className="relative rounded-xl overflow-hidden bg-black aspect-video border border-slate-800">
               <img
-                src="https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=600"
+                src="/images/others/mechanic-hands-wrench-engine.jpg"
                 alt="Bay Camera"
                 className="w-full h-full object-cover opacity-85"
               />

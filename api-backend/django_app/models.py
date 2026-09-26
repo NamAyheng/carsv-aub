@@ -119,7 +119,7 @@ class User(AbstractUser):
         INACTIVE = "INACTIVE", "Inactive"
 
     phone = models.CharField(max_length=40, blank=True)
-    photo = models.URLField(blank=True)
+    photo = models.ImageField(upload_to="users/%Y/%m/", blank=True)
     department = models.CharField(max_length=80, blank=True)
     position = models.CharField(max_length=80, blank=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.CUSTOMER)
@@ -142,7 +142,7 @@ class User(AbstractUser):
             name=full_name,
             email=self.email or "",
             phone=self.phone,
-            photo=self.photo,
+            photo=self.photo.name if self.photo else "",
             status=self.status,
         )
         Staff.objects.filter(user=self).update(
@@ -156,7 +156,8 @@ def apply_user_identity(record, user):
     record.name = user.get_full_name() or user.username
     record.email = user.email or record.email
     record.phone = user.phone or record.phone
-    record.photo = user.photo or record.photo
+    if user.photo:
+        record.photo = user.photo.name
     record.status = user.status
     return record
 
@@ -183,7 +184,7 @@ class Customer(models.Model):
     phone = models.CharField(max_length=40, blank=True)
     email = models.EmailField()
     address = models.TextField(blank=True)
-    photo = models.URLField(blank=True)
+    photo = models.ImageField(upload_to="customers/%Y/%m/", blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     notes = models.TextField(blank=True)
 
@@ -461,7 +462,7 @@ def apply_role_assignment(user, previous_role=None):
                 "name": user.get_full_name() or user.username,
                 "email": user.email or f"{user.username}@carsv.local",
                 "phone": user.phone or "",
-                "photo": user.photo or "",
+                "photo": user.photo.name if user.photo else "",
                 "status": user.status,
             },
         )
@@ -549,6 +550,7 @@ class SparePart(models.Model):
     name = models.CharField(max_length=120)
     category = models.ForeignKey(SparePartCategory, on_delete=models.PROTECT, related_name="parts")
     brand = models.CharField(max_length=80, blank=True)
+    image = models.ImageField(upload_to="parts/%Y/%m/", blank=True)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     quantity = models.PositiveIntegerField(default=0)
     min_stock = models.PositiveIntegerField(default=0)

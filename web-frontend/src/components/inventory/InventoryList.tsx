@@ -39,22 +39,24 @@ export const InventoryList: React.FC<InventoryListProps> = ({
   const [stockStatusFilter, setStockStatusFilter] = useState<string>('ALL');
 
   const categories = Array.from(new Set(inventory.map((i) => i.category)));
-  const lowStockItems = inventory.filter((i) => i.stockQuantity <= i.minStockThreshold);
+  const lowStockItems = inventory.filter((i) => i.stockQuantity <= (i.minStockLevel ?? (i as { minStockThreshold?: number }).minStockThreshold ?? 0));
 
   const filteredInventory = inventory.filter((item) => {
+    const location = item.location || (item as { binLocation?: string }).binLocation || '';
     const matchesSearch =
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.binLocation.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      location.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.supplierName.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesCategory = categoryFilter === 'ALL' || item.category === categoryFilter;
 
     let matchesStock = true;
+    const minStock = item.minStockLevel ?? (item as { minStockThreshold?: number }).minStockThreshold ?? 0;
     if (stockStatusFilter === 'LOW') {
-      matchesStock = item.stockQuantity <= item.minStockThreshold;
+      matchesStock = item.stockQuantity <= minStock;
     } else if (stockStatusFilter === 'NORMAL') {
-      matchesStock = item.stockQuantity > item.minStockThreshold;
+      matchesStock = item.stockQuantity > minStock;
     }
 
     return matchesSearch && matchesCategory && matchesStock;
@@ -194,15 +196,30 @@ export const InventoryList: React.FC<InventoryListProps> = ({
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredInventory.map((item) => {
-                const isLow = item.stockQuantity <= item.minStockThreshold;
+                const minStock = item.minStockLevel ?? (item as { minStockThreshold?: number }).minStockThreshold ?? 0;
+                const location = item.location || (item as { binLocation?: string }).binLocation || '—';
+                const isLow = item.stockQuantity <= minStock;
 
                 return (
                   <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3.5 px-4">
-                      <p className="font-bold text-slate-900">{item.name}</p>
-                      <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                        {item.category}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                          {item.imageUrl ? (
+                            <img src={item.imageUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400">
+                              <Package className="w-5 h-5" />
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">{item.name}</p>
+                          <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                            {item.category}
+                          </span>
+                        </div>
+                      </div>
                     </td>
                     <td className="py-3.5 px-4 font-mono font-bold text-slate-700">
                       {item.sku}
@@ -214,7 +231,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
                         </span>
                         {isLow && (
                           <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-100 text-rose-700">
-                            LOW (Min: {item.minStockThreshold})
+                            LOW (Min: {minStock})
                           </span>
                         )}
                       </div>
@@ -228,7 +245,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
                     <td className="py-3.5 px-4">
                       <span className="font-mono text-xs px-2 py-1 bg-slate-100 text-slate-800 rounded-md border border-slate-200 flex items-center gap-1 w-max">
                         <MapPin className="w-3 h-3 text-blue-600" />
-                        {item.binLocation}
+                        {location}
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-slate-600">

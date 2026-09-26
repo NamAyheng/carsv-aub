@@ -97,7 +97,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
           <img
             src={
               currentUser?.avatar ||
-              'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&auto=format&fit=crop&q=80'
+              '/images/people/young-man-mandarin-collar.jpg'
             }
             alt={currentUser?.name}
             className="w-24 h-24 rounded-2xl object-cover border-2 border-blue-500 shadow-xl shadow-blue-500/15"

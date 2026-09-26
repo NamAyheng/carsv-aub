@@ -162,6 +162,7 @@ class SparePartSerializer(serializers.HyperlinkedModelSerializer):
             "name",
             "category",
             "brand",
+            "image",
             "unit_price",
             "quantity",
             "min_stock",

@@ -1,0 +1,165 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{% if part_is_add %}New inventory part{% else %}{{ profile.name }}{% endif %} | {{ site_title }}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-sparepart change-form{% endblock %}
+
+{% block content %}
+<div class="cp-page" {% if profile %}x-data="{ tab: 'overview' }"{% endif %}>
+    {% if profile %}
+        <div class="cp-toolbar">
+            <a class="cc-btn-ghost" href="{{ list_url }}">
+                <span class="material-symbols-outlined md-18">arrow_back</span>
+                Back to Inventory
+            </a>
+            <div class="cp-toolbar-actions">
+                <a class="cc-btn-ghost" href="{{ edit_url }}">
+                    <span class="material-symbols-outlined md-18">edit</span>
+                    Edit Part
+                </a>
+                {% if profile.is_low %}
+                    <a class="cc-btn-primary" href="{{ restock_url }}">
+                        <span class="material-symbols-outlined md-18">add_box</span>
+                        Restock +10
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <section class="cp-banner ip-banner">
+            <div class="ip-photo {% if not profile.image %}is-empty{% endif %}">
+                {% if profile.image %}
+                    <img src="{{ profile.image }}" alt="{{ profile.name }}">
+                {% else %}
+                    <span class="material-symbols-outlined">inventory_2</span>
+                    <em>No image</em>
+                {% endif %}
+            </div>
+            <div class="cp-identity">
+                <div>
+                    <div class="cp-name-row">
+                        <h1>{{ profile.name }}</h1>
+                        <span class="cc-status {{ profile.status|lower }}">{{ profile.status_label|upper }}</span>
+                        {% if profile.is_low %}
+                            <span class="cc-status waiting">LOW STOCK</span>
+                        {% endif %}
+                    </div>
+                    <p class="cp-id">Part ID: #{{ profile.code }} · SKU: {{ profile.part_number }}</p>
+                    <div class="cp-contacts">
+                        <div class="cp-contact-row">
+                            <span><span class="material-symbols-outlined">category</span>{{ profile.category }}</span>
+                            {% if profile.brand %}
+                                <span><span class="material-symbols-outlined">sell</span>{{ profile.brand }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="cp-stats">
+                <div>
+                    <span>On hand</span>
+                    <strong class="{% if profile.is_low %}danger{% else %}ok{% endif %}">{{ profile.quantity }}</strong>
+                </div>
+                <div>
+                    <span>Min stock</span>
+                    <strong>{{ profile.min_stock }}</strong>
+                </div>
+                <div>
+                    <span>Unit price</span>
+                    <strong class="ok">${{ profile.unit_price }}</strong>
+                </div>
+            </div>
+        </section>
+
+        <nav class="cp-tabs">
+            <button type="button" :class="tab === 'overview' && 'is-on'" x-on:click="tab = 'overview'">
+                <span class="material-symbols-outlined">description</span> Overview
+            </button>
+            <button type="button" :class="tab === 'usage' && 'is-on'" x-on:click="tab = 'usage'">
+                <span class="material-symbols-outlined">history</span> Usage history
+                {% if profile.usage_count %}<em>{{ profile.usage_count }}</em>{% endif %}
+            </button>
+        </nav>
+
+        <section class="cp-grid ip-grid" x-show="tab === 'overview'">
+            <article class="cp-card">
+                <h2>Inventory details</h2>
+                <dl>
+                    <div><dt>Part name</dt><dd>{{ profile.name }}</dd></div>
+                    <div><dt>SKU / Part number</dt><dd>{{ profile.part_number }}</dd></div>
+                    <div><dt>Category</dt><dd>{{ profile.category }}</dd></div>
+                    <div><dt>Brand</dt><dd>{{ profile.brand|default:"—" }}</dd></div>
+                    <div><dt>Status</dt><dd>{{ profile.status_label }}</dd></div>
+                </dl>
+            </article>
+            <article class="cp-card">
+                <h2>Stock &amp; pricing</h2>
+                <dl>
+                    <div><dt>Quantity on hand</dt><dd>{{ profile.quantity }}</dd></div>
+                    <div><dt>Minimum stock</dt><dd>{{ profile.min_stock }}</dd></div>
+                    <div><dt>Stock level</dt><dd>{% if profile.is_low %}Below minimum{% else %}Adequate{% endif %}</dd></div>
+                    <div><dt>Unit price</dt><dd>${{ profile.unit_price }}</dd></div>
+                    <div><dt>Stock value</dt><dd>${{ profile.stock_value }}</dd></div>
+                </dl>
+            </article>
+            <article class="cp-card ip-image-card">
+                <h2>Part image</h2>
+                <div class="ip-image-frame {% if not profile.image %}is-empty{% endif %}">
+                    {% if profile.image %}
+                        <img src="{{ profile.image }}" alt="{{ profile.name }}">
+                    {% else %}
+                        <span class="material-symbols-outlined">image</span>
+                        <p>No inventory image yet. Use Edit Part to add an image URL.</p>
+                    {% endif %}
+                </div>
+            </article>
+        </section>
+
+        <section class="cp-card" x-show="tab === 'usage'" x-cloak>
+            <h2>Recent usage ({{ profile.usage_count }})</h2>
+            <div class="cp-list">
+                {% for usage in profile.usages %}
+                    <a class="cp-item" href="{% url 'admin:django_app_repairjob_change' usage.job_id %}">
+                        <strong>{{ usage.job_label }}</strong>
+                        <span>x{{ usage.quantity }} · ${{ usage.total }} · {{ usage.when }}</span>
+                    </a>
+                {% empty %}
+                    <p class="cc-empty">This part has not been used on any work order yet.</p>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    {% if part_editing %}
+        <div class="cf-overlay">
+            <div class="cf-modal cf-modal-wide" role="dialog" aria-modal="true">
+                <div class="cf-head">
+                    <div>
+                        <h1>{% if part_is_add %}Add Inventory Part{% else %}Edit Inventory Part{% endif %}</h1>
+                        <p>SKU, stock levels, image, and unit price for the parts room.</p>
+                    </div>
+                    <a class="cf-close" href="{% if part_is_add %}{{ list_url }}{% else %}{{ view_url }}{% endif %}" title="Close">
+                        <span class="material-symbols-outlined">close</span>
+                    </a>
+                </div>
+                <form method="post" enctype="multipart/form-data" novalidate>
+                    {% csrf_token %}
+                    {{ adminform.form.non_field_errors }}
+                    {% include "admin/django_app/modal_form_fields.html" %}
+                    <div class="cf-actions">
+                        <a class="cc-btn-ghost" href="{% if part_is_add %}{{ list_url }}{% else %}{{ view_url }}{% endif %}">Cancel</a>
+                        <button type="submit" name="_save" class="cc-btn-primary">
+                            {% if part_is_add %}Add Part{% else %}Save Changes{% endif %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block footer %}{% endblock %}

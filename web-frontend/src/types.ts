@@ -230,6 +230,7 @@ export interface InventoryPart {
   location: string; // e.g. "Shelf A-12"
   status: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
   lastRestockedDate: string;
+  imageUrl?: string;
 }
 
 export interface StockAdjustment {

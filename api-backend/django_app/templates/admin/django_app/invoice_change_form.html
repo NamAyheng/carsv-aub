@@ -1,0 +1,290 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block extrahead %}{{ block.super }}
+{{ media }}
+{% endblock %}
+
+{% block title %}{% if invoice_is_add %}New invoice{% elif sheet %}{{ sheet.number }}{% else %}Invoices{% endif %} | {{ site_title }}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-invoice change-form carsv-page carsv-modal-form{% endblock %}
+
+{% block content %}
+{% if page and not invoice_editing %}
+    {% include "admin/django_app/_carsv_page_body.html" %}
+{% endif %}
+
+{% if sheet and not invoice_editing %}
+    <div class="cf-overlay">
+        <div class="cf-modal iv-dialog" role="dialog" aria-modal="true" aria-labelledby="iv-dialog-title">
+            <div class="cf-head iv-dialog-head">
+                <div>
+                    <h1 id="iv-dialog-title">Service / repair #{{ sheet.number }}</h1>
+                    <p>{% if sheet.wo_number and sheet.wo_number != "—" %}Workshop billing for {{ sheet.wo_number }}{% else %}Workshop billing{% endif %}</p>
+                </div>
+                <div class="iv-dialog-tools">
+                    <a class="cc-btn-ghost" href="{{ edit_url }}">
+                        <span class="material-symbols-outlined md-18">edit</span>
+                        Edit
+                    </a>
+                    <a class="cf-close" href="{{ list_url }}" title="Close">
+                        <span class="material-symbols-outlined">close</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="iv-dialog-body">
+                <div class="iv-kind-row">
+                    <span class="iv-kind">Service / repair</span>
+                    <span class="iv-status {{ sheet.status_class }}">{{ sheet.status_label }}</span>
+                </div>
+
+                <div class="iv-sheet">
+                    <div class="iv-accent"></div>
+                    <div class="iv-head">
+                        <div class="iv-head-left">
+                            <span class="iv-icon">
+                                <span class="material-symbols-outlined">build</span>
+                            </span>
+                            <div>
+                                <div class="iv-kicker">Workshop</div>
+                                <div class="iv-title">Service &amp; repair</div>
+                            </div>
+                        </div>
+                        <div class="iv-head-right">
+                            <div class="iv-number">{{ sheet.number }}</div>
+                            <div class="iv-wo">
+                                {% if sheet.wo_url %}
+                                    <a href="{{ sheet.wo_url }}">Work order {{ sheet.wo_number }}</a>
+                                {% else %}
+                                    Work order —
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="iv-body">
+                        <div class="iv-brand">
+                            <span class="iv-logo">
+                                <span class="material-symbols-outlined">directions_car</span>
+                            </span>
+                            <div>
+                                <div class="iv-brand-name">Car<span>SV</span></div>
+                                <p class="iv-brand-line">Precision garage · St. 271, Phnom Penh · Tax ID K008-902239401</p>
+                            </div>
+                        </div>
+
+                        <div class="iv-dates">
+                            <div>Issued {{ sheet.issued|date:"Y-m-d" }}</div>
+                            {% if sheet.due %}<div>Due {{ sheet.due|date:"Y-m-d" }}</div>{% endif %}
+                        </div>
+
+                        <div class="iv-cards">
+                            <div class="iv-card">
+                                <div class="iv-card-label">Customer</div>
+                                <a class="iv-card-title" href="{{ sheet.customer_url }}">{{ sheet.customer_name }}</a>
+                                {% if sheet.customer_email %}<div>{{ sheet.customer_email }}</div>{% endif %}
+                                {% if sheet.customer_phone %}<div>{{ sheet.customer_phone }}</div>{% endif %}
+                            </div>
+                            <div class="iv-card">
+                                <div class="iv-card-label">Vehicle in the bay</div>
+                                <a class="iv-card-title" href="{{ sheet.vehicle_url }}">{{ sheet.vehicle_title }}</a>
+                                <div class="iv-vehicle-meta">
+                                    {% if sheet.wo_url %}
+                                        <a href="{{ sheet.wo_url }}">
+                                            <span class="material-symbols-outlined">tag</span>
+                                            {{ sheet.wo_number }}
+                                        </a>
+                                    {% endif %}
+                                    {% if sheet.vehicle_plate %}
+                                        <span>
+                                            <span class="material-symbols-outlined">directions_car</span>
+                                            {{ sheet.vehicle_plate }}
+                                        </span>
+                                    {% endif %}
+                                    {% if sheet.mechanic %}
+                                        <span>
+                                            <span class="material-symbols-outlined">person</span>
+                                            {{ sheet.mechanic }}
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        {% if sheet.has_extra_parts %}
+                            <div class="iv-callout">
+                                <span class="material-symbols-outlined">info</span>
+                                <span>Extra parts were added after booking. They stay on this workshop invoice, not a parts-counter ticket.</span>
+                            </div>
+                        {% endif %}
+
+                        <section class="iv-section">
+                            <h3>1. Booked labor &amp; services</h3>
+                            <div class="iv-table-wrap">
+                                <table class="iv-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Description</th>
+                                            <th class="qty">Hrs / qty</th>
+                                            <th class="num">Rate</th>
+                                            <th class="num">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in sheet.labor_rows %}
+                                            <tr>
+                                                <td class="strong">{{ row.desc }}</td>
+                                                <td class="qty mono">{{ row.qty }}</td>
+                                                <td class="num mono">{{ row.rate }}</td>
+                                                <td class="num mono strong">{{ row.total }}</td>
+                                            </tr>
+                                        {% empty %}
+                                            <tr>
+                                                <td colspan="4" class="iv-empty">No labor or service amounts on this invoice.</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <section class="iv-section">
+                            <h3>2. Parts used on this job</h3>
+                            <div class="iv-table-wrap">
+                                <table class="iv-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Part / SKU</th>
+                                            <th>When</th>
+                                            <th class="qty">Qty</th>
+                                            <th class="num">Unit</th>
+                                            <th class="num">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in sheet.part_rows %}
+                                            <tr>
+                                                <td>
+                                                    <div class="strong">{{ row.name }}</div>
+                                                    {% if row.sku %}<div class="iv-sku">{{ row.sku }}</div>{% endif %}
+                                                </td>
+                                                <td>
+                                                    {% if row.extra %}
+                                                        <span class="iv-when-extra">Added after booking</span>
+                                                    {% else %}
+                                                        <span class="iv-when">On original job</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="qty mono">{{ row.qty }}</td>
+                                                <td class="num mono">{{ row.unit }}</td>
+                                                <td class="num mono strong">{{ row.total }}</td>
+                                            </tr>
+                                        {% empty %}
+                                            <tr>
+                                                <td colspan="5" class="iv-empty">No parts recorded on this job.</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <div class="iv-totals">
+                            <div class="iv-total-row muted">
+                                <span>Labor / services</span>
+                                <span class="mono">{{ sheet.labor_services }}</span>
+                            </div>
+                            <div class="iv-total-row muted">
+                                <span>Parts on this invoice</span>
+                                <span class="mono">{{ sheet.parts_cost }}</span>
+                            </div>
+                            <div class="iv-total-row muted">
+                                <span>Subtotal</span>
+                                <span class="mono">{{ sheet.subtotal }}</span>
+                            </div>
+                            {% if sheet.has_discount %}
+                                <div class="iv-total-row muted">
+                                    <span>Discount</span>
+                                    <span class="mono">−{{ sheet.discount }}</span>
+                                </div>
+                            {% endif %}
+                            {% if sheet.has_tax %}
+                                <div class="iv-total-row muted">
+                                    <span>Tax</span>
+                                    <span class="mono">{{ sheet.tax }}</span>
+                                </div>
+                            {% endif %}
+                            <div class="iv-total-row grand">
+                                <span>Total</span>
+                                <span class="mono">{{ sheet.grand_total }}</span>
+                            </div>
+                            {% if sheet.has_paid %}
+                                <div class="iv-total-row muted">
+                                    <span>Paid</span>
+                                    <span class="mono">{{ sheet.paid }}</span>
+                                </div>
+                            {% endif %}
+                            {% if sheet.has_balance %}
+                                <div class="iv-total-row due">
+                                    <span>Balance due</span>
+                                    <span class="mono">{{ sheet.balance }}</span>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        {% if sheet.note %}
+                            <p class="iv-note">{{ sheet.note|linebreaksbr }}</p>
+                        {% endif %}
+                        <p class="iv-note">12-month / 20,000 km workmanship warranty on booked labor and parts fitted in the bay.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="iv-actions">
+                <button type="button" class="iv-btn-print" onclick="window.print()">
+                    <span class="material-symbols-outlined">print</span>
+                    Print
+                </button>
+                <div class="iv-actions-right">
+                    {% if sheet.can_pay %}
+                        <a class="iv-btn-pay" href="{{ sheet.pay_url }}">Accept Payment ({{ sheet.balance }})</a>
+                    {% endif %}
+                    <a class="iv-btn-close" href="{{ list_url }}">Close</a>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+{% if invoice_editing %}
+    <div class="cf-overlay">
+        <div class="cf-modal cf-modal-wide" role="dialog" aria-modal="true">
+            <div class="cf-head">
+                <div>
+                    <h1>{% if invoice_is_add %}Create Invoice{% else %}Edit Invoice{% endif %}</h1>
+                    <p>Labor, service, and parts amounts. Subtotal and grand total are calculated on save.</p>
+                </div>
+                <a class="cf-close" href="{% if invoice_is_add %}{{ list_url }}{% else %}{{ view_url }}{% endif %}" title="Close">
+                    <span class="material-symbols-outlined">close</span>
+                </a>
+            </div>
+            <form method="post" novalidate>
+                {% csrf_token %}
+                {{ adminform.form.non_field_errors }}
+                {% include "admin/django_app/modal_form_fields.html" %}
+                <div class="cf-actions">
+                    <a class="cc-btn-ghost" href="{% if invoice_is_add %}{{ list_url }}{% else %}{{ view_url }}{% endif %}">Cancel</a>
+                    <button type="submit" name="_save" class="cc-btn-primary">
+                        {% if invoice_is_add %}Create Invoice{% else %}Save Invoice{% endif %}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block footer %}{% endblock %}

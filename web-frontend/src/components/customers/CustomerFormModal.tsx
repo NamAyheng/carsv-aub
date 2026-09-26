@@ -64,7 +64,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
         notes,
         totalVehicles: 0,
         totalSpent: 0,
-        avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150`
+        avatar: `/images/people/woman-portrait-blue-lighting.jpg`
       });
     }
 

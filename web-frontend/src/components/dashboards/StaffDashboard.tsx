@@ -211,7 +211,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <img
-                      src={cust.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100'}
+                      src={cust.avatar || '/images/people/man-glasses-green-polo.jpg'}
                       alt=""
                       className="w-8 h-8 rounded-full object-cover shrink-0"
                     />

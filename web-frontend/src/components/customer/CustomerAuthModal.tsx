@@ -95,7 +95,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         phone: regPhone,
         role: 'CUSTOMER',
         status: 'ACTIVE',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80'
+        avatar: '/images/people/young-man-mandarin-collar.jpg'
       });
 
       addCustomer({
@@ -103,7 +103,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         email: regEmail,
         phone: regPhone,
         address: 'Phnom Penh, Cambodia',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+        avatar: '/images/people/young-man-mandarin-collar.jpg',
         notes: 'Registered online via customer web portal.',
         status: 'ACTIVE'
       });

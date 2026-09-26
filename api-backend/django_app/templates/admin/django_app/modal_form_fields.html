@@ -17,6 +17,13 @@
                 </div>
                 {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
             </div>
+        {% elif field.field.widget.input_type == "file" or field.name == "image" or field.name == "photo" %}
+            <div class="cf-field cf-span {% if field.field.disabled %}is-locked{% endif %}">
+                <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+                {{ field }}
+                <p class="cf-help">{% if field.help_text %}{{ field.help_text }}{% else %}Upload an image file. Stored in media/.{% endif %}</p>
+                {{ field.errors }}
+            </div>
         {% else %}
             <div class="cf-field {% if field.widget_type == "textarea" %}cf-span{% endif %} {% if field.field.disabled %}is-locked{% endif %}">
                 <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>

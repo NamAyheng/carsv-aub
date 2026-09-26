@@ -183,7 +183,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
             <div className="lg:col-span-5 relative">
               <div className="relative rounded-2xl overflow-hidden border border-slate-700/80 shadow-2xl bg-slate-900 group">
                 <img
-                  src="https://images.unsplash.com/photo-1613214149922-f1809c99b414?w=1000&auto=format&fit=crop&q=80"
+                  src="/images/others/bmw-wheel-impact-wrench-service.jpg"
                   alt="CarSV High-Tech Workshop Bay"
                   className="w-full h-[460px] object-cover group-hover:scale-105 transition-transform duration-700"
                 />
@@ -450,12 +450,12 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                 {/* Real Service Photography Header */}
                 <div className="relative h-48 w-full bg-slate-950 overflow-hidden">
                   <img
-                    src={service.imageUrl || 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=800&auto=format&fit=crop&q=80'}
+                    src={service.imageUrl || '/images/others/service-oil-change.jpg'}
                     alt={service.name}
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=800&auto=format&fit=crop&q=80';
+                      (e.target as HTMLImageElement).src = '/images/others/service-oil-change.jpg';
                     }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/30 to-transparent" />
@@ -688,7 +688,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
                   <div className="relative aspect-video">
                     <img
-                      src="https://images.unsplash.com/photo-1563720223185-11003d516935?w=800&auto=format&fit=crop&q=80"
+                      src="/images/cars/black-range-rover-front.jpg"
                       alt="Live Bay Feed"
                       className="w-full h-full object-cover opacity-90"
                     />
@@ -727,7 +727,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=600&auto=format&fit=crop&q=80"
+                src="/images/others/service-oil-change.jpg"
                 alt="Hydraulic Lifts"
                 className="w-full h-44 object-cover"
               />
@@ -741,7 +741,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="https://images.unsplash.com/photo-1517524008697-84bbe3c3fd98?w=600&auto=format&fit=crop&q=80"
+                src="/images/cars/white-audi-suv-snow-road.jpg"
                 alt="3D Laser Alignment"
                 className="w-full h-44 object-cover"
               />
@@ -755,7 +755,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=600&auto=format&fit=crop&q=80"
+                src="/images/cars/silver-bmw-coupe-sunset.jpg"
                 alt="OBD Diagnostics"
                 className="w-full h-44 object-cover"
               />
@@ -769,7 +769,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=600&auto=format&fit=crop&q=80"
+                src="/images/others/cafe-interior-broel.jpg"
                 alt="Customer Lounge"
                 className="w-full h-44 object-cover"
               />
@@ -810,7 +810,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
               </p>
               <div className="pt-2 flex items-center gap-3">
                 <img
-                  src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80"
+                  src="/images/people/man-glasses-green-polo.jpg"
                   alt="John Doe"
                   className="w-10 h-10 rounded-full object-cover border border-slate-700"
                 />
@@ -832,7 +832,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
               </p>
               <div className="pt-2 flex items-center gap-3">
                 <img
-                  src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&auto=format&fit=crop&q=80"
+                  src="/images/people/woman-striped-shirt-outdoor.jpg"
                   alt="Sokha Chan"
                   className="w-10 h-10 rounded-full object-cover border border-slate-700"
                 />
@@ -854,7 +854,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
               </p>
               <div className="pt-2 flex items-center gap-3">
                 <img
-                  src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
+                  src="/images/people/woman-portrait-blue-lighting.jpg"
                   alt="Linda Smith"
                   className="w-10 h-10 rounded-full object-cover border border-slate-700"
                 />

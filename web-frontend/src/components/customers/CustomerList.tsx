@@ -172,7 +172,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-3">
                         <img
-                          src={cust.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100'}
+                          src={cust.avatar || '/images/people/man-glasses-green-polo.jpg'}
                           alt=""
                           className="w-9 h-9 rounded-xl object-cover ring-2 ring-slate-100"
                         />

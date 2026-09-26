@@ -287,7 +287,7 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                   <img
                     src={
                       currentUser?.avatar ||
-                      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'
+                      '/images/people/young-man-mandarin-collar.jpg'
                     }
                     alt={currentUser?.name}
                     className="w-7 h-7 rounded-full object-cover"

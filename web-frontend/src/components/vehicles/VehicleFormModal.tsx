@@ -92,7 +92,7 @@ export const VehicleFormModal: React.FC<VehicleFormModalProps> = ({
         transmission: 'Automatic',
         status: 'READY',
         notes,
-        image: 'https://images.unsplash.com/photo-1590362891991-f776e747a588?w=500&auto=format&fit=crop&q=80'
+        image: '/images/cars/white-mercedes-suv-garage-neon.jpg'
       });
     }
 

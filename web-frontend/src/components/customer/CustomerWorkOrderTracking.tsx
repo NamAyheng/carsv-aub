@@ -156,22 +156,22 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
   // Inspection Photos Gallery
   const inspectionPhotos = [
     {
-      url: 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=800&auto=format&fit=crop&q=80',
+      url: '/images/others/service-oil-change.jpg',
       title: 'Front Brake Rotor Wear',
       note: 'Minor concentric grooving detected on front-left brake rotor surface.'
     },
     {
-      url: 'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=800&auto=format&fit=crop&q=80',
+      url: '/images/others/mechanic-hands-wrench-engine.jpg',
       title: 'Brake Pad Lining Remaining',
       note: 'Friction material measured at 2.4mm (threshold limit is 3.0mm).'
     },
     {
-      url: 'https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=800&auto=format&fit=crop&q=80',
+      url: '/images/cars/silver-bmw-coupe-sunset.jpg',
       title: 'OBD-II Health Scan',
       note: 'No active fault codes in engine or transmission ECU modules.'
     },
     {
-      url: 'https://images.unsplash.com/photo-1590362891991-f776e747a588?w=800&auto=format&fit=crop&q=80',
+      url: '/images/cars/white-mercedes-suv-garage-neon.jpg',
       title: 'Exterior Intake Walkaround',
       note: 'Minor pre-existing paint chip on front right bumper lip noted.'
     }
@@ -526,7 +526,7 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
               <img
                 src={
                   bayCamera?.thumbnailUrl ||
-                  'https://images.unsplash.com/photo-1563720223185-11003d516935?w=1000&auto=format&fit=crop&q=80'
+                  '/images/cars/black-range-rover-front.jpg'
                 }
                 alt="Bay 2 Camera Feed"
                 className="w-full h-full object-cover opacity-90"

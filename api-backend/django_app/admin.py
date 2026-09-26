@@ -11,7 +11,7 @@ from django.contrib.admin.actions import delete_selected as django_delete_select
 from django.contrib.admin.utils import NestedObjects, capfirst, unquote
 from django.contrib.admin.views.main import ChangeList
 from django.db import router
-from django.db.models import BooleanField, Case, Count, DateField, DateTimeField, F, IntegerField, Max, Prefetch, Q, Sum, TimeField, When
+from django.db.models import BooleanField, Case, Count, DateField, DateTimeField, F, FileField, ImageField, IntegerField, Max, Prefetch, Q, Sum, TimeField, When
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.utils.html import format_html
@@ -207,7 +207,7 @@ class UserIdentitySelect(forms.Select):
                     "data-email": user.email or "",
                     "data-phone": user.phone or "",
                     "data-status": user.get_status_display(),
-                    "data-photo": user.photo or "",
+                    "data-photo": _file_url(user.photo),
                     "data-department": user.department or "",
                     "data-position": user.position or "",
                 }
@@ -343,7 +343,7 @@ class CustomerGarageForm(forms.ModelForm):
             "gender": forms.Select(attrs={"class": "cf-input"}),
             "status": forms.Select(attrs={"class": "cf-input"}),
             "notes": forms.Textarea(attrs={"class": "cf-input", "rows": 3, "placeholder": "Vehicle preferences, preferred contact times, discount arrangements..."}),
-            "photo": forms.URLInput(attrs={"class": "cf-input", "placeholder": "https://..."}),
+            "photo": forms.ClearableFileInput(attrs={"class": "cf-file", "accept": "image/*"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -633,7 +633,7 @@ RepairJobGarageForm = garage_form(
 SparePartCategoryGarageForm = garage_form(SparePartCategory, ("name", "status"))
 SparePartGarageForm = garage_form(
     SparePart,
-    ("part_number", "name", "category", "brand", "unit_price", "quantity", "min_stock", "status"),
+    ("part_number", "name", "category", "brand", "image", "unit_price", "quantity", "min_stock", "status"),
 )
 PartsUsageGarageForm = garage_form(PartsUsage, ("repair_job", "spare_part", "quantity", "unit_price", "recorded_by"))
 InvoiceGarageForm = garage_form(
@@ -730,6 +730,9 @@ class ModalFormMixin:
         if isinstance(db_field, TimeField):
             field.widget = forms.TimeInput(format="%H:%M", attrs={"class": "cf-input", "type": "time"})
             field.input_formats = ["%H:%M", "%H:%M:%S"]
+            return field
+        if isinstance(db_field, (ImageField, FileField)):
+            field.widget = forms.ClearableFileInput(attrs={"class": "cf-file", "accept": "image/*"})
             return field
         field.widget.attrs.setdefault("class", "cf-input")
         if isinstance(field.widget, forms.Textarea):
@@ -1101,7 +1104,7 @@ class CustomerAdmin(ModelAdmin):
             "status": customer.status,
             "status_label": customer.get_status_display(),
             "notes": customer.notes,
-            "photo": customer.photo,
+            "photo": _file_url(customer.photo),
             "initials": initials,
             "user_code": _code("USR", customer.user_id) if customer.user_id else "",
             "username": customer.user.username if customer.user_id else "",
@@ -1167,7 +1170,7 @@ class CustomerAdmin(ModelAdmin):
             "phone": customer.phone,
             "status": customer.status,
             "status_label": customer.get_status_display(),
-            "photo": customer.photo,
+            "photo": _file_url(customer.photo),
             "initials": initials,
             "user_code": _code("USR", customer.user_id) if customer.user_id else "",
             "username": customer.user.username if customer.user_id else "",
@@ -2117,11 +2120,21 @@ def _delete_icon_html(delete_url, state="safe"):
     )
 
 
+def _file_url(field):
+    """Safe URL for ImageField / FileField values."""
+    if not field:
+        return ""
+    try:
+        return field.url
+    except (ValueError, AttributeError):
+        return str(field) if field else ""
+
+
 def _badge(kind, label):
     return format_html('<span class="cc-status {}">{}</span>', kind, label)
 
 
-def _actions(view_url, delete_url=None, obj=None, extra_blocked=False):
+def _actions(view_url, delete_url=None, obj=None, extra_blocked=False, edit_url=None):
     state = "safe"
     if extra_blocked:
         state = "blocked"
@@ -2132,11 +2145,11 @@ def _actions(view_url, delete_url=None, obj=None, extra_blocked=False):
     html = (
         '<span class="cc-actions">'
         '<a href="{view}" title="View"><span class="material-symbols-outlined">visibility</span></a>'
-        '<a href="{view}" title="Edit"><span class="material-symbols-outlined">edit</span></a>'
+        '<a href="{edit}" title="Edit"><span class="material-symbols-outlined">edit</span></a>'
         + _delete_icon_html(delete_url, state)
         + "</span>"
     )
-    return format_html(html, view=view_url, delete=delete_url or view_url)
+    return format_html(html, view=view_url, edit=edit_url or view_url, delete=delete_url or view_url)
 
 
 def _pair(title, subtitle=""):
@@ -2147,6 +2160,20 @@ def _pair(title, subtitle=""):
 
 def _code(prefix, pk):
     return f"{prefix}-{int(pk):04d}"
+
+
+def _money(value):
+    amount = Decimal(value or 0)
+    return f"${amount:,.2f}"
+
+
+def _qty_label(value):
+    if value is None:
+        return "—"
+    quantized = Decimal(value).quantize(Decimal("0.01"))
+    if quantized == quantized.to_integral():
+        return str(int(quantized))
+    return format(quantized.normalize(), "f").rstrip("0").rstrip(".")
 
 
 def _id_html(prefix, pk):
@@ -2635,6 +2662,7 @@ class SparePartAdmin(CarsvPageAdmin):
     form = SparePartGarageForm
     list_display = ("part_number", "name", "category", "quantity", "min_stock", "unit_price", "status")
     search_fields = ("part_number", "name")
+    change_form_template = "admin/django_app/sparepart_change_form.html"
     modal_title_add = "Add Inventory Part"
     modal_title_edit = "Edit Inventory Part"
     modal_subtitle = "SKU, stock levels, and unit price for the parts room."
@@ -2651,6 +2679,81 @@ class SparePartAdmin(CarsvPageAdmin):
         elif stock == "NORMAL":
             qs = qs.filter(quantity__gt=F("min_stock"))
         return qs
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        is_add = object_id is None
+        editing = is_add or request.method == "POST" or request.GET.get("edit") == "1"
+        extra_context.update(
+            {
+                "part_editing": editing,
+                "part_is_add": is_add,
+                "list_url": reverse("admin:django_app_sparepart_changelist"),
+            }
+        )
+        if object_id:
+            extra_context["profile"] = self._profile(object_id)
+            extra_context["edit_url"] = reverse("admin:django_app_sparepart_change", args=[object_id]) + "?edit=1"
+            extra_context["view_url"] = reverse("admin:django_app_sparepart_change", args=[object_id])
+            restock_params = request.GET.copy()
+            restock_params["action"] = "restock"
+            restock_params["pk"] = str(object_id)
+            extra_context["restock_url"] = (
+                reverse("admin:django_app_sparepart_changelist") + "?" + restock_params.urlencode()
+            )
+        return super().changeform_view(request, object_id, form_url, extra_context=extra_context)
+
+    def response_add(self, request, obj, post_url_continue=None):
+        return redirect("admin:django_app_sparepart_change", obj.pk)
+
+    def response_change(self, request, obj):
+        return redirect("admin:django_app_sparepart_change", obj.pk)
+
+    def _profile(self, object_id):
+        part = (
+            SparePart.objects.filter(pk=object_id)
+            .select_related("category")
+            .annotate(usage_count=Count("usages", distinct=True))
+            .first()
+        )
+        if not part:
+            return None
+        is_low = part.quantity <= part.min_stock
+        stock_value = (part.unit_price or Decimal("0")) * Decimal(part.quantity or 0)
+        usages = []
+        for usage in (
+            PartsUsage.objects.filter(spare_part=part)
+            .select_related("repair_job")
+            .order_by("-used_at", "-id")[:20]
+        ):
+            job = usage.repair_job
+            usages.append(
+                {
+                    "job_id": job.id,
+                    "job_label": f"WO-{job.id:04d}",
+                    "quantity": usage.quantity,
+                    "total": usage.total,
+                    "when": usage.used_at.strftime("%Y-%m-%d %H:%M") if usage.used_at else "—",
+                }
+            )
+        return {
+            "id": part.id,
+            "code": _code("PRT", part.id),
+            "name": part.name,
+            "part_number": part.part_number,
+            "category": part.category.name if part.category_id else "—",
+            "brand": part.brand,
+            "image": _file_url(part.image),
+            "unit_price": part.unit_price,
+            "quantity": part.quantity,
+            "min_stock": part.min_stock,
+            "stock_value": stock_value,
+            "status": part.status,
+            "status_label": part.get_status_display(),
+            "is_low": is_low,
+            "usage_count": part.usage_count,
+            "usages": usages,
+        }
 
     def changelist_view(self, request, extra_context=None):
         if request.GET.get("action") == "restock" and request.GET.get("pk"):
@@ -2698,20 +2801,22 @@ class SparePartAdmin(CarsvPageAdmin):
             restock_params = request.GET.copy()
             restock_params["action"] = "restock"
             restock_params["pk"] = str(part.id)
+            view_url = reverse("admin:django_app_sparepart_change", args=[part.id])
             restock = format_html(
                 '<span class="inv-actions"><a class="wo-open" href="?{}" title="Restock +10">+10</a>{}</span>',
                 restock_params.urlencode(),
                 _actions(
-                    reverse("admin:django_app_sparepart_change", args=[part.id]),
+                    view_url,
                     reverse("admin:django_app_sparepart_delete", args=[part.id]),
                     obj=part,
+                    edit_url=f"{view_url}?edit=1",
                 ),
             )
             rows.append(
                 {
                     "off": part.status != SparePart.Status.ACTIVE,
                     "cells": [
-                        _id_link("PRT", part.id, reverse("admin:django_app_sparepart_change", args=[part.id])),
+                        _id_link("PRT", part.id, view_url),
                         _pair(part.name, part.category.name),
                         format_html('<span class="cc-id">{}</span>', part.part_number),
                         stock,
@@ -2769,10 +2874,20 @@ class SparePartAdmin(CarsvPageAdmin):
         response = HttpResponse(content_type="text/csv")
         response["Content-Disposition"] = 'attachment; filename="inventory.csv"'
         writer = csv.writer(response)
-        writer.writerow(["SKU", "Name", "Category", "Brand", "Quantity", "Min stock", "Unit price", "Status"])
+        writer.writerow(["SKU", "Name", "Category", "Brand", "Quantity", "Min stock", "Unit price", "Status", "Image"])
         for part in queryset:
             writer.writerow(
-                [part.part_number, part.name, part.category.name, part.brand, part.quantity, part.min_stock, part.unit_price, part.status]
+                [
+                    part.part_number,
+                    part.name,
+                    part.category.name,
+                    part.brand,
+                    part.quantity,
+                    part.min_stock,
+                    part.unit_price,
+                    part.status,
+                    _file_url(part.image),
+                ]
             )
         return response
 
@@ -2842,6 +2957,7 @@ class PartsUsageAdmin(CarsvPageAdmin):
 class InvoiceAdmin(CarsvPageAdmin):
     form = InvoiceGarageForm
     list_display = ("number", "customer", "grand_total", "status", "invoice_date")
+    change_form_template = "admin/django_app/invoice_change_form.html"
     modal_title_add = "Create Invoice"
     modal_title_edit = "Edit Invoice"
     modal_subtitle = "Labor, service, and parts amounts. Subtotal and grand total are calculated on save."
@@ -2853,6 +2969,158 @@ class InvoiceAdmin(CarsvPageAdmin):
         if status in dict(Invoice.Status.choices):
             qs = qs.filter(status=status)
         return qs
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        is_add = object_id is None
+        editing = is_add or request.method == "POST" or request.GET.get("edit") == "1"
+        extra_context.update(
+            {
+                "invoice_editing": editing,
+                "invoice_is_add": is_add,
+                "list_url": reverse("admin:django_app_invoice_changelist"),
+                "page": self._backdrop_page(request),
+            }
+        )
+        if object_id:
+            extra_context["sheet"] = self._sheet(object_id)
+            extra_context["edit_url"] = reverse("admin:django_app_invoice_change", args=[object_id]) + "?edit=1"
+            extra_context["view_url"] = reverse("admin:django_app_invoice_change", args=[object_id])
+        return super().changeform_view(request, object_id, form_url, extra_context=extra_context)
+
+    def response_add(self, request, obj, post_url_continue=None):
+        return redirect("admin:django_app_invoice_change", obj.pk)
+
+    def response_change(self, request, obj):
+        return redirect("admin:django_app_invoice_change", obj.pk)
+
+    def _backdrop_page(self, request):
+        page = self.prepare_page(request)
+        page["form_action"] = reverse("admin:django_app_invoice_changelist")
+        return page
+
+    def _sheet(self, object_id):
+        invoice = (
+            Invoice.objects.filter(pk=object_id)
+            .select_related(
+                "customer",
+                "vehicle",
+                "repair_job__booking__service",
+                "repair_job__mechanic__user",
+            )
+            .prefetch_related("payments", "repair_job__parts_used__spare_part")
+            .first()
+        )
+        if not invoice:
+            return None
+        job = invoice.repair_job
+        booking = getattr(job, "booking", None)
+        service = getattr(booking, "service", None) if booking else None
+        vehicle = invoice.vehicle
+        customer = invoice.customer
+        mechanic = ""
+        if job and job.mechanic_id and job.mechanic.user_id:
+            mechanic = job.mechanic.user.get_full_name() or job.mechanic.user.username
+        hours = None
+        if service and service.duration_minutes:
+            hours = Decimal(service.duration_minutes) / Decimal("60")
+        labor_rows = []
+        if invoice.labor_cost:
+            qty = hours if hours else Decimal("1")
+            rate = (invoice.labor_cost / qty) if qty else invoice.labor_cost
+            labor_rows.append(
+                {
+                    "desc": f"{service.name} (booked labor)" if service else "Labor",
+                    "qty": _qty_label(qty),
+                    "rate": _money(rate),
+                    "total": _money(invoice.labor_cost),
+                }
+            )
+        if invoice.service_cost:
+            labor_rows.append(
+                {
+                    "desc": service.name if service else "Service",
+                    "qty": "1",
+                    "rate": _money(invoice.service_cost),
+                    "total": _money(invoice.service_cost),
+                }
+            )
+        part_rows = []
+        has_extra_parts = False
+        booked_on = getattr(booking, "booking_date", None)
+        if job:
+            for usage in job.parts_used.all():
+                used_day = usage.used_at.date() if usage.used_at else None
+                extra = bool(booked_on and used_day and used_day > booked_on)
+                if extra:
+                    has_extra_parts = True
+                part_rows.append(
+                    {
+                        "name": usage.spare_part.name,
+                        "sku": usage.spare_part.part_number,
+                        "when": usage.used_at.strftime("%Y-%m-%d") if usage.used_at else "—",
+                        "extra": extra,
+                        "qty": usage.quantity,
+                        "unit": _money(usage.unit_price),
+                        "total": _money(usage.total),
+                    }
+                )
+        paid = invoice.payments.exclude(
+            status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
+        ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        balance = invoice.grand_total - paid
+        if balance < 0:
+            balance = Decimal("0")
+        badge_map = {
+            Invoice.Status.PAID: "ready",
+            Invoice.Status.UNPAID: "waiting",
+            Invoice.Status.PARTIAL: "pending",
+            Invoice.Status.DRAFT: "inactive",
+            Invoice.Status.CANCELLED: "cancelled",
+        }
+        note_parts = []
+        if job and job.problem:
+            note_parts.append(job.problem)
+        if job and job.diagnosis:
+            note_parts.append(job.diagnosis)
+        can_pay = invoice.status not in (Invoice.Status.PAID, Invoice.Status.CANCELLED) and balance > 0
+        return {
+            "id": invoice.id,
+            "number": invoice.number,
+            "status": invoice.status,
+            "status_label": invoice.status,
+            "status_class": badge_map.get(invoice.status, "pending"),
+            "issued": invoice.invoice_date,
+            "due": job.estimated_end if job else None,
+            "has_extra_parts": has_extra_parts,
+            "wo_number": f"WO-{job.id:04d}" if job else "—",
+            "wo_url": reverse("admin:django_app_repairjob_change", args=[job.id]) if job else "",
+            "customer_name": customer.name,
+            "customer_email": customer.email,
+            "customer_phone": customer.phone,
+            "customer_url": reverse("admin:django_app_customer_change", args=[customer.id]),
+            "vehicle_title": f"{vehicle.brand} {vehicle.model} ({vehicle.year})",
+            "vehicle_plate": vehicle.plate,
+            "vehicle_url": reverse("admin:django_app_vehicle_change", args=[vehicle.id]),
+            "mechanic": mechanic,
+            "labor_rows": labor_rows,
+            "part_rows": part_rows,
+            "labor_services": _money(invoice.labor_cost + invoice.service_cost),
+            "parts_cost": _money(invoice.parts_cost),
+            "subtotal": _money(invoice.subtotal),
+            "discount": _money(invoice.discount),
+            "has_discount": invoice.discount > 0,
+            "tax": _money(invoice.tax),
+            "has_tax": invoice.tax > 0,
+            "grand_total": _money(invoice.grand_total),
+            "paid": _money(paid),
+            "has_paid": paid > 0,
+            "balance": _money(balance),
+            "has_balance": balance > 0,
+            "note": "\n".join(note_parts),
+            "can_pay": can_pay,
+            "pay_url": reverse("admin:django_app_payment_add") + f"?invoice={invoice.id}",
+        }
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
@@ -2909,6 +3177,7 @@ class InvoiceAdmin(CarsvPageAdmin):
                             reverse("admin:django_app_invoice_change", args=[invoice.id]),
                             reverse("admin:django_app_invoice_delete", args=[invoice.id]),
                             obj=invoice,
+                            edit_url=reverse("admin:django_app_invoice_change", args=[invoice.id]) + "?edit=1",
                         ),
                     ]
                 }
@@ -2960,6 +3229,22 @@ class PaymentAdmin(CarsvPageAdmin):
         if method in dict(Payment.Method.choices):
             qs = qs.filter(method=method)
         return qs
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        invoice_id = request.GET.get("invoice")
+        if invoice_id:
+            invoice = Invoice.objects.filter(pk=invoice_id).first()
+            if invoice:
+                initial["invoice"] = invoice.pk
+                initial["customer"] = invoice.customer_id
+                paid = invoice.payments.exclude(
+                    status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
+                ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+                remain = invoice.grand_total - paid
+                if remain > 0:
+                    initial["amount"] = remain
+        return initial
 
     def build_page(self, request):
         qs = self.get_queryset(request)

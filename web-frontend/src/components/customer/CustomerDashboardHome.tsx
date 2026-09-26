@@ -22,10 +22,12 @@ import { useApp } from '../../context/AppContext';
 import { belongsToCurrentCustomer } from '../../utils/customerScope';
 import { invoiceRemaining, remindersFromVehicles } from '../../utils/garageLogic';
 
-import brakePadsImg from '../../assets/images/ceramic_brake_pads_1788665394851.jpg';
-import engineOilImg from '../../assets/images/synthetic_motor_oil_1788665411205.jpg';
-import carBatteryImg from '../../assets/images/car_battery_agm_1788665425187.jpg';
-import sparkPlugsImg from '../../assets/images/spark_plugs_set_1788665439858.jpg';
+const brakePadsImg = '/images/inventory/part-ceramic-brake-pads.jpg';
+const engineOilImg = '/images/inventory/part-synthetic-motor-oil.jpg';
+const carBatteryImg = '/images/inventory/part-car-battery-agm.jpg';
+const sparkPlugsImg = '/images/inventory/part-spark-plugs-set.jpg';
+
+
 
 interface CustomerDashboardHomeProps {
   onNavigateTab: (tab: 'VEHICLES' | 'APPOINTMENTS' | 'TRACKING' | 'QUOTES' | 'PARTS_PRODUCTS' | 'INVOICES' | 'DOCUMENTS' | 'FEEDBACK' | 'PROFILE') => void;
@@ -358,7 +360,7 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center bg-slate-950 p-4 rounded-2xl border border-slate-800">
             <div className="sm:col-span-5 relative rounded-xl overflow-hidden aspect-video border border-slate-800 group">
               <img
-                src="https://images.unsplash.com/photo-1563720223185-11003d516935?w=500&auto=format&fit=crop&q=80"
+                src="/images/cars/black-range-rover-front.jpg"
                 alt="Bay 2 Cam"
                 className="w-full h-full object-cover"
               />

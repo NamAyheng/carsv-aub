@@ -40,6 +40,7 @@ class Command(BaseCommand):
             password="Admin123!@#",
             staff=True,
             superuser=True,
+            photo=self._img("people/woman-portrait-blue-lighting.jpg"),
         )
         sokha = self._user(
             "sokha",
@@ -52,6 +53,7 @@ class Command(BaseCommand):
             department="Reception",
             password="Staff123!@#",
             staff=True,
+            photo=self._img("people/woman-office-blazer-laptop.jpg"),
         )
         dara = self._user(
             "dara",
@@ -64,6 +66,20 @@ class Command(BaseCommand):
             department="Workshop",
             password="Staff123!@#",
             staff=True,
+            photo=self._img("people/man-smiling-white-vneck.jpg"),
+        )
+        hour = self._user(
+            "hour",
+            email="hour@carsv.com",
+            first="Chay",
+            last="Hour",
+            role=User.Role.MECHANIC,
+            phone="+855 96 441 220",
+            position="Mechanic",
+            department="Workshop",
+            password="Staff123!@#",
+            staff=True,
+            photo=self._img("people/man-grey-sweater-studio.jpg"),
         )
         lin = self._user(
             "lin",
@@ -76,6 +92,7 @@ class Command(BaseCommand):
             department="Finance",
             password="Staff123!@#",
             staff=True,
+            photo=self._img("people/woman-smiling-hair-bun.jpg"),
         )
         ayheng_user = self._user(
             "Ayheng",
@@ -85,6 +102,7 @@ class Command(BaseCommand):
             role=User.Role.CUSTOMER,
             phone="+855 10 778 221",
             password="AyhengCarSV!23",
+            photo=self._img("people/young-man-beard-dark-sweater.jpg"),
         )
         tharo_user = self._user(
             "Tharo",
@@ -94,6 +112,7 @@ class Command(BaseCommand):
             role=User.Role.CUSTOMER,
             phone="+855 15 664 902",
             password="TharoCarSV!23",
+            photo=self._img("people/young-man-smiling-outdoor-jacket.jpg"),
         )
 
         ayheng = self._customer(
@@ -103,6 +122,7 @@ class Command(BaseCommand):
             phone="+855 10 778 221",
             email="ayheng@carsv.com",
             address="No. 88, Street 310, Sangkat Boeung Keng Kang I, Khan Chamkarmon, Phnom Penh",
+            photo=self._img("people/young-man-beard-dark-sweater.jpg"),
         )
         tharo = self._customer(
             tharo_user,
@@ -111,6 +131,7 @@ class Command(BaseCommand):
             phone="+855 15 664 902",
             email="tharo@carsv.com",
             address="House 12, Street 598, Sangkat Boeung Kak II, Khan Toul Kork, Phnom Penh",
+            photo=self._img("people/young-man-smiling-outdoor-jacket.jpg"),
         )
 
         civic = self._vehicle(
@@ -160,7 +181,7 @@ class Command(BaseCommand):
             Decimal("35.00"),
             45,
         )
-        self._service(
+        inspect_service = self._service(
             maintenance,
             "General inspection",
             "Full vehicle health check.",
@@ -171,6 +192,7 @@ class Command(BaseCommand):
         admin_staff = self._staff(admin_user, department="Office", position="Administrator")
         sokha_staff = self._staff(sokha, department="Reception", position="Front desk")
         dara_staff = self._staff(dara, department="Workshop", position="Senior mechanic")
+        self._staff(hour, department="Workshop", position="Mechanic")
         lin_staff = self._staff(lin, department="Finance", position="Cashier")
 
         mechanic, _ = Mechanic.objects.get_or_create(user=dara)
@@ -180,35 +202,136 @@ class Command(BaseCommand):
         mechanic.status = Mechanic.Status.ACTIVE
         mechanic.save()
 
+        hour_mech, _ = Mechanic.objects.get_or_create(user=hour)
+        hour_mech.skills = "Oil, filters, routine service"
+        hour_mech.specialization = "Maintenance"
+        hour_mech.available = True
+        hour_mech.status = Mechanic.Status.ACTIVE
+        hour_mech.save()
+
         part_brake = self._part_category("Brake")
         part_engine = self._part_category("Engine")
+        part_filter = self._part_category("Filters")
+        part_elec = self._part_category("Electrical")
+        part_tires = self._part_category("Tires")
+        part_ac = self._part_category("AC")
+        part_trans = self._part_category("Transmission")
+        part_maint = self._part_category("Maintenance")
 
-        pads, _ = SparePart.objects.get_or_create(
-            part_number="BRK-PAD-F01",
-            defaults={"name": "Front brake pads", "category": part_brake},
+        img = self._img
+        pads = self._spare(
+            "BRK-PAD-F01",
+            "Front brake pads",
+            part_brake,
+            brand="Brembo",
+            image=img("inventory/part-ceramic-brake-pads.jpg"),
+            unit_price=Decimal("42.00"),
+            quantity=18,
+            min_stock=4,
         )
-        pads.name = "Front brake pads"
-        pads.category = part_brake
-        pads.brand = "Brembo"
-        pads.unit_price = Decimal("42.00")
-        pads.quantity = 18
-        pads.min_stock = 4
-        pads.status = SparePart.Status.ACTIVE
-        pads.save()
-
-        oil_filter, _ = SparePart.objects.get_or_create(
-            part_number="ENG-OIL-H01",
-            defaults={"name": "Honda oil filter", "category": part_engine},
+        oil_filter = self._spare(
+            "ENG-OIL-H01",
+            "Honda oil filter",
+            part_engine,
+            brand="Honda",
+            image=img("inventory/part-engine-oil-filter.jpg"),
+            unit_price=Decimal("8.50"),
+            quantity=24,
+            min_stock=5,
         )
-        oil_filter.name = "Honda oil filter"
-        oil_filter.category = part_engine
-        oil_filter.brand = "Honda"
-        oil_filter.unit_price = Decimal("8.50")
-        oil_filter.quantity = 2
-        oil_filter.min_stock = 5
-        oil_filter.status = SparePart.Status.ACTIVE
-        oil_filter.save()
-
+        self._spare(
+            "BRK-ROT-S01",
+            "Slotted brake rotor",
+            part_brake,
+            brand="Brembo",
+            image=img("inventory/part-slotted-brake-rotor.jpg"),
+            unit_price=Decimal("95.00"),
+            quantity=6,
+            min_stock=2,
+        )
+        self._spare(
+            "OIL-SYN-5W30",
+            "Synthetic motor oil 5W-30",
+            part_engine,
+            brand="Castrol",
+            image=img("inventory/part-synthetic-motor-oil.jpg"),
+            unit_price=Decimal("48.00"),
+            quantity=30,
+            min_stock=8,
+        )
+        self._spare(
+            "BAT-AGM-70",
+            "AGM car battery 70Ah",
+            part_elec,
+            brand="Bosch",
+            image=img("inventory/part-car-battery-agm.jpg"),
+            unit_price=Decimal("145.00"),
+            quantity=7,
+            min_stock=2,
+        )
+        self._spare(
+            "SPK-IR-SET",
+            "Iridium spark plugs set",
+            part_engine,
+            brand="NGK",
+            image=img("inventory/part-spark-plugs-set.jpg"),
+            unit_price=Decimal("36.00"),
+            quantity=20,
+            min_stock=5,
+        )
+        self._spare(
+            "FLT-CABIN-01",
+            "Cabin air filter",
+            part_filter,
+            brand="Mann",
+            image=img("inventory/part-cabin-air-filter.jpg"),
+            unit_price=Decimal("18.00"),
+            quantity=15,
+            min_stock=4,
+        )
+        self._spare(
+            "TIR-PERF-18",
+            "Performance tire 18\"",
+            part_tires,
+            brand="Michelin",
+            image=img("inventory/part-performance-tire.jpg"),
+            unit_price=Decimal("210.00"),
+            quantity=8,
+            min_stock=4,
+        )
+        self._spare(
+            "WPR-SET-22",
+            "Wiper blades set",
+            part_maint,
+            brand="Bosch",
+            image=img("inventory/part-wiper-blades-set.jpg"),
+            unit_price=Decimal("22.00"),
+            quantity=16,
+            min_stock=4,
+        )
+        # Catalog reference stock (service-category visuals)
+        for sku, name, category, image_path, price, qty in (
+            ("CAT-BRK-01", "Brake disc assembly (catalog)", part_brake, "inventory/catalog/brakes-01-disc-rotor-caliper.jpg", "120.00", 3),
+            ("CAT-BRK-02", "Brembo caliper assembly", part_brake, "inventory/catalog/brakes-02-brembo-caliper-assembly.jpg", "380.00", 2),
+            ("CAT-BRK-05", "Audi ceramic rotor", part_brake, "inventory/catalog/brakes-05-audi-ceramic-rotor.jpg", "520.00", 1),
+            ("CAT-AC-05", "AC recharge service kit", part_ac, "inventory/catalog/ac-05-ac-recharge-machine-shop.jpg", "75.00", 5),
+            ("CAT-ENG-02", "Engine bay service pack", part_engine, "inventory/catalog/engine-02-engine-bay-detail.jpg", "55.00", 4),
+            ("CAT-ENG-05", "Remanufactured engine core", part_engine, "inventory/catalog/engine-05-engine-on-chain-hoist.jpg", "1800.00", 1),
+            ("CAT-TIR-03", "Warehouse tire stock", part_tires, "inventory/catalog/tires-03-tread-closeup-warehouse.jpg", "95.00", 12),
+            ("CAT-TRN-02", "Transmission gear set", part_trans, "inventory/catalog/transmission-02-gears-timing-chain-hands.jpg", "640.00", 2),
+            ("CAT-TRN-04", "Gearbox shaft assembly", part_trans, "inventory/catalog/transmission-04-holding-gear-shaft.jpg", "420.00", 2),
+            ("CAT-MNT-01", "Workshop tool kit", part_maint, "inventory/catalog/maintenance-01-mechanic-wrenches.jpg", "40.00", 10),
+        ):
+            self._spare(
+                sku,
+                name,
+                category,
+                brand="CarSV",
+                image=img(image_path),
+                unit_price=Decimal(price),
+                quantity=qty,
+                min_stock=1,
+            )
         done_booking, _ = Booking.objects.get_or_create(
             customer=ayheng,
             vehicle=civic,
@@ -222,18 +345,31 @@ class Command(BaseCommand):
         done_booking.status = Booking.Status.COMPLETED
         done_booking.save()
 
-        pending_booking, _ = Booking.objects.get_or_create(
+        oil_booking, _ = Booking.objects.get_or_create(
             customer=tharo,
             vehicle=ranger,
             booking_date=date(2026, 9, 20),
             defaults={"service": oil_service},
         )
-        pending_booking.service = oil_service
-        pending_booking.booking_time = time(14, 0)
-        pending_booking.problem = "Oil warning light on."
-        pending_booking.note = "Walk-in if earlier slot opens."
-        pending_booking.status = Booking.Status.PENDING
-        pending_booking.save()
+        oil_booking.service = oil_service
+        oil_booking.booking_time = time(14, 0)
+        oil_booking.problem = "Oil warning light on."
+        oil_booking.note = "Customer approved filter + oil package."
+        oil_booking.status = Booking.Status.COMPLETED
+        oil_booking.save()
+
+        inspect_booking, _ = Booking.objects.get_or_create(
+            customer=ayheng,
+            vehicle=civic,
+            booking_date=date(2026, 9, 24),
+            defaults={"service": inspect_service},
+        )
+        inspect_booking.service = inspect_service
+        inspect_booking.booking_time = time(10, 0)
+        inspect_booking.problem = "Annual safety check before long trip."
+        inspect_booking.note = "No parts expected unless issues found."
+        inspect_booking.status = Booking.Status.COMPLETED
+        inspect_booking.save()
 
         inspection, _ = Inspection.objects.get_or_create(booking=done_booking)
         inspection.mileage = 42800
@@ -263,6 +399,36 @@ class Command(BaseCommand):
         job.progress = 100
         job.save()
 
+        oil_job, _ = RepairJob.objects.get_or_create(
+            booking=oil_booking,
+            defaults={"customer": tharo, "vehicle": ranger},
+        )
+        oil_job.customer = tharo
+        oil_job.vehicle = ranger
+        oil_job.mechanic = hour_mech
+        oil_job.problem = oil_booking.problem
+        oil_job.diagnosis = "Oil overdue. Filter clogged. Replaced oil and filter."
+        oil_job.start_date = date(2026, 9, 20)
+        oil_job.estimated_end = date(2026, 9, 20)
+        oil_job.status = RepairJob.Status.COMPLETED
+        oil_job.progress = 100
+        oil_job.save()
+
+        inspect_job, _ = RepairJob.objects.get_or_create(
+            booking=inspect_booking,
+            defaults={"customer": ayheng, "vehicle": civic},
+        )
+        inspect_job.customer = ayheng
+        inspect_job.vehicle = civic
+        inspect_job.mechanic = mechanic
+        inspect_job.problem = inspect_booking.problem
+        inspect_job.diagnosis = "No critical issues. Fluids and tires within range."
+        inspect_job.start_date = date(2026, 9, 24)
+        inspect_job.estimated_end = date(2026, 9, 24)
+        inspect_job.status = RepairJob.Status.READY_FOR_PICKUP
+        inspect_job.progress = 90
+        inspect_job.save()
+
         usage, _ = PartsUsage.objects.get_or_create(
             repair_job=job,
             spare_part=pads,
@@ -272,6 +438,16 @@ class Command(BaseCommand):
         usage.unit_price = pads.unit_price
         usage.recorded_by = dara_staff
         usage.save()
+
+        oil_usage, _ = PartsUsage.objects.get_or_create(
+            repair_job=oil_job,
+            spare_part=oil_filter,
+            defaults={"quantity": 1, "unit_price": oil_filter.unit_price},
+        )
+        oil_usage.quantity = 1
+        oil_usage.unit_price = oil_filter.unit_price
+        oil_usage.recorded_by = dara_staff
+        oil_usage.save()
 
         invoice, _ = Invoice.objects.get_or_create(
             number="INV-2026-0001",
@@ -291,6 +467,44 @@ class Command(BaseCommand):
         invoice.tax = Decimal("8.10")
         invoice.status = Invoice.Status.PAID
         invoice.save()
+
+        oil_invoice, _ = Invoice.objects.get_or_create(
+            number="INV-2026-0002",
+            defaults={
+                "customer": tharo,
+                "vehicle": ranger,
+                "repair_job": oil_job,
+            },
+        )
+        oil_invoice.customer = tharo
+        oil_invoice.vehicle = ranger
+        oil_invoice.repair_job = oil_job
+        oil_invoice.labor_cost = Decimal("20.00")
+        oil_invoice.service_cost = Decimal("35.00")
+        oil_invoice.parts_cost = Decimal("8.50")
+        oil_invoice.discount = Decimal("0.00")
+        oil_invoice.tax = Decimal("3.18")
+        oil_invoice.status = Invoice.Status.PARTIAL
+        oil_invoice.save()
+
+        inspect_invoice, _ = Invoice.objects.get_or_create(
+            number="INV-2026-0003",
+            defaults={
+                "customer": ayheng,
+                "vehicle": civic,
+                "repair_job": inspect_job,
+            },
+        )
+        inspect_invoice.customer = ayheng
+        inspect_invoice.vehicle = civic
+        inspect_invoice.repair_job = inspect_job
+        inspect_invoice.labor_cost = Decimal("15.00")
+        inspect_invoice.service_cost = Decimal("25.00")
+        inspect_invoice.parts_cost = Decimal("0.00")
+        inspect_invoice.discount = Decimal("0.00")
+        inspect_invoice.tax = Decimal("2.00")
+        inspect_invoice.status = Invoice.Status.UNPAID
+        inspect_invoice.save()
 
         payment, _ = Payment.objects.get_or_create(
             number="PAY-2026-0001",
@@ -312,7 +526,66 @@ class Command(BaseCommand):
         payment.receipt_number = "RCT-2026-0001"
         payment.save()
 
+        oil_payment, _ = Payment.objects.get_or_create(
+            number="PAY-2026-0002",
+            defaults={
+                "invoice": oil_invoice,
+                "customer": tharo,
+                "amount": Decimal("30.00"),
+                "paid_at": date(2026, 9, 20),
+            },
+        )
+        oil_payment.invoice = oil_invoice
+        oil_payment.customer = tharo
+        oil_payment.amount = Decimal("30.00")
+        oil_payment.method = Payment.Method.QR
+        oil_payment.paid_at = date(2026, 9, 20)
+        oil_payment.reference = "QR-0920"
+        oil_payment.received_by = lin_staff
+        oil_payment.status = Payment.Status.PARTIAL
+        oil_payment.receipt_number = "RCT-2026-0002"
+        oil_payment.save()
+
         self.stdout.write(self.style.SUCCESS("Sample data loaded for all garage tables"))
+
+    @staticmethod
+    def _img(relative_path: str) -> str:
+        """Relative path under static images library (copied into MEDIA on attach)."""
+        return relative_path.lstrip("/")
+
+    def _attach_image(self, instance, field_name, relative_path):
+        """Copy a packaged static image into MEDIA_ROOT and assign the ImageField."""
+        if not relative_path:
+            return
+        from pathlib import Path
+
+        from django.conf import settings
+        from django.core.files import File
+
+        src = Path(settings.BASE_DIR) / "django_app" / "static" / "django_app" / "images" / relative_path
+        if not src.exists():
+            return
+        field = getattr(instance, field_name)
+        if field and getattr(field, "name", ""):
+            return
+        with src.open("rb") as handle:
+            field.save(src.name, File(handle), save=False)
+
+    def _spare(self, part_number, name, category, **kwargs):
+        part, _ = SparePart.objects.get_or_create(
+            part_number=part_number,
+            defaults={"name": name, "category": category},
+        )
+        part.name = name
+        part.category = category
+        part.brand = kwargs.get("brand", "")
+        part.unit_price = kwargs.get("unit_price", Decimal("0"))
+        part.quantity = kwargs.get("quantity", 0)
+        part.min_stock = kwargs.get("min_stock", 0)
+        part.status = SparePart.Status.ACTIVE
+        self._attach_image(part, "image", kwargs.get("image", ""))
+        part.save()
+        return part
 
     def _user(self, username, **kwargs):
         user, _ = User.objects.get_or_create(username=username)
@@ -327,6 +600,7 @@ class Command(BaseCommand):
         user.is_staff = kwargs.get("staff", False)
         user.is_superuser = kwargs.get("superuser", False)
         user.set_password(kwargs["password"])
+        self._attach_image(user, "photo", kwargs.get("photo", ""))
         user.save()
         return user
 
@@ -339,10 +613,12 @@ class Command(BaseCommand):
         return staff
 
     def _customer(self, user, **kwargs):
+        photo = kwargs.pop("photo", "")
         customer, _ = Customer.objects.get_or_create(user=user)
         for key, value in kwargs.items():
             setattr(customer, key, value)
         customer.status = Customer.Status.ACTIVE
+        self._attach_image(customer, "photo", photo)
         customer.save()
         return customer
 

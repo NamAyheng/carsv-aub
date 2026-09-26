@@ -232,7 +232,7 @@ export const GlobalSearchModal: React.FC = () => {
                       >
                         <div className="flex items-center gap-3">
                           <img
-                            src={cust.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100'}
+                            src={cust.avatar || '/images/people/man-glasses-green-polo.jpg'}
                             alt=""
                             className="w-7 h-7 rounded-full object-cover"
                           />
