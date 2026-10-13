@@ -1,96 +1,80 @@
-# Django create commands
+# How to run CarSV (Windows and Linux)
+
+Use relative paths from the repo root `carsv-aub/`. Do not hard-code `D:\...` or `/home/...`.
+
+## Backend
+
+### Windows (PowerShell)
 
 ```powershell
-cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\api-backend"
-
+cd api-backend
 python -m venv env
 .\env\Scripts\Activate.ps1
-
-pip install django djangorestframework django-unfold
-django-admin startproject django_backend .
-python manage.py startapp django_app
-
+pip install -r requirements.txt
+copy .env.example .env
 python manage.py migrate
-python manage.py createsuperuser
+python manage.py seed_users
 python manage.py runserver
 ```
 
-If the env already exists, only activate it before running Django:
+If `env` already exists:
 
 ```powershell
-cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\api-backend"
+cd api-backend
 .\env\Scripts\Activate.ps1
 python manage.py runserver
 ```
 
-- `python -m venv env` — isolated Python for this project only
-- `.\env\Scripts\Activate.ps1` — use that env in the current terminal
-- `startproject django_backend .` — project settings live in this folder (the `.` means current directory)
-- `startapp django_app` — app for models, views, admin
+### Linux / macOS (bash)
+
+```bash
+cd api-backend
+python3 -m venv env
+source env/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python manage.py migrate
+python manage.py seed_users
+python manage.py runserver
+```
+
+If `env` already exists:
+
+```bash
+cd api-backend
+source env/bin/activate
+python manage.py runserver
+```
+
 - Superuser: `administrator` / `Admin123!@#` (`admin@carsv.com`)
-- Customer user: `Ayheng` / `Ayheng123!@#` (`namayheng12345@gmail.com`)
+- Customer: `Ayheng` / `Ayheng123!@#` (`namayheng12345@gmail.com`)
 - Admin: http://127.0.0.1:8000/admin/
-- API root (DRF): http://127.0.0.1:8000/api/
-- If port 8000 is busy: `python manage.py runserver 8001` then use http://127.0.0.1:8001/
+- API: http://127.0.0.1:8000/api/
+- Busy port: `python manage.py runserver 8001`
 
-Seed all garage tables (after migrate):
+## Frontend (second terminal)
 
-```powershell
-python manage.py seed_users
-python manage.py makemigrations django_app
-python manage.py migrate
-```
-
-Inspection measurements (fuel / brake pads / tire tread):
+### Windows
 
 ```powershell
-python manage.py makemigrations django_app
-python manage.py migrate
-python manage.py seed_users
-```
-
-React (second terminal):
-
-```powershell
-cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\web-frontend"
+cd web-frontend
 npm install
 npm run dev
 ```
 
-- Frontend: http://127.0.0.1:3000/
-- Vite is set to port 3000 (`--host=0.0.0.0`)
+### Linux / macOS
 
-Sync Customer / Staff / Technician rows to their User FK:
-
-```powershell
-python manage.py migrate
-```
-
-Role table (users move between Customer / Staff / Technician when their role changes):
-
-```powershell
-python manage.py makemigrations django_app
-python manage.py migrate
-```
-
-Rerun both (26 Sep 2026):
-
-```powershell
-cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\api-backend"
-.\env\Scripts\Activate.ps1
-python manage.py runserver
-```
-
-```powershell
-cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\web-frontend"
+```bash
+cd web-frontend
+npm install
 npm run dev
 ```
 
-Added invoices INV-2026-0002 / INV-2026-0003 (26 Sep 2026):
+- App: http://127.0.0.1:3000/
+- Vite uses `--host=0.0.0.0` on port 3000
 
-```powershell
-cd "d:\Ayheng\AUB\Year 4\MGMT\car_garage\carsv-aub\api-backend"
-.\env\Scripts\Activate.ps1
-python manage.py seed_users
-```
+## Notes
 
+- Activate the venv with `.\env\Scripts\Activate.ps1` on Windows, or `source env/bin/activate` on Linux/macOS.
+- `env/` is gitignored — each OS creates its own virtualenv.
+- Line endings are normalized via `.gitattributes` (`eol=lf`) so both OSes share the same text files.

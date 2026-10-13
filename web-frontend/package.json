@@ -7,7 +7,7 @@
     "dev": "npx vite --port=3000 --host=0.0.0.0",
     "build": "npx vite build",
     "preview": "npx vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true}); try{require('fs').unlinkSync('server.js')}catch(e){}\"",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

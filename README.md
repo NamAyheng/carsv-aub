@@ -5,18 +5,38 @@ AUB Year 4 — Car Garage Management System.
 | Folder | Role |
 | --- | --- |
 | `api-backend/` | Django admin + REST API |
-| `web-frontend/` | React demo (mock data) |
+| `web-frontend/` | React customer portal |
 | `mobile-frontend/` | React Native (later) |
+
+Works on **Windows** and **Linux** (same repo). Use the OS block that matches your machine.
 
 ## Django (API + Admin)
 
+### Windows (PowerShell)
+
 ```powershell
 cd api-backend
+python -m venv env
 .\env\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+python manage.py migrate
 python manage.py runserver
 ```
 
-- Admin site: http://127.0.0.1:8000/admin/ — username `administrator` / `Admin123!@#`
+### Linux / macOS (bash)
+
+```bash
+cd api-backend
+python3 -m venv env
+source env/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python manage.py migrate
+python manage.py runserver
+```
+
+- Admin: http://127.0.0.1:8000/admin/ — `administrator` / `Admin123!@#`
 - API root `GET /api/` returns 401 until you send `Authorization: Bearer <access>`
 
 ```bash
@@ -38,13 +58,23 @@ curl -X POST http://127.0.0.1:8000/api/auth/login/ \
 
 Needs **Node.js 18+**.
 
+### Windows (PowerShell)
+
 ```powershell
 cd web-frontend
 npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+### Linux / macOS (bash)
+
+```bash
+cd web-frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 (or http://127.0.0.1:3000).
 
 | Role | Login |
 | --- | --- |
