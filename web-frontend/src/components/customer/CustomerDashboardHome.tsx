@@ -22,10 +22,10 @@ import { useApp } from '../../context/AppContext';
 import { belongsToCurrentCustomer } from '../../utils/customerScope';
 import { invoiceRemaining, remindersFromVehicles } from '../../utils/garageLogic';
 
-const brakePadsImg = '/images/inventory/part-ceramic-brake-pads.jpg';
-const engineOilImg = '/images/inventory/part-synthetic-motor-oil.jpg';
-const carBatteryImg = '/images/inventory/part-car-battery-agm.jpg';
-const sparkPlugsImg = '/images/inventory/part-spark-plugs-set.jpg';
+const brakePadsImg = '/media/parts/2026/09/part-ceramic-brake-pads.jpg';
+const engineOilImg = '/media/parts/2026/09/part-synthetic-motor-oil.jpg';
+const carBatteryImg = '/media/parts/2026/09/part-car-battery-agm.jpg';
+const sparkPlugsImg = '/media/parts/part-spark-plugs-set.jpg';
 
 
 
@@ -55,8 +55,17 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
   const reminders = remindersFromVehicles(myVehicles).filter((r) => r.status !== 'DONE');
 
   const activeWO =
-    myWorkOrders.find((w) => w.status === 'IN_PROGRESS' || w.status === 'ASSIGNED' || w.status === 'WAITING_APPROVAL') ||
+    myWorkOrders.find(
+      (w) =>
+        w.status === 'PENDING' ||
+        w.status === 'IN_PROGRESS' ||
+        w.status === 'ASSIGNED' ||
+        w.status === 'WAITING_APPROVAL' ||
+        w.status === 'WAITING_PARTS' ||
+        w.status === 'QUALITY_CHECK'
+    ) ||
     pickupJobs[0] ||
+    myWorkOrders.find((w) => w.status !== 'COMPLETED' && w.status !== 'DELIVERED' && w.status !== 'CANCELLED') ||
     myWorkOrders[0];
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -81,7 +90,7 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
             <span>Welcome Back to CarSV Care</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-            Hello, {currentUser?.name || 'John Doe'}
+            Hello, {currentUser?.name || 'there'}
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
             {pickupJobs[0]
@@ -109,7 +118,7 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
             className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition-all flex items-center gap-2"
           >
             <Video className="w-4 h-4 text-red-400 animate-pulse" />
-            <span>Watch Bay #02</span>
+            <span>Repair status</span>
           </button>
 
           <button
@@ -335,15 +344,15 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-blue-600/20 text-blue-400 border border-blue-500/30">
-                  {activeWO?.workOrderNumber || 'WO-1024'}
+                  {activeWO?.workOrderNumber || 'No job'}
                 </span>
                 <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                  <span>In Progress</span>
+                  <span>{activeWO ? activeWO.status.replace(/_/g, ' ') : 'None open'}</span>
                 </span>
               </div>
               <h3 className="text-lg font-black text-white tracking-tight">
-                {activeWO?.vehicleInfo || 'Toyota Camry Hybrid (PP-1234)'}
+                {activeWO?.vehicleInfo || 'No repair in the shop'}
               </h3>
             </div>
 
@@ -358,47 +367,56 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
 
           {/* Bay Camera & Progress Mini Box */}
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center bg-slate-950 p-4 rounded-2xl border border-slate-800">
-            <div className="sm:col-span-5 relative rounded-xl overflow-hidden aspect-video border border-slate-800 group">
-              <img
-                src="/images/cars/black-range-rover-front.jpg"
-                alt="Bay 2 Cam"
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute top-2 left-2 text-[10px] font-mono text-white bg-black/75 px-1.5 py-0.5 rounded flex items-center gap-1">
-                <Video className="w-3 h-3 text-red-500 animate-pulse" />
-                <span>Bay #02</span>
-              </div>
+            <div className="sm:col-span-5 relative rounded-xl overflow-hidden aspect-video border border-slate-800 bg-slate-900 flex items-center justify-center p-4 text-center text-xs text-slate-300">
+              No bay camera is connected.
             </div>
 
             <div className="sm:col-span-7 space-y-2.5 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-400">Current Task:</span>
-                <span className="font-bold text-white">Brake Rotor Resurfacing</span>
+                <span className="font-bold text-white">{activeWO?.tasks?.[0]?.title || 'None'}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Master Tech:</span>
-                <span className="font-bold text-blue-400">Dara Kim</span>
+              <div className="flex justify-between items-center gap-3">
+                <span className="text-slate-400">Inspected by:</span>
+                <span className="font-bold text-white flex items-center gap-2">
+                  {activeWO?.beforeInspection?.inspectorPhoto ? (
+                    <img src={activeWO.beforeInspection.inspectorPhoto} alt="" className="w-6 h-6 rounded-full object-cover" />
+                  ) : null}
+                  {activeWO?.beforeInspection?.inspectorName || 'Not recorded'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-3">
+                <span className="text-slate-400">Repaired by:</span>
+                <span className="font-bold text-blue-400 flex items-center gap-2">
+                  {activeWO?.assignedTechnicianPhoto ? (
+                    <img src={activeWO.assignedTechnicianPhoto} alt="" className="w-6 h-6 rounded-full object-cover" />
+                  ) : null}
+                  {activeWO?.assignedTechnicianName || 'Unassigned'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Est. Completion:</span>
-                <span className="font-bold text-emerald-400">Today 04:30 PM</span>
+                <span className="font-bold text-emerald-400">{activeWO?.tasks?.[0]?.dueDate || '—'}</span>
               </div>
 
               {/* Progress Bar */}
               <div className="pt-1">
                 <div className="flex justify-between text-[11px] text-slate-400 mb-1">
                   <span>Progress</span>
-                  <span className="text-blue-400 font-bold font-mono">70%</span>
+                  <span className="text-blue-400 font-bold font-mono">{activeWO?.tasks?.[0]?.progress ?? 0}%</span>
                 </div>
                 <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800">
-                  <div className="bg-gradient-to-r from-blue-600 to-emerald-400 h-full rounded-full w-[70%]" />
+                  <div
+                    className="bg-gradient-to-r from-blue-600 to-emerald-400 h-full rounded-full"
+                    style={{ width: `${activeWO?.tasks?.[0]?.progress ?? 0}%` }}
+                  />
                 </div>
               </div>
             </div>
           </div>
 
           <p className="text-xs text-slate-400 italic">
-            &quot;Pre-repair inspection completed with 4 photo logs. Brake friction material replaced with Akebono genuine ceramics.&quot;
+            {activeWO?.diagnosis || activeWO?.reportedProblem || 'Book a service and the shop will open a repair job after check-in.'}
           </p>
         </div>
 

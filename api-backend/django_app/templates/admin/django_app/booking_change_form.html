@@ -20,7 +20,7 @@
                     <span class="material-symbols-outlined md-18">edit</span>
                     Edit Booking
                 </a>
-                {% if not profile.job_url %}
+                {% if not profile.job_url and not profile.can_checkin %}
                     <a class="cc-btn-primary" href="{{ profile.add_job_url }}">
                         <span class="material-symbols-outlined md-18">add</span>
                         New Work Order
@@ -71,6 +71,8 @@
         <div class="bk-quick">
             {% if profile.can_confirm %}
                 <a class="ap-btn ghost" href="?action=confirm">Confirm</a>
+            {% elif profile.parts_pending %}
+                <span class="ap-note">Confirm or cancel part requests first</span>
             {% endif %}
             {% if profile.can_checkin %}
                 <a class="ap-btn primary" href="?action=checkin">Check In Vehicle</a>
@@ -87,7 +89,22 @@
             <article class="cp-card">
                 <h2>Appointment Details</h2>
                 <dl>
-                    <div><dt>Service</dt><dd>{{ profile.service }}</dd></div>
+                    <div>
+                        <dt>Services</dt>
+                        <dd>
+                            {% for row in profile.service_rows %}
+                                {{ row.name }} · ${{ row.price }}{% if not forloop.last %}<br>{% endif %}
+                            {% empty %}—{% endfor %}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>Parts</dt>
+                        <dd>
+                            {% for part in profile.part_rows %}
+                                {{ part.number }} · {{ part.name }} · {{ part.status }}{% if not forloop.last %}<br>{% endif %}
+                            {% empty %}$0.00{% endfor %}
+                        </dd>
+                    </div>
                     <div>
                         <dt>Vehicle</dt>
                         <dd><a href="{{ profile.vehicle_url }}">{{ profile.plate }} · {{ profile.vehicle }}</a></dd>
@@ -97,7 +114,16 @@
                         <dt>Customer</dt>
                         <dd><a href="{{ profile.customer_url }}">{{ profile.customer }}</a></dd>
                     </div>
-                    <div><dt>Assigned staff</dt><dd>{{ profile.staff }}</dd></div>
+                    <div><dt>Technician</dt><dd>{{ profile.mechanic }}</dd></div>
+                    <div>
+                        <dt>Check-in staff</dt>
+                        <dd class="cc-person">
+                            {% if profile.staff_photo %}
+                                <img class="cc-avatar-round" src="{{ profile.staff_photo }}" alt="">
+                            {% endif %}
+                            <span>{{ profile.staff }}</span>
+                        </dd>
+                    </div>
                     <div><dt>Status</dt><dd><span class="cc-status {{ profile.status_class }}">{{ profile.status_label }}</span></dd></div>
                 </dl>
             </article>
@@ -137,7 +163,7 @@
                     <a href="{{ profile.invoice_url }}">Invoice {{ profile.invoice_number }} →</a>
                 {% endif %}
                 {% if not profile.job_url and not profile.inspection_url and not profile.invoice_url %}
-                    <p class="cc-empty">No work order, inspection, or invoice is linked yet.</p>
+                    <p class="cc-empty">Check the car in to open the work order, inspection, and invoice for this visit.</p>
                 {% endif %}
             </div>
         </section>

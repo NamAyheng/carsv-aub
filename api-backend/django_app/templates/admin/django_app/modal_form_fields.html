@@ -1,4 +1,80 @@
 {% load i18n %}
+<style>
+    .cf-image-preview { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 10px; margin-top: 0; }
+    .cf-image-preview[hidden] { display: none; }
+    .cf-image-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+    .cf-image-row:empty { display: none; }
+    .cf-image-tile {
+        position: relative;
+        width: 160px;
+        height: 110px;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #e2e8f0;
+        flex-shrink: 0;
+    }
+    .cf-image-tile img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        cursor: zoom-in;
+    }
+    .cf-image-del {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        z-index: 2;
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.78);
+        color: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+    }
+    .cf-image-del:hover { background: #e11d48; }
+    .cf-image-del .material-symbols-outlined { font-size: 16px; }
+    .cf-lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 10050;
+        background: rgba(15, 23, 42, 0.82);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+    }
+    .cf-lightbox.is-open { display: flex; }
+    .cf-lightbox img {
+        max-width: min(96vw, 1100px);
+        max-height: 90vh;
+        object-fit: contain;
+        border-radius: 12px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    }
+    .cf-lightbox-close {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        width: 40px;
+        height: 40px;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.92);
+        color: #0f172a;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .cf-lightbox-close .material-symbols-outlined { font-size: 22px; }
+</style>
 <div class="cf-fields">
     {% for field in adminform.form.visible_fields %}
         {% if field.field.widget.input_type == "checkbox" %}
@@ -17,15 +93,60 @@
                 </div>
                 {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
             </div>
+        {% elif field.name == "images" %}
+            <div
+                class="cf-field cf-span cf-images-field"
+                {% if adminform.form.instance.pk %}
+                    data-inspection-id="{{ adminform.form.instance.pk }}"
+                    data-delete-base="{% url 'admin:django_app_inspection_delete_image' adminform.form.instance.pk 0 %}"
+                {% endif %}
+            >
+                <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+                {{ field }}
+                <div class="cf-image-row cf-image-saved" data-saved-previews>
+                    {% if adminform.form.instance.pk %}
+                        {% for shot in adminform.form.instance.images.all %}
+                            {% if shot.image %}
+                                <div class="cf-image-tile" data-image-id="{{ shot.id }}">
+                                    <img src="{{ shot.image.url }}" alt="" data-view-src="{{ shot.image.url }}">
+                                    <button type="button" class="cf-image-del" title="Remove photo" aria-label="Remove photo" data-delete-saved>
+                                        <span class="material-symbols-outlined">delete</span>
+                                    </button>
+                                </div>
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                </div>
+                <div class="cf-image-row cf-image-pending" data-pending-previews></div>
+                {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
+                {{ field.errors }}
+            </div>
         {% elif field.field.widget.input_type == "file" or field.name == "image" or field.name == "photo" %}
             <div class="cf-field cf-span {% if field.field.disabled %}is-locked{% endif %}">
                 <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
                 {{ field }}
-                <p class="cf-help">{% if field.help_text %}{{ field.help_text }}{% else %}Upload an image file. Stored in media/.{% endif %}</p>
+                {% if field.name == "image" and adminform.form.instance.image %}
+                    <img src="{{ adminform.form.instance.image.url }}" alt="" class="cf-image-preview">
+                {% elif field.name == "photo" and adminform.form.instance.photo %}
+                    <img src="{{ adminform.form.instance.photo.url }}" alt="" class="cf-image-preview">
+                {% else %}
+                    <img alt="" class="cf-image-preview" hidden>
+                {% endif %}
+                <p class="cf-help">{% if field.help_text %}{{ field.help_text }}{% else %}Upload a JPG, PNG, WEBP, or GIF up to 5 MB.{% endif %}</p>
+                {{ field.errors }}
+            </div>
+        {% elif field.name == "progress" %}
+            <div class="cf-field is-locked">
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                <div class="cf-progress">
+                    <div class="cf-progress-track" aria-hidden="true"><span class="cf-progress-fill"></span></div>
+                    {{ field }}
+                </div>
+                {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
                 {{ field.errors }}
             </div>
         {% else %}
-            <div class="cf-field {% if field.widget_type == "textarea" %}cf-span{% endif %} {% if field.field.disabled %}is-locked{% endif %}">
+            <div class="cf-field {% if "textarea" in field.widget_type %}cf-span{% endif %} {% if field.field.disabled %}is-locked{% endif %}">
                 <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
                 {{ field }}
                 {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
@@ -35,3 +156,184 @@
     {% endfor %}
     {% for field in adminform.form.hidden_fields %}{{ field }}{% endfor %}
 </div>
+<div class="cf-lightbox" data-lightbox hidden>
+    <button type="button" class="cf-lightbox-close" data-lightbox-close title="Close" aria-label="Close">
+        <span class="material-symbols-outlined">close</span>
+    </button>
+    <img src="" alt="">
+</div>
+<script>
+(function () {
+    function csrfToken() {
+        var input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        if (input && input.value) return input.value;
+        var match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : "";
+    }
+
+    function ensureLightbox() {
+        var box = document.querySelector("[data-lightbox]");
+        if (!box) return null;
+        box.hidden = false;
+        return box;
+    }
+
+    function openLightbox(src) {
+        var box = ensureLightbox();
+        if (!box || !src) return;
+        var img = box.querySelector("img");
+        img.src = src;
+        box.classList.add("is-open");
+    }
+
+    function closeLightbox() {
+        var box = document.querySelector("[data-lightbox]");
+        if (!box) return;
+        box.classList.remove("is-open");
+        var img = box.querySelector("img");
+        if (img) img.src = "";
+    }
+
+    document.addEventListener("click", function (event) {
+        if (event.target.closest("[data-lightbox-close]") || event.target.matches("[data-lightbox]")) {
+            closeLightbox();
+        }
+    });
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") closeLightbox();
+    });
+
+    function deleteUrl(wrap, imageId) {
+        var tpl = wrap.getAttribute("data-delete-base") || "";
+        return tpl.replace(/\/0\/?$/, "/" + imageId + "/");
+    }
+
+    function makeTile(src, options) {
+        options = options || {};
+        var tile = document.createElement("div");
+        tile.className = "cf-image-tile";
+        if (options.id) tile.setAttribute("data-image-id", options.id);
+        if (typeof options.index === "number") tile.setAttribute("data-pending-index", String(options.index));
+        var img = document.createElement("img");
+        img.src = src;
+        img.alt = options.alt || "";
+        img.setAttribute("data-view-src", src);
+        var del = document.createElement("button");
+        del.type = "button";
+        del.className = "cf-image-del";
+        del.title = "Remove photo";
+        del.setAttribute("aria-label", "Remove photo");
+        if (options.saved) del.setAttribute("data-delete-saved", "");
+        else del.setAttribute("data-delete-pending", "");
+        del.innerHTML = '<span class="material-symbols-outlined">delete</span>';
+        tile.appendChild(img);
+        tile.appendChild(del);
+        return tile;
+    }
+
+    function syncPendingPreviews(input, pending) {
+        pending.innerHTML = "";
+        Array.prototype.forEach.call(input.files || [], function (file, index) {
+            if (!file.type || file.type.indexOf("image/") !== 0) return;
+            pending.appendChild(makeTile(URL.createObjectURL(file), { index: index, alt: file.name || "" }));
+        });
+    }
+
+    function removePendingFile(input, index) {
+        if (!window.DataTransfer) {
+            input.value = "";
+            return;
+        }
+        var transfer = new DataTransfer();
+        Array.prototype.forEach.call(input.files || [], function (file, i) {
+            if (i !== index) transfer.items.add(file);
+        });
+        input.files = transfer.files;
+    }
+
+    document.querySelectorAll(".cf-fields input[type=file]").forEach(function (input) {
+        input.addEventListener("change", function () {
+            var wrap = input.closest(".cf-images-field");
+            if (wrap) {
+                var pending = wrap.querySelector("[data-pending-previews]");
+                if (!pending) return;
+                syncPendingPreviews(input, pending);
+                return;
+            }
+            var frame = input.parentElement.querySelector(".cf-image-preview");
+            var file = input.files && input.files[0];
+            if (!frame || !file) return;
+            frame.hidden = false;
+            frame.src = URL.createObjectURL(file);
+        });
+    });
+
+    document.querySelectorAll(".cf-images-field").forEach(function (wrap) {
+        wrap.addEventListener("click", function (event) {
+            var delSaved = event.target.closest("[data-delete-saved]");
+            var delPending = event.target.closest("[data-delete-pending]");
+            var view = event.target.closest("img[data-view-src]");
+            if (delSaved) {
+                event.preventDefault();
+                event.stopPropagation();
+                var tile = delSaved.closest(".cf-image-tile");
+                var imageId = tile && tile.getAttribute("data-image-id");
+                if (!imageId) return;
+                var url = deleteUrl(wrap, imageId);
+                delSaved.disabled = true;
+                fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": csrfToken(),
+                        "X-Requested-With": "XMLHttpRequest",
+                    },
+                    credentials: "same-origin",
+                })
+                    .then(function (res) {
+                        if (!res.ok) throw new Error("Delete failed");
+                        return res.json();
+                    })
+                    .then(function () {
+                        tile.remove();
+                    })
+                    .catch(function () {
+                        delSaved.disabled = false;
+                        window.alert("Could not remove that photo. Try again.");
+                    });
+                return;
+            }
+            if (delPending) {
+                event.preventDefault();
+                event.stopPropagation();
+                var pendingTile = delPending.closest(".cf-image-tile");
+                var index = pendingTile ? Number(pendingTile.getAttribute("data-pending-index")) : -1;
+                var fileInput = wrap.querySelector('input[type="file"]');
+                if (fileInput && index >= 0) {
+                    removePendingFile(fileInput, index);
+                    syncPendingPreviews(fileInput, wrap.querySelector("[data-pending-previews]"));
+                } else if (pendingTile) {
+                    pendingTile.remove();
+                }
+                return;
+            }
+            if (view && !event.target.closest(".cf-image-del")) {
+                event.preventDefault();
+                openLightbox(view.getAttribute("data-view-src") || view.src);
+            }
+        });
+    });
+
+    var root = document.querySelector(".cf-modal form") || document.querySelector(".cf-fields");
+    if (root && root.dataset.clearErrorsBound !== "1") {
+        root.dataset.clearErrorsBound = "1";
+        function clearErrors() {
+            root.querySelectorAll(".errorlist, .errornote, .cf-field-errors").forEach(function (el) {
+                el.remove();
+            });
+        }
+        root.addEventListener("focusin", clearErrors);
+        root.addEventListener("input", clearErrors);
+        root.addEventListener("change", clearErrors);
+    }
+})();
+</script>

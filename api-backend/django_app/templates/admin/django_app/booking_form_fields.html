@@ -29,6 +29,7 @@
 <div class="cf-field">
     <label for="{{ adminform.form.status.id_for_label }}">Status</label>
     {{ adminform.form.status }}
+    {% if adminform.form.status.help_text %}<p class="cf-help">{{ adminform.form.status.help_text }}</p>{% endif %}
     {{ adminform.form.status.errors }}
 </div>
 <div class="cf-field">

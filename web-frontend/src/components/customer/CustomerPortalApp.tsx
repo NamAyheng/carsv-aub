@@ -11,14 +11,15 @@ import {
   X,
   ChevronDown,
   Globe,
-  Shield,
   MessageSquare,
   ClipboardList,
   LayoutDashboard,
   Video,
   Package
 } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { portalPaths, tabForPath } from '../../routes';
 import { CustomerDashboardHome } from './CustomerDashboardHome';
 import { CustomerVehiclesView } from './CustomerVehiclesView';
 import { CustomerAppointmentsView } from './CustomerAppointmentsView';
@@ -31,6 +32,15 @@ import { CustomerBookAppointmentModal } from './CustomerBookAppointmentModal';
 import { CustomerProductsView } from './CustomerProductsView';
 import { CustomerQuotesView } from './CustomerQuotesView';
 import { ThemeToggle } from '../common/ThemeToggle';
+import { belongsToCurrentCustomer } from '../../utils/customerScope';
+import {
+  alertBadgeClass,
+  alertChipClass,
+  customerAlert,
+  strongestAlert,
+  workOrderAlert,
+  type AlertTone,
+} from '../../utils/customerAlerts';
 
 export type CustomerTab =
   | 'DASHBOARD'
@@ -46,16 +56,15 @@ export type CustomerTab =
 
 interface CustomerPortalAppProps {
   onBackToPublicSite: () => void;
-  onSwitchToStaffERP: () => void;
 }
 
 export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
-  onBackToPublicSite,
-  onSwitchToStaffERP
+  onBackToPublicSite
 }) => {
   const {
     currentUser,
     notifications,
+    workOrders,
     markNotificationAsRead,
     addToast,
     logout,
@@ -63,7 +72,9 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
   } = useApp();
   const isDark = theme === 'dark';
 
-  const [activeTab, setActiveTab] = useState<CustomerTab>('DASHBOARD');
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const activeTab = tabForPath(pathname);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -90,13 +101,40 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
   const [preselectedService, setPreselectedService] = useState<string | undefined>(undefined);
 
   const customerNotifications = (notifications || []).filter((n) => n.audience === 'CUSTOMER');
-  const unreadCount = customerNotifications.filter((n) => !n.read).length;
+  const liveAlerts = customerNotifications.flatMap((note) => {
+    if (note.read) return [];
+    const alert = customerAlert(note.type, note.title, note.message);
+    return alert ? [{ note, ...alert }] : [];
+  });
+  const badgeTone = strongestAlert(liveAlerts.map((item) => item.tone));
+  const openJobTone = strongestAlert(
+    (workOrders || [])
+      .filter((job) => belongsToCurrentCustomer(currentUser, job))
+      .map((job) => workOrderAlert(job.status))
+      .filter((tone): tone is AlertTone => tone !== null)
+  );
+
+  const tabTone = (tab: CustomerTab): AlertTone | null => {
+    if (tab === 'TRACKING') return openJobTone;
+    if (tab === 'QUOTES') return strongestAlert(liveAlerts.filter((item) => item.note.type === 'QUOTE').map((item) => item.tone));
+    if (tab === 'INVOICES') {
+      return strongestAlert(
+        liveAlerts.filter((item) => item.note.type === 'INVOICE' || item.note.type === 'PAYMENT').map((item) => item.tone)
+      );
+    }
+    if (tab === 'APPOINTMENTS') {
+      return strongestAlert(liveAlerts.filter((item) => item.note.type === 'APPOINTMENT').map((item) => item.tone));
+    }
+    if (tab === 'VEHICLES') {
+      return strongestAlert(liveAlerts.filter((item) => item.note.type === 'MAINTENANCE').map((item) => item.tone));
+    }
+    return null;
+  };
 
   const handleMarkCustomerNotificationsRead = () => {
-    const unread = customerNotifications.filter((n) => !n.read);
-    unread.forEach((n) => markNotificationAsRead(n.id));
-    if (unread.length > 0) {
-      addToast({ type: 'info', title: 'Notifications cleared', message: 'All items marked as read.' });
+    liveAlerts.forEach((item) => markNotificationAsRead(item.note.id));
+    if (liveAlerts.length > 0) {
+      addToast({ type: 'info', title: 'Alerts cleared', message: 'These alerts are marked as read.' });
     }
   };
 
@@ -109,11 +147,11 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
     return Bell;
   };
 
-  const navItems: { id: CustomerTab; label: string; icon: React.ComponentType<{ className?: string }>; live?: boolean }[] = [
+  const navItems: { id: CustomerTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'VEHICLES', label: 'Vehicles', icon: Car },
     { id: 'APPOINTMENTS', label: 'Appointments', icon: Calendar },
-    { id: 'TRACKING', label: 'Tracking', icon: Video, live: true },
+    { id: 'TRACKING', label: 'Tracking', icon: Video },
     { id: 'QUOTES', label: 'Quotes', icon: ClipboardList },
     { id: 'PARTS_PRODUCTS', label: 'Parts', icon: Package },
     { id: 'INVOICES', label: 'Invoices', icon: Receipt },
@@ -124,7 +162,7 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
   const firstName = (currentUser?.name || 'John').split(' ')[0];
 
   const handleTabChange = (tab: CustomerTab) => {
-    setActiveTab(tab);
+    navigate(portalPaths[tab]);
     setMobileMenuOpen(false);
     setProfileDropdownOpen(false);
   };
@@ -187,9 +225,9 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                   }`}
                 >
                   <Bell className="w-4 h-4" />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-[10px] font-bold text-white flex items-center justify-center">
-                      {unreadCount}
+                  {badgeTone && (
+                    <span className={`absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center ${alertBadgeClass(badgeTone)}`}>
+                      {liveAlerts.length}
                     </span>
                   )}
                 </button>
@@ -201,8 +239,8 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                     }`}
                   >
                     <div className={`px-4 py-3 border-b flex items-center justify-between gap-3 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}>
-                      <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Notifications</p>
-                      {unreadCount > 0 && (
+                      <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Alerts</p>
+                      {liveAlerts.length > 0 && (
                         <button
                           type="button"
                           onClick={handleMarkCustomerNotificationsRead}
@@ -214,12 +252,13 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                     </div>
 
                     <div className="max-h-[360px] overflow-y-auto overflow-x-hidden">
-                      {customerNotifications.length === 0 && (
+                      {liveAlerts.length === 0 && (
                         <p className={`p-4 text-sm leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
-                          No notifications yet.
+                          No alerts right now.
                         </p>
                       )}
-                      {customerNotifications.slice(0, 6).map((n) => {
+                      {liveAlerts.slice(0, 8).map((item) => {
+                        const n = item.note;
                         const Icon = notificationIcon(n.type);
                         return (
                           <div
@@ -251,11 +290,13 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                             }`}
                           >
                             <div className="flex items-start gap-2">
-                              <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${isDark ? 'text-sky-300' : 'text-blue-600'}`} />
+                              <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${item.tone === 'red' ? 'text-red-500' : item.tone === 'orange' ? 'text-orange-500' : 'text-emerald-600'}`} />
                               <p className={`flex-1 text-sm font-bold leading-5 whitespace-normal break-words ${isDark ? 'text-white' : 'text-slate-900'}`}>
                                 {n.title}
                               </p>
-                              {!n.read && <span className="mt-1.5 w-2 h-2 rounded-full bg-sky-400 shrink-0" />}
+                              <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${alertChipClass(item.tone)}`}>
+                                {item.label}
+                              </span>
                             </div>
                             <p className={`mt-1.5 text-sm leading-5 whitespace-normal break-words ${isDark ? 'text-slate-200' : 'text-slate-600'}`}>
                               {n.message}
@@ -284,14 +325,17 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                       : 'bg-slate-100 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
-                  <img
-                    src={
-                      currentUser?.avatar ||
-                      '/images/people/young-man-mandarin-collar.jpg'
-                    }
-                    alt={currentUser?.name}
-                    className="w-7 h-7 rounded-full object-cover"
-                  />
+                  {currentUser?.avatar ? (
+                    <img
+                      src={currentUser.avatar}
+                      alt={currentUser?.name}
+                      className="w-7 h-7 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-black flex items-center justify-center">
+                      {(currentUser?.name || 'C').slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
                   <span className={`hidden sm:inline text-sm font-semibold whitespace-nowrap ${isDark ? 'text-white' : 'text-slate-800'}`}>
                     {firstName}
                   </span>
@@ -341,17 +385,10 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={onSwitchToStaffERP}
-                      className={`w-full text-left px-3 py-2 rounded-xl flex items-center gap-2 ${
-                        isDark ? 'text-amber-400 hover:bg-amber-950/40' : 'text-amber-700 hover:bg-amber-50'
-                      }`}
-                    >
-                      <Shield className="w-3.5 h-3.5" />
-                      Staff ERP demo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={logout}
+                      onClick={() => {
+                        logout();
+                        navigate('/');
+                      }}
                       className={`w-full text-left px-3 py-2 rounded-xl flex items-center gap-2 ${
                         isDark ? 'text-red-400 hover:bg-red-950/40' : 'text-red-600 hover:bg-red-50'
                       }`}
@@ -396,8 +433,8 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {item.label}
-                  {item.live && (
-                    <span className={`w-1.5 h-1.5 rounded-full bg-red-500 ${active ? 'ring-2 ring-white/40' : ''}`} />
+                  {tabTone(item.id) && (
+                    <span className={`w-1.5 h-1.5 rounded-full ${alertBadgeClass(tabTone(item.id) as AlertTone)} ${active ? 'ring-2 ring-white/40' : ''}`} />
                   )}
                 </button>
               );
@@ -425,7 +462,9 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                 >
                   <Icon className="w-4 h-4" />
                   {item.label}
-                  {item.live && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500" />}
+                  {tabTone(item.id) && (
+                    <span className={`ml-auto w-1.5 h-1.5 rounded-full ${alertBadgeClass(tabTone(item.id) as AlertTone)}`} />
+                  )}
                 </button>
               );
             })}
@@ -447,43 +486,39 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'DASHBOARD' && (
           <CustomerDashboardHome
-            onNavigateTab={(tab) => {
-              if (tab === 'VEHICLES') setActiveTab('VEHICLES');
-              if (tab === 'APPOINTMENTS') setActiveTab('APPOINTMENTS');
-              if (tab === 'TRACKING') setActiveTab('TRACKING');
-              if (tab === 'QUOTES') setActiveTab('QUOTES');
-              if (tab === 'PARTS_PRODUCTS') setActiveTab('PARTS_PRODUCTS');
-              if (tab === 'INVOICES') setActiveTab('INVOICES');
-              if (tab === 'DOCUMENTS') setActiveTab('DOCUMENTS');
-              if (tab === 'FEEDBACK') setActiveTab('FEEDBACK');
-              if (tab === 'PROFILE') setActiveTab('PROFILE');
-            }}
+            onNavigateTab={(tab) => handleTabChange(tab)}
             onOpenBookAppointment={() => handleOpenBookingWithService()}
-            onOpenAddVehicle={() => setActiveTab('VEHICLES')}
+            onOpenAddVehicle={() => handleTabChange('VEHICLES')}
           />
         )}
 
         {activeTab === 'VEHICLES' && (
           <CustomerVehiclesView
             onBookServiceForVehicle={(vId) => handleOpenBookingWithService()}
-            onViewWorkOrder={(woId) => setActiveTab('TRACKING')}
-            onBrowseParts={() => setActiveTab('PARTS_PRODUCTS')}
+            onViewWorkOrder={(woId) => {
+              navigate(`/tracking?job=${encodeURIComponent(woId)}`);
+              setMobileMenuOpen(false);
+            }}
+            onBrowseParts={() => handleTabChange('PARTS_PRODUCTS')}
           />
         )}
 
         {activeTab === 'APPOINTMENTS' && (
           <CustomerAppointmentsView
             onOpenBookAppointment={() => handleOpenBookingWithService()}
-            onTrackWorkOrder={(woId) => setActiveTab('TRACKING')}
+            onTrackWorkOrder={(woId) => {
+              navigate(woId ? `/tracking?job=${encodeURIComponent(woId)}` : '/tracking');
+              setMobileMenuOpen(false);
+            }}
           />
         )}
 
         {activeTab === 'TRACKING' && (
-          <CustomerWorkOrderTracking onNavigateToParts={() => setActiveTab('PARTS_PRODUCTS')} />
+          <CustomerWorkOrderTracking onNavigateToParts={() => handleTabChange('PARTS_PRODUCTS')} />
         )}
 
         {activeTab === 'QUOTES' && (
-          <CustomerQuotesView onTrackWorkOrder={() => setActiveTab('TRACKING')} />
+          <CustomerQuotesView onTrackWorkOrder={() => handleTabChange('TRACKING')} />
         )}
 
         {activeTab === 'PARTS_PRODUCTS' && (
@@ -507,7 +542,7 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
         isOpen={bookingModalOpen}
         onClose={() => setBookingModalOpen(false)}
         preselectedServiceId={preselectedService}
-        onSuccessViewAppointments={() => setActiveTab('APPOINTMENTS')}
+        onSuccessViewAppointments={() => handleTabChange('APPOINTMENTS')}
       />
     </div>
   );

@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Receipt, Download, Printer, CreditCard, CheckCircle2, AlertCircle, X, QrCode, Package, Wrench } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { belongsToCurrentCustomer } from '../../utils/customerScope';
@@ -8,16 +9,36 @@ import { Invoice } from '../../types';
 import { InvoiceDocument, InvoiceKindBadge } from '../invoices/InvoiceDocument';
 
 export const CustomerInvoicesView: React.FC = () => {
-  const { invoices, payments, paymentReceipts, currentUser, recordPayment, addToast } = useApp();
+  const { invoices, payments, paymentReceipts, currentUser, recordPayment, addToast, liveCustomer } = useApp();
 
   const customerInvoices = (invoices || []).filter((inv) => belongsToCurrentCustomer(currentUser, inv));
+  const [invoiceParams] = useSearchParams();
+  const invoiceQuery = invoiceParams.get('invoice');
   const [kindFilter, setKindFilter] = useState<'ALL' | 'PARTS_SALE' | 'SERVICE_REPAIR'>('ALL');
+  const [payFilter, setPayFilter] = useState<'ALL' | 'UNPAID' | 'PARTIAL' | 'PAID'>('ALL');
   const visible = useMemo(
-    () => customerInvoices.filter((inv) => kindFilter === 'ALL' || invoiceKind(inv) === kindFilter),
-    [customerInvoices, kindFilter]
+    () =>
+      customerInvoices.filter((inv) => {
+        if (kindFilter !== 'ALL' && invoiceKind(inv) !== kindFilter) return false;
+        if (payFilter === 'ALL') return true;
+        if (payFilter === 'UNPAID') return inv.status === 'UNPAID' || inv.status === 'DRAFT' || inv.status === 'OVERDUE';
+        return inv.status === payFilter;
+      }),
+    [customerInvoices, kindFilter, payFilter]
   );
 
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | undefined>(visible[0] || customerInvoices[0]);
+  useEffect(() => {
+    if (!invoiceQuery) return;
+    const match = customerInvoices.find((inv) => inv.invoiceNumber === invoiceQuery);
+    if (match) setSelectedInvoice(match);
+  }, [invoiceQuery, invoices]);
+  useEffect(() => {
+    if (!selectedInvoice) return;
+    if (!visible.some((inv) => inv.id === selectedInvoice.id)) {
+      setSelectedInvoice(visible[0]);
+    }
+  }, [visible, selectedInvoice]);
   const [showPayModal, setShowPayModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'ABA_PAY' | 'CREDIT_CARD' | 'CASH' | 'BANK'>('ABA_PAY');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -25,16 +46,20 @@ export const CustomerInvoicesView: React.FC = () => {
   const [receiptToView, setReceiptToView] = useState<(typeof paymentReceipts)[number] | null>(null);
 
   const active = visible.find((i) => i.id === selectedInvoice?.id) || visible[0] || selectedInvoice;
-  const customerPayments = (payments || []).filter(
-    (p) => p.customerId === 'cust-1' || customerInvoices.some((i) => i.id === p.invoiceId)
-  );
+  const customerPayments = (payments || []).filter((p) => {
+    if (!belongsToCurrentCustomer(currentUser, p)) return false;
+    if (kindFilter === 'ALL' && payFilter === 'ALL') return true;
+    const linked = customerInvoices.find((i) => i.id === p.invoiceId || i.invoiceNumber === p.invoiceNumber);
+    if (!linked) return payFilter === 'ALL' && kindFilter === 'ALL';
+    if (kindFilter !== 'ALL' && invoiceKind(linked) !== kindFilter) return false;
+    if (payFilter === 'ALL') return true;
+    if (payFilter === 'UNPAID') return linked.status === 'UNPAID' || linked.status === 'DRAFT' || linked.status === 'OVERDUE';
+    return linked.status === payFilter;
+  });
 
   const handleDownload = (invNumber: string) => {
-    addToast({
-      type: 'success',
-      title: 'Invoice Download Started',
-      message: `${invNumber}.pdf is being downloaded to your device.`
-    });
+    document.title = invNumber;
+    window.print();
   };
 
   const handleExecutePayment = () => {
@@ -60,7 +85,7 @@ export const CustomerInvoicesView: React.FC = () => {
         paymentIdNumber: 'PAY-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
         invoiceId: active.id,
         invoiceNumber: active.invoiceNumber,
-        customerId: currentUser.id === 'user-customer-demo' ? 'cust-1' : currentUser.id,
+        customerId: currentUser.id,
         customerName: currentUser.name,
         amount,
         paymentMethod: method,
@@ -110,11 +135,7 @@ export const CustomerInvoicesView: React.FC = () => {
             <button
               key={tab.id}
               type="button"
-              onClick={() => {
-                setKindFilter(tab.id);
-                const next = customerInvoices.filter((inv) => tab.id === 'ALL' || invoiceKind(inv) === tab.id);
-                if (next[0]) setSelectedInvoice(next[0]);
-              }}
+              onClick={() => setKindFilter(tab.id)}
               className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
                 kindFilter === tab.id
                   ? tab.id === 'PARTS_SALE'
@@ -126,6 +147,30 @@ export const CustomerInvoicesView: React.FC = () => {
               }`}
             >
               <tab.icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              { id: 'ALL', label: 'All payments' },
+              { id: 'UNPAID', label: 'Unpaid' },
+              { id: 'PARTIAL', label: 'Partial' },
+              { id: 'PAID', label: 'Paid' }
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setPayFilter(tab.id)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                payFilter === tab.id
+                  ? 'bg-slate-700 text-white border-slate-600'
+                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-600'
+              }`}
+            >
               {tab.label}
             </button>
           ))}
@@ -216,6 +261,14 @@ export const CustomerInvoicesView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
+                        if (liveCustomer) {
+                          addToast({
+                            type: 'info',
+                            title: 'Pay at the garage',
+                            message: 'The workshop records payments. This invoice updates after the payment is saved.',
+                          });
+                          return;
+                        }
                         setPayAmount(invoiceRemaining(active).toFixed(2));
                         setShowPayModal(true);
                       }}
@@ -227,7 +280,9 @@ export const CustomerInvoicesView: React.FC = () => {
                   )}
                 </div>
               </div>
-              <InvoiceDocument invoice={active} theme="dark" />
+              <div id="garage-sheet" className="invoice-sheet bg-white">
+                <InvoiceDocument invoice={active} theme="light" />
+              </div>
             </div>
           ) : null}
         </div>
@@ -386,28 +441,38 @@ export const CustomerInvoicesView: React.FC = () => {
                 Bank transfer
               </button>
             </div>
-            <button
-              type="button"
-              onClick={handleExecutePayment}
-              disabled={isProcessingPayment}
-              className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {isProcessingPayment ? (
-                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  Confirm payment
-                </>
-              )}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPayModal(false)}
+                disabled={isProcessingPayment}
+                className="w-1/2 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecutePayment}
+                disabled={isProcessingPayment}
+                className="w-1/2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isProcessingPayment ? (
+                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    Confirm payment
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {receiptToView && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
-          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+          <div className="print-sheet relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-base font-bold text-white">Payment receipt</h3>
               <button type="button" onClick={() => setReceiptToView(null)} className="p-1 text-slate-400 rounded-full bg-slate-800">
@@ -432,8 +497,8 @@ export const CustomerInvoicesView: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                addToast({ type: 'success', title: 'Receipt download', message: `${receiptToView.receiptNumber}.pdf started.` });
-                setReceiptToView(null);
+                document.title = receiptToView.receiptNumber;
+                window.print();
               }}
               className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold"
             >

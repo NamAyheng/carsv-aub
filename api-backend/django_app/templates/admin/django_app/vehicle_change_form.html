@@ -29,8 +29,12 @@
 
         <section class="cp-banner">
             <div class="cp-identity">
-                <span class="vp-mark">
-                    <span class="material-symbols-outlined">directions_car</span>
+                <span class="vp-mark{% if profile.image %} has-photo{% endif %}">
+                    {% if profile.image %}
+                        <img class="vp-photo" src="{{ profile.image }}" alt="">
+                    {% else %}
+                        <span class="material-symbols-outlined">directions_car</span>
+                    {% endif %}
                 </span>
                 <div>
                     <div class="cp-name-row">
@@ -178,6 +182,19 @@
                     </div>
                     <span class="vd-pass">Status: PASSED</span>
                 </div>
+                {% if profile.inspection.staff_name %}
+                    <div class="vd-staff">
+                        {% if profile.inspection.staff_photo %}
+                            <img src="{{ profile.inspection.staff_photo }}" alt="">
+                        {% else %}
+                            <span class="cc-avatar">{{ profile.inspection.staff_initials }}</span>
+                        {% endif %}
+                        <div>
+                            <span>Checked in by</span>
+                            <strong>{{ profile.inspection.staff_name }}</strong>
+                        </div>
+                    </div>
+                {% endif %}
                 <div class="vd-insp-grid">
                     <article class="vd-insp-tile">
                         <span>Fuel Tank Level</span>
@@ -256,7 +273,7 @@
                         <span class="material-symbols-outlined">close</span>
                     </a>
                 </div>
-                <form method="post" novalidate>
+                <form method="post" enctype="multipart/form-data" novalidate>
                     {% csrf_token %}
                     {{ adminform.form.non_field_errors }}
                     {% include "admin/django_app/vehicle_form_fields.html" %}

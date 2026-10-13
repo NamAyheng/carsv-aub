@@ -1,4 +1,4 @@
-/** Match records to the signed-in customer. Demo user John Doe is cust-1. */
+/** Match records to the signed-in customer. */
 export function belongsToCurrentCustomer(
   currentUser: { id?: string; email?: string; name?: string } | undefined,
   rec: {
@@ -11,6 +11,9 @@ export function belongsToCurrentCustomer(
   if (!currentUser) return false;
 
   const userEmail = (currentUser.email || '').toLowerCase();
+  if (String(currentUser.id || '').startsWith('api-')) {
+    return rec.customerId === currentUser.id;
+  }
   const recEmail = (rec.customerEmail || rec.email || '').toLowerCase();
   if (userEmail && recEmail && userEmail === recEmail) return true;
 
@@ -22,21 +25,10 @@ export function belongsToCurrentCustomer(
     return true;
   }
 
-  const isJohnDemo =
-    userEmail === 'john.doe@example.com' || currentUser.id === 'user-customer-demo';
-  if (isJohnDemo) {
-    return rec.customerId === 'cust-1' || rec.customerName === 'John Doe';
-  }
-
   return false;
 }
 
 export function demoCustomerId(currentUser?: { id?: string; email?: string }): string {
-  if (
-    currentUser?.email?.toLowerCase() === 'john.doe@example.com' ||
-    currentUser?.id === 'user-customer-demo'
-  ) {
-    return 'cust-1';
-  }
-  return currentUser?.id || 'cust-1';
+  if (String(currentUser?.id || '').startsWith('api-')) return currentUser?.id || '';
+  return currentUser?.id || '';
 }

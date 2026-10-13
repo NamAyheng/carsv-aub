@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Wrench,
   Car,
@@ -9,20 +10,62 @@ import {
   Layers,
   FileText,
   DollarSign,
-  User,
   ShieldCheck,
   ChevronRight,
-  Maximize2,
+  ChevronDown,
+  ArrowLeft,
   Sparkles,
   Fuel,
-  Gauge,
   Camera,
-  X,
   Package
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { belongsToCurrentCustomer } from '../../utils/customerScope';
-import { WorkOrder, RepairTask, CCTVCamera } from '../../types';
+import { CustomerPartRequestRow, listCustomerPartRequests } from '../../api/garage';
+
+function trackingStatusTone(status?: string) {
+  switch (status) {
+    case 'PENDING':
+      return {
+        bar: 'bg-orange-700',
+        text: 'text-orange-700',
+        badge: 'bg-orange-50 text-orange-800 border-orange-200',
+        dot: 'bg-orange-600',
+      };
+    case 'WAITING_APPROVAL':
+    case 'QUALITY_CHECK':
+    case 'WAITING_PARTS':
+      return {
+        bar: 'bg-amber-600',
+        text: 'text-amber-700',
+        badge: 'bg-amber-50 text-amber-800 border-amber-200',
+        dot: 'bg-amber-600',
+      };
+    case 'READY_FOR_PICKUP':
+    case 'COMPLETED':
+    case 'DELIVERED':
+      return {
+        bar: 'bg-emerald-600',
+        text: 'text-emerald-700',
+        badge: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+        dot: 'bg-emerald-600',
+      };
+    case 'CANCELLED':
+      return {
+        bar: 'bg-rose-600',
+        text: 'text-rose-700',
+        badge: 'bg-rose-50 text-rose-800 border-rose-200',
+        dot: 'bg-rose-600',
+      };
+    default:
+      return {
+        bar: 'bg-blue-600',
+        text: 'text-blue-700',
+        badge: 'bg-blue-50 text-blue-800 border-blue-200',
+        dot: 'bg-blue-600',
+      };
+  }
+}
 
 interface ClientRepairTask {
   id: string;
@@ -42,147 +85,230 @@ interface CustomerWorkOrderTrackingProps {
   onNavigateToParts?: () => void;
 }
 
+function StaffFace({ name, photo, light }: { name: string; photo?: string; light?: boolean }) {
+  if (photo) {
+    return <img src={photo} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />;
+  }
+  const letter = (name || '?').trim().charAt(0).toUpperCase() || '?';
+  return (
+    <span
+      className={`w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-xs font-bold ${
+        light ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-slate-200'
+      }`}
+    >
+      {letter}
+    </span>
+  );
+}
+
 export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps> = ({
   defaultWorkOrderId,
   onNavigateToParts
 }) => {
-  const { workOrders, vehicles, cctvCameras, estimates, currentUser, theme, approveEstimate, rejectEstimate } = useApp();
+  const { workOrders, vehicles, estimates, invoices, currentUser, theme, approveEstimate, rejectEstimate } = useApp();
   const isDark = theme === 'dark';
+  const navigate = useNavigate();
 
   // Pick customer work orders
   const customerWorkOrders = (workOrders || []).filter((wo) => belongsToCurrentCustomer(currentUser, wo));
 
-  const [selectedWOId, setSelectedWOId] = useState<string>(
-    defaultWorkOrderId || customerWorkOrders[0]?.id || 'wo-1'
-  );
+  const [jobParams, setJobParams] = useSearchParams();
+  const jobQuery = jobParams.get('job');
+  const [selectedWOId, setSelectedWOId] = useState<string>(defaultWorkOrderId || '');
+  const [listTab, setListTab] = useState<'ACTIVE' | 'WAITING' | 'READY' | 'FINISHED' | 'ALL'>('ALL');
+  const [partRequests, setPartRequests] = useState<CustomerPartRequestRow[]>([]);
+  const [partsExpanded, setPartsExpanded] = useState(false);
+  const [servicesExpanded, setServicesExpanded] = useState(false);
+  useEffect(() => {
+    if (!jobQuery) {
+      if (!defaultWorkOrderId) setSelectedWOId('');
+      return;
+    }
+    const match = customerWorkOrders.find((wo) => wo.workOrderNumber === jobQuery || wo.id === jobQuery);
+    setSelectedWOId(match ? match.id : '');
+    setPartsExpanded(false);
+    setServicesExpanded(false);
+  }, [jobQuery, workOrders, defaultWorkOrderId]);
 
-  // Active work order
-  const currentWO = (workOrders || []).find((w) => w.id === selectedWOId) || customerWorkOrders[0] || (workOrders || [])[0];
+  useEffect(() => {
+    let cancelled = false;
+    listCustomerPartRequests()
+      .then((rows) => {
+        if (!cancelled) setPartRequests(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setPartRequests([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workOrders]);
+
+  const openVisit = (workOrderId: string, workOrderNumber: string) => {
+    setSelectedWOId(workOrderId);
+    setJobParams({ job: workOrderNumber || workOrderId });
+  };
+
+  // Active work order. The list stays up until a visit is chosen.
+  const currentWO = customerWorkOrders.find((w) => w.id === selectedWOId);
 
   // Associated vehicle
   const currentVehicle = (vehicles || []).find((v) => v.id === currentWO?.vehicleId);
 
-  // Associated bay camera
-  const bayCamera = (cctvCameras || []).find((c) => c.bayNumber?.includes('02')) || (cctvCameras || [])[0];
-
-  // Photo Lightbox state
-  const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; title: string; note: string } | null>(null);
-
   // Active tab within the work order tracking screen
-  const [activeTrackingTab, setActiveTrackingTab] = useState<'OVERVIEW' | 'TASKS' | 'INSPECTION' | 'PARTS' | 'CCTV'>('OVERVIEW');
+  const [activeTrackingTab, setActiveTrackingTab] = useState<'OVERVIEW' | 'TASKS' | 'INSPECTION' | 'PARTS' | 'CCTV'>(
+    jobParams.get('tab') === 'PARTS' ? 'PARTS' : 'OVERVIEW'
+  );
 
-  // Realistic mock parts used if not on work order
-  const partsUsed = currentWO?.partsUsed || [
-    {
-      partId: 'part-101',
-      partName: 'Akebono Ceramic Front Brake Pads',
-      partNumber: 'AK-BP-8902',
-      quantity: 1,
-      unitPrice: 85.00,
-      total: 85.00
-    },
-    {
-      partId: 'part-102',
-      partName: 'Toyota Genuine Dot 4 Brake Fluid (1L)',
-      partNumber: 'TOY-BF-4001',
-      quantity: 2,
-      unitPrice: 15.00,
-      total: 30.00
-    },
-    {
-      partId: 'part-103',
-      partName: 'Brake Caliper Hardware Retainer Clips',
-      partNumber: 'HW-CL-2200',
-      quantity: 1,
-      unitPrice: 20.00,
-      total: 20.00
-    }
-  ];
+  const partsUsed = currentWO?.partsUsed || [];
+  const visitPartRequests = useMemo(
+    () =>
+      partRequests.filter(
+        (row) =>
+          currentWO?.bookingId &&
+          row.bookingId === currentWO.bookingId &&
+          row.fulfillment === 'INSTALL_IN_WORKSHOP'
+      ),
+    [partRequests, currentWO?.bookingId]
+  );
 
   const totalPartsCost = partsUsed.reduce((acc, p) => acc + ((p as { total?: number; totalPrice?: number }).total ?? p.totalPrice ?? 0), 0);
-
-  // Realistic individual tasks
-  const tasks: ClientRepairTask[] = [
-    {
-      id: 'task-1',
-      title: 'Digital Intake 60-Point Inspection',
-      description: 'Check brake disc thickness, pad remaining life, fluid moisture content, and tire treads.',
-      status: 'COMPLETED',
-      priority: 'HIGH',
-      assignedToName: 'Dara Kim',
-      assignedToId: 'tech-1',
-      estimatedHours: 0.5,
-      actualHours: 0.5,
-      completedAt: 'Today 09:15 AM'
-    },
-    {
-      id: 'task-2',
-      title: 'Replace Front Ceramic Brake Pads',
-      description: 'Remove worn ceramic pads, clean caliper carrier slides, apply synthetic brake grease, and install Akebono ceramic pads.',
-      status: 'IN_PROGRESS',
-      priority: 'HIGH',
-      assignedToName: 'Dara Kim',
-      assignedToId: 'tech-1',
-      estimatedHours: 1.5,
-      actualHours: 1.1,
-      completedAt: undefined
-    },
-    {
-      id: 'task-3',
-      title: 'Resurface Front Brake Rotors on On-Car Lathe',
-      description: 'Measure rotor runout tolerance with micrometer, lathe resurface to eliminate brake shudder and pulsation.',
-      status: 'COMPLETED',
-      priority: 'MEDIUM',
-      assignedToName: 'Dara Kim',
-      assignedToId: 'tech-1',
-      estimatedHours: 1.0,
-      actualHours: 0.8,
-      completedAt: 'Today 10:45 AM'
-    },
-    {
-      id: 'task-4',
-      title: 'Road Test, ABS Calibration & Quality Inspection',
-      description: 'Conduct dynamic highway stop test, bed-in new ceramic friction pads, and calibrate ABS wheel speed sensors.',
-      status: 'PENDING',
-      priority: 'HIGH',
-      assignedToName: 'Sokha Heng',
-      assignedToId: 'tech-2',
-      estimatedHours: 0.8,
-      actualHours: 0,
-      completedAt: undefined
+  // Hide quote requests already covered by issued stock (same SKU/name × qty) so totals are not double-counted.
+  const openPartRequests = useMemo(() => {
+    const issuedQty = new Map<string, number>();
+    for (const part of partsUsed) {
+      const qty = Math.max(1, Number(part.quantity) || 1);
+      for (const value of [part.partNumber, part.partName]) {
+        const key = (value || '').trim().toLowerCase();
+        if (!key) continue;
+        issuedQty.set(key, (issuedQty.get(key) || 0) + qty);
+      }
     }
-  ];
-
-  // Inspection Photos Gallery
-  const inspectionPhotos = [
-    {
-      url: '/images/others/service-oil-change.jpg',
-      title: 'Front Brake Rotor Wear',
-      note: 'Minor concentric grooving detected on front-left brake rotor surface.'
-    },
-    {
-      url: '/images/others/mechanic-hands-wrench-engine.jpg',
-      title: 'Brake Pad Lining Remaining',
-      note: 'Friction material measured at 2.4mm (threshold limit is 3.0mm).'
-    },
-    {
-      url: '/images/cars/silver-bmw-coupe-sunset.jpg',
-      title: 'OBD-II Health Scan',
-      note: 'No active fault codes in engine or transmission ECU modules.'
-    },
-    {
-      url: '/images/cars/white-mercedes-suv-garage-neon.jpg',
-      title: 'Exterior Intake Walkaround',
-      note: 'Minor pre-existing paint chip on front right bumper lip noted.'
+    return visitPartRequests.filter((row) => {
+      if (row.issued || row.status === 'CANCELLED') return false;
+      const keys = [row.sku, row.productName]
+        .map((value) => (value || '').trim().toLowerCase())
+        .filter(Boolean);
+      for (const key of keys) {
+        const left = issuedQty.get(key) || 0;
+        if (left > 0) {
+          issuedQty.set(key, left - 1);
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [visitPartRequests, partsUsed]);
+  const groupedOpenPartRequests = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        productName: string;
+        sku: string;
+        quantity: number;
+        unitPrice: number;
+        lineTotal: number;
+        numbers: string[];
+        status: string;
+      }
+    >();
+    for (const row of openPartRequests) {
+      const key = `${(row.sku || '').trim().toLowerCase()}|${(row.productName || '').trim().toLowerCase()}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.quantity += 1;
+        existing.lineTotal += row.price || 0;
+        existing.numbers.push(row.number);
+      } else {
+        groups.set(key, {
+          key,
+          productName: row.productName,
+          sku: row.sku,
+          quantity: 1,
+          unitPrice: row.price || 0,
+          lineTotal: row.price || 0,
+          numbers: [row.number],
+          status: row.status,
+        });
+      }
     }
-  ];
+    return [...groups.values()];
+  }, [openPartRequests]);
+  const requestedPartsCost = openPartRequests.reduce((sum, row) => sum + (row.price || 0), 0);
+  const partsLineTotal = totalPartsCost + requestedPartsCost;
+
+  const tasks: ClientRepairTask[] = (currentWO?.tasks || []).map((task) => ({
+    id: task.id,
+    title: task.title,
+    description: task.description,
+    status: task.status === 'COMPLETED' ? 'COMPLETED' : task.status === 'PENDING' ? 'PENDING' : 'IN_PROGRESS',
+    priority: task.priority,
+    assignedToName: task.technicianName,
+    assignedToId: task.technicianId,
+    estimatedHours: task.estimatedHours,
+    actualHours: task.actualHours || 0,
+    completedAt: task.completedAt,
+  }));
+
+  const report = currentWO?.beforeInspection;
 
   const linkedQuote = (estimates || []).find(
     (e) => e.workOrderId === currentWO?.id && (e.status === 'WAITING_APPROVAL' || e.status === 'SENT')
   );
+  const jobQuote = (estimates || []).find((e) => e.workOrderId === currentWO?.id);
+  const jobInvoice = (invoices || []).find((bill) => bill.workOrderId === currentWO?.id);
+  const visitServiceTotal = (currentWO?.visitServices || []).reduce((sum, row) => sum + (row.price || 0), 0);
+  const laborAmount = currentWO?.laborCost || jobInvoice?.items?.filter((i) => i.type === 'LABOR').reduce((s, i) => s + (i.totalPrice || 0), 0) || 0;
+  const serviceAmount =
+    currentWO?.serviceCost ||
+    visitServiceTotal ||
+    jobInvoice?.items?.filter((i) => i.type === 'SERVICE').reduce((s, i) => s + (i.totalPrice || 0), 0) ||
+    0;
+  // Tracking summary must match the lines shown: services + labor + issued + still-requested parts.
+  const lineQuoteTotal =
+    laborAmount +
+    serviceAmount +
+    partsLineTotal -
+    (currentWO?.discountAmount || 0) +
+    (currentWO?.taxAmount || 0);
+  const quotedAmount =
+    lineQuoteTotal > 0
+      ? lineQuoteTotal
+      : jobQuote?.estimatedTotal ||
+        currentWO?.estimatedCost ||
+        currentWO?.invoiceTotal ||
+        jobInvoice?.totalAmount ||
+        0;
+  const progress = Math.max(0, Math.min(100, currentWO?.tasks?.[0]?.progress ?? 0));
+  const dueDate = currentWO?.tasks?.[0]?.dueDate || '';
+  const visitServices = currentWO?.visitServices || [];
+  const serviceLines = useMemo(() => {
+    if (visitServices.length > 0) {
+      return visitServices.map((row, index) => ({
+        key: String(row.id ?? `${row.name}-${index}`),
+        name: row.name,
+        price: row.price || 0,
+        detail: row.primary ? 'primary' : 'added',
+      }));
+    }
+    return (jobInvoice?.items || [])
+      .filter((item) => item.type === 'SERVICE')
+      .map((item, index) => ({
+        key: `inv-service-${item.id ?? index}`,
+        name: item.description || 'Service',
+        price: item.totalPrice || 0,
+        detail: '',
+      }));
+  }, [visitServices, jobInvoice]);
+  const canExpandServices = serviceLines.length > 1;
 
   const statusLabel = (status?: string) => {
     switch (status) {
+      case 'PENDING':
+        return 'Waiting';
+      case 'ASSIGNED':
+        return 'Inspection';
       case 'READY_FOR_PICKUP':
         return 'Ready for pickup';
       case 'WAITING_APPROVAL':
@@ -203,49 +329,195 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
   };
 
   const milestones = [
-    { title: 'Vehicle Received', key: 'PENDING' },
-    { title: 'Inspection Completed', key: 'ASSIGNED' },
-    { title: 'Diagnosis Completed', key: 'WAITING_APPROVAL' },
-    { title: 'Repair In Progress', key: 'IN_PROGRESS' },
-    { title: 'Quality Check', key: 'QUALITY_CHECK' },
-    { title: 'Ready for Pickup', key: 'READY_FOR_PICKUP' }
+    { title: 'Waiting', key: 'PENDING' },
+    { title: 'Inspection', key: 'ASSIGNED' },
+    { title: 'Quote approval', key: 'WAITING_APPROVAL' },
+    { title: 'Repairing', key: 'IN_PROGRESS' },
+    { title: 'Quality check', key: 'QUALITY_CHECK' },
+    { title: 'Ready for pickup', key: 'READY_FOR_PICKUP' },
   ].map((step) => {
-    const order = ['PENDING', 'ASSIGNED', 'WAITING_APPROVAL', 'IN_PROGRESS', 'WAITING_PARTS', 'QUALITY_CHECK', 'READY_FOR_PICKUP', 'COMPLETED', 'DELIVERED'];
+    const order = [
+      'PENDING',
+      'ASSIGNED',
+      'WAITING_APPROVAL',
+      'IN_PROGRESS',
+      'WAITING_PARTS',
+      'QUALITY_CHECK',
+      'READY_FOR_PICKUP',
+      'COMPLETED',
+      'DELIVERED',
+    ];
     const current = currentWO?.status || 'IN_PROGRESS';
     const cIdx = order.indexOf(current);
     const sIdx = order.indexOf(step.key);
     let status: 'completed' | 'current' | 'upcoming' = 'upcoming';
-    if (current === 'READY_FOR_PICKUP' || current === 'COMPLETED' || current === 'DELIVERED') {
-      status = step.key === 'READY_FOR_PICKUP' ? 'current' : 'completed';
-      if (step.key === 'READY_FOR_PICKUP' && (current === 'COMPLETED' || current === 'DELIVERED')) status = 'completed';
-    } else if (sIdx < cIdx) status = 'completed';
-    else if (step.key === current || (current === 'WAITING_PARTS' && step.key === 'IN_PROGRESS')) status = 'current';
+    if (current === 'COMPLETED' || current === 'DELIVERED') {
+      status = 'completed';
+      if (step.key === 'READY_FOR_PICKUP') status = 'completed';
+    } else if (current === 'READY_FOR_PICKUP') {
+      status = sIdx < order.indexOf('READY_FOR_PICKUP') ? 'completed' : step.key === 'READY_FOR_PICKUP' ? 'current' : 'upcoming';
+    } else if (sIdx < cIdx || (current === 'WAITING_PARTS' && sIdx <= order.indexOf('IN_PROGRESS'))) {
+      status = 'completed';
+    } else if (step.key === current || (current === 'WAITING_PARTS' && step.key === 'IN_PROGRESS')) {
+      status = 'current';
+    }
     return { title: step.title, status };
   });
 
-  return (
-    <div className="space-y-6">
-      {/* Top Selector if customer has multiple active orders */}
-      {customerWorkOrders.length > 1 && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-2">
-          <span className="text-xs text-slate-400 font-bold uppercase tracking-wider shrink-0">
-            Select Work Order:
-          </span>
-          {customerWorkOrders.map((wo) => (
+  const visitCards = useMemo(() => {
+    const openStatuses = [
+      'PENDING',
+      'ASSIGNED',
+      'IN_PROGRESS',
+      'WAITING_APPROVAL',
+      'WAITING_PARTS',
+      'QUALITY_CHECK',
+      'READY_FOR_PICKUP',
+    ];
+    const filtered = customerWorkOrders.filter((wo) => {
+      // Waiting (0%) and every other open workshop stage stay on Tracking.
+      if (listTab === 'ACTIVE') {
+        return openStatuses.includes(wo.status) && wo.status !== 'READY_FOR_PICKUP' && wo.status !== 'WAITING_APPROVAL';
+      }
+      if (listTab === 'WAITING') return wo.status === 'WAITING_APPROVAL';
+      if (listTab === 'READY') return wo.status === 'READY_FOR_PICKUP';
+      if (listTab === 'FINISHED') return wo.status === 'COMPLETED' || wo.status === 'DELIVERED';
+      return true;
+    });
+    return [...filtered].sort((left, right) => {
+      const parked = (status?: string) => (status === 'COMPLETED' || status === 'DELIVERED' || status === 'CANCELLED' ? 1 : 0);
+      const rank = parked(left.status) - parked(right.status);
+      if (rank !== 0) return rank;
+      // Newer / earlier-stage (including 0% Waiting) first.
+      return (left.tasks?.[0]?.progress ?? 0) - (right.tasks?.[0]?.progress ?? 0);
+    });
+  }, [customerWorkOrders, listTab]);
+  const vehicleCount = new Set(customerWorkOrders.map((wo) => wo.vehicleId).filter(Boolean)).size;
+
+  if (!currentWO) {
+    return (
+      <div className="space-y-5">
+        <div className={`rounded-3xl border p-6 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <h2 className={`text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Tracking</h2>
+          <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            {customerWorkOrders.length === 0
+              ? 'When a car is booked into the workshop, its repair shows up here.'
+              : `${vehicleCount} ${vehicleCount === 1 ? 'vehicle' : 'vehicles'} · ${customerWorkOrders.length} ${customerWorkOrders.length === 1 ? 'repair' : 'repairs'}. Open one to follow the work.`}
+          </p>
+        </div>
+
+        <div
+          className={`flex flex-wrap p-1.5 rounded-2xl gap-2 border ${
+            isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-100/80 border-slate-200'
+          }`}
+        >
+          {(
+            [
+              { id: 'ACTIVE', label: 'In workshop' },
+              { id: 'WAITING', label: 'Needs approval' },
+              { id: 'READY', label: 'Ready' },
+              { id: 'FINISHED', label: 'Finished' },
+              { id: 'ALL', label: 'All' },
+            ] as const
+          ).map((tab) => (
             <button
-              key={wo.id}
-              onClick={() => setSelectedWOId(wo.id)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                selectedWOId === wo.id
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+              key={tab.id}
+              type="button"
+              onClick={() => setListTab(tab.id)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                listTab === tab.id
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : isDark
+                    ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-white'
               }`}
             >
-              {wo.workOrderNumber || 'WO-1024'} • {wo.vehicleInfo}
+              {tab.label}
             </button>
           ))}
         </div>
-      )}
+
+        {visitCards.length === 0 ? (
+          <div
+            className={`rounded-3xl border p-10 text-center text-sm ${
+              isDark ? 'bg-slate-900/40 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'
+            }`}
+          >
+            No repairs in this group.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {visitCards.map((wo) => {
+              const car = (vehicles || []).find((item) => item.id === wo.vehicleId);
+              const photo = car?.imageUrl || car?.image || '';
+              const progressValue = Math.max(0, Math.min(100, wo.tasks?.[0]?.progress ?? 0));
+              const tone = trackingStatusTone(wo.status);
+              return (
+                <button
+                  key={wo.id}
+                  type="button"
+                  onClick={() => openVisit(wo.id, wo.workOrderNumber)}
+                  className={`text-left rounded-3xl border overflow-hidden flex transition-all hover:-translate-y-0.5 ${
+                    isDark ? 'bg-slate-900 border-slate-800 hover:border-blue-500/40' : 'bg-white border-slate-200 hover:border-blue-300 shadow-sm'
+                  }`}
+                >
+                  <span className={`w-1.5 shrink-0 ${tone.bar}`} />
+                  <span className="flex-1 p-4 space-y-3">
+                    <span className="flex items-start justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className={`block text-[11px] font-mono font-bold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
+                          {wo.workOrderNumber || 'Repair'}
+                        </span>
+                        <span className={`block text-base font-black truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          {wo.vehicleInfo || 'Vehicle'}
+                        </span>
+                      </span>
+                      <span
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border shrink-0 ${
+                          isDark
+                            ? 'bg-slate-950 text-white border-slate-700'
+                            : 'bg-slate-100 text-slate-800 border-slate-200'
+                        }`}
+                      >
+                        {wo.vehiclePlate || 'No plate'}
+                      </span>
+                    </span>
+                    {photo ? (
+                      <img src={photo} alt="" className="h-24 w-full object-cover rounded-2xl" />
+                    ) : null}
+                    <span className={`block text-xs line-clamp-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {wo.reportedProblem || 'No problem notes yet.'}
+                    </span>
+                    <span className="flex items-center justify-between gap-2">
+                      <span className={`text-xs font-bold ${tone.text}`}>{wo.statusLabel || statusLabel(wo.status)}</span>
+                      <span className={`text-[11px] font-mono shrink-0 ${tone.text}`}>{progressValue}%</span>
+                    </span>
+                    <span className={`block h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                      <span className={`block h-full ${tone.bar}`} style={{ width: `${progressValue}%` }} />
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedWOId('');
+          setJobParams({});
+        }}
+        className={`inline-flex items-center gap-2 text-xs font-bold ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`}
+      >
+        <ArrowLeft className="w-4 h-4" />
+        All tracking
+      </button>
 
       {currentWO?.status === 'READY_FOR_PICKUP' && (
         <div
@@ -260,7 +532,33 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
         </div>
       )}
 
-      {linkedQuote && (
+      {currentWO?.status === 'WAITING_APPROVAL' && (
+        <div
+          className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+            isDark ? 'border-amber-500/30 bg-amber-950/30' : 'border-amber-200 bg-amber-50'
+          }`}
+        >
+          <div className="text-sm">
+            <div className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Quote ready for {currentWO.workOrderNumber}
+            </div>
+            <p className={`text-xs mt-1 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+              Inspection is done. Open Quotes to review the planned services, extras, parts, and total before repair continues.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              navigate(`/quotes?job=${encodeURIComponent(currentWO.workOrderNumber || currentWO.id)}`)
+            }
+            className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold shrink-0"
+          >
+            Open quote
+          </button>
+        </div>
+      )}
+
+      {linkedQuote && currentWO?.status !== 'WAITING_APPROVAL' && (
         <div
           className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
             isDark
@@ -312,11 +610,11 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
           <div className="space-y-3 max-w-2xl">
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="px-3 py-1 rounded-lg text-xs font-mono font-extrabold uppercase bg-blue-600/20 text-blue-400 border border-blue-500/30">
-                {currentWO?.workOrderNumber || 'WO-1024'}
+                {currentWO?.workOrderNumber || 'No job'}
               </span>
-              <span className="px-3 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                <span>{statusLabel(currentWO?.status)}</span>
+              <span className={`px-3 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 ${trackingStatusTone(currentWO?.status).badge}`}>
+                <span className={`w-2 h-2 rounded-full ${trackingStatusTone(currentWO?.status).dot} ${currentWO?.status === 'COMPLETED' || currentWO?.status === 'CANCELLED' || currentWO?.status === 'DELIVERED' ? '' : 'animate-pulse'}`} />
+                <span>{currentWO?.statusLabel || statusLabel(currentWO?.status)}</span>
               </span>
               <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-red-500/15 text-red-400 border border-red-500/30">
                 Priority: {currentWO?.priority || 'HIGH'}
@@ -324,7 +622,7 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
             </div>
 
             <h2 className={`text-2xl sm:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              {currentWO?.vehicleInfo || 'Toyota Camry Hybrid (2022)'}
+              {currentWO?.vehicleInfo || 'No vehicle on this job'}
             </h2>
 
             <div
@@ -336,11 +634,79 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
                 Reported problem / symptoms
               </span>
               <p className="font-medium leading-relaxed">
-                {currentWO?.reportedProblem ||
-                  currentWO?.problemDescription ||
-                  'High-pitch squeal when coming to a halt at traffic lights. Steering wheel vibration during moderate braking from 60 km/h.'}
+                {currentWO?.reportedProblem || currentWO?.problemDescription || 'Not recorded'}
               </p>
             </div>
+            {(visitServices.length > 0 || partsUsed.length > 0 || openPartRequests.length > 0) && (
+              <div
+                className={`p-3.5 rounded-2xl border text-xs ${
+                  isDark ? 'bg-slate-950/70 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'
+                }`}
+              >
+                <span className="text-slate-500 block text-[10px] font-bold uppercase tracking-wider mb-2">
+                  On this visit
+                </span>
+                {visitServices.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className={`block text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Services
+                    </span>
+                    <ul className="space-y-1.5">
+                      {visitServices.map((row, index) => (
+                        <li key={`${row.name}-${index}`} className="flex justify-between gap-3 font-medium">
+                          <span>
+                            {row.name}
+                            {!row.primary && (
+                              <span className="ml-1.5 text-[10px] uppercase text-slate-500">extra</span>
+                            )}
+                          </span>
+                          <span className="font-mono shrink-0">${(row.price || 0).toFixed(2)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(partsUsed.length > 0 || openPartRequests.length > 0) && (
+                  <div
+                    className={`space-y-1.5 ${
+                      visitServices.length > 0
+                        ? `mt-3 pt-3 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`
+                        : ''
+                    }`}
+                  >
+                    <span className={`block text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Parts
+                    </span>
+                    <ul className="space-y-1.5">
+                      {groupedOpenPartRequests.map((row) => (
+                        <li key={`req-${row.key}`} className="flex justify-between gap-3 font-medium">
+                          <span>
+                            {row.productName}
+                            {row.quantity > 1 ? ` ×${row.quantity}` : ''}
+                            <span className="ml-1.5 text-[10px] uppercase text-amber-600">
+                              {row.status === 'CONFIRMED' ? 'confirmed' : row.status === 'NOTED' ? 'noted' : 'requested'}
+                            </span>
+                          </span>
+                          <span className="font-mono shrink-0">${row.lineTotal.toFixed(2)}</span>
+                        </li>
+                      ))}
+                      {partsUsed.map((part) => (
+                        <li key={`issued-${part.partId}`} className="flex justify-between gap-3 font-medium">
+                          <span>
+                            {part.partName}
+                            {part.quantity > 1 ? ` ×${part.quantity}` : ''}
+                            <span className="ml-1.5 text-[10px] uppercase text-emerald-600">issued</span>
+                          </span>
+                          <span className="font-mono shrink-0">
+                            ${((part as { total?: number; totalPrice?: number }).total ?? part.totalPrice ?? 0).toFixed(2)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
             {currentWO?.diagnosis && (
               <div
                 className={`p-3.5 rounded-2xl border text-xs ${
@@ -359,29 +725,50 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
           {/* Quick Info Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs shrink-0 lg:w-96">
             <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-              <span className="text-slate-500 text-[10px] block font-semibold">Assigned master tech</span>
-              <span className={`font-bold flex items-center gap-1.5 mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                <User className="w-3.5 h-3.5 text-blue-500" />
-                {currentWO?.assignedTechnicianName || 'Dara Kim'}
-              </span>
-            </div>
-
-            <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <span className="text-slate-500 text-[10px] block font-semibold">Estimated cost</span>
               <span className="font-black text-emerald-600 font-mono text-sm mt-0.5 block">
-                ${(currentWO?.estimatedCost || 285).toFixed(2)}
+                {quotedAmount > 0 ? `$${quotedAmount.toFixed(2)}` : 'Not quoted'}
               </span>
             </div>
 
             <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <span className="text-slate-500 text-[10px] block font-semibold">Est. completion</span>
-              <span className={`font-bold mt-0.5 block ${isDark ? 'text-white' : 'text-slate-900'}`}>Today, 04:30 PM</span>
+              <span className={`font-bold mt-0.5 block ${isDark ? 'text-white' : 'text-slate-900'}`}>{dueDate || 'Not set'}</span>
             </div>
 
             <div className={`p-3 rounded-xl border col-span-2 sm:col-span-3 ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <span className="text-slate-500 text-[10px] block font-semibold">Work order intake date</span>
               <span className={`font-mono ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                {currentWO?.createdAt || 'September 5, 2026 at 08:30 AM'}
+                {currentWO?.createdAt || 'Not recorded'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6 relative z-10">
+          <div className={`p-3 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            <StaffFace
+              name={currentWO?.beforeInspection?.inspectorName || ''}
+              photo={currentWO?.beforeInspection?.inspectorPhoto}
+              light={!isDark}
+            />
+            <div>
+              <span className="text-slate-500 text-[10px] block font-semibold">Inspected by</span>
+              <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                {currentWO?.beforeInspection?.inspectorName || 'Not recorded'}
+              </span>
+            </div>
+          </div>
+          <div className={`p-3 rounded-xl border flex items-center gap-3 ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            <StaffFace
+              name={currentWO?.assignedTechnicianName || ''}
+              photo={currentWO?.assignedTechnicianPhoto}
+              light={!isDark}
+            />
+            <div>
+              <span className="text-slate-500 text-[10px] block font-semibold">Repaired by</span>
+              <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                {currentWO?.assignedTechnicianName || 'Unassigned'}
               </span>
             </div>
           </div>
@@ -395,13 +782,13 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
                 <Wrench className="w-4 h-4 text-blue-500" />
                 Live repair progress
               </span>
-              <span className="text-sm font-black text-blue-600 font-mono">70% complete</span>
+              <span className={`text-sm font-black font-mono ${trackingStatusTone(currentWO?.status).text}`}>{progress}% complete</span>
             </div>
 
             <div className={`w-full h-3 rounded-full overflow-hidden p-0.5 border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
               <div
-                className="bg-gradient-to-r from-blue-600 via-sky-400 to-emerald-400 h-full rounded-full transition-all duration-500 shadow-lg shadow-blue-500/25"
-                style={{ width: `${currentWO?.progressPercentage || 70}%` }}
+                className={`h-full rounded-full transition-all duration-500 ${trackingStatusTone(currentWO?.status).bar}`}
+                style={{ width: `${progress}%` }}
               />
             </div>
           </div>
@@ -444,13 +831,19 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
       </div>
 
       {/* 3. SUB-TABS: TASKS, INSPECTION, PARTS, LIVE CCTV */}
-      <div className="flex border-b border-slate-800 bg-slate-900/60 p-1.5 rounded-2xl gap-2 overflow-x-auto">
+      <div
+        className={`flex flex-wrap p-1.5 rounded-2xl gap-2 overflow-x-auto border ${
+          isDark ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-100/80'
+        }`}
+      >
         <button
           onClick={() => setActiveTrackingTab('OVERVIEW')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
             activeTrackingTab === 'OVERVIEW'
-              ? 'bg-blue-600 text-white shadow-md'
-              : 'text-slate-400 hover:text-white'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+              : isDark
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-white'
           }`}
         >
           Detailed Summary
@@ -460,8 +853,10 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
           onClick={() => setActiveTrackingTab('TASKS')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
             activeTrackingTab === 'TASKS'
-              ? 'bg-blue-600 text-white shadow-md'
-              : 'text-slate-400 hover:text-white'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+              : isDark
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-white'
           }`}
         >
           <Wrench className="w-3.5 h-3.5" />
@@ -472,8 +867,10 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
           onClick={() => setActiveTrackingTab('INSPECTION')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
             activeTrackingTab === 'INSPECTION'
-              ? 'bg-blue-600 text-white shadow-md'
-              : 'text-slate-400 hover:text-white'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+              : isDark
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-white'
           }`}
         >
           <Camera className="w-3.5 h-3.5" />
@@ -484,8 +881,10 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
           onClick={() => setActiveTrackingTab('PARTS')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
             activeTrackingTab === 'PARTS'
-              ? 'bg-blue-600 text-white shadow-md'
-              : 'text-slate-400 hover:text-white'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+              : isDark
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-white'
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
@@ -497,11 +896,13 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
             activeTrackingTab === 'CCTV'
               ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
-              : 'text-red-400 hover:bg-red-950/40'
+              : isDark
+                ? 'text-red-400 hover:bg-red-950/40'
+                : 'text-red-600 hover:bg-red-50'
           }`}
         >
           <Video className="w-3.5 h-3.5 animate-pulse" />
-          <span>Live CCTV Bay #02</span>
+          <span>Bay camera</span>
         </button>
       </div>
 
@@ -515,27 +916,20 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
             <div className="p-4 bg-slate-950 flex items-center justify-between border-b border-slate-800 text-xs">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                <span className="font-bold text-white">CarSV Transparency Feed • Bay #02 (Hydraulic Lift 2)</span>
+                <span className="font-bold text-white">Bay camera</span>
               </div>
-              <span className="px-2.5 py-0.5 rounded bg-red-950 text-red-400 font-mono font-bold text-[10px] border border-red-800">
-                LIVE 1080P • RECORDING
+              <span className="px-2.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono font-bold text-[10px] border border-slate-700">
+                No feed
               </span>
             </div>
 
             <div className="relative aspect-video bg-slate-950 flex items-center justify-center overflow-hidden">
-              <img
-                src={
-                  bayCamera?.thumbnailUrl ||
-                  '/images/cars/black-range-rover-front.jpg'
-                }
-                alt="Bay 2 Camera Feed"
-                className="w-full h-full object-cover opacity-90"
-              />
+              <p className="text-sm text-slate-400 px-6 text-center">No camera is connected to this repair.</p>
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
 
               {/* Camera Overlays */}
               <div className="absolute top-4 left-4 text-xs font-mono text-emerald-400 bg-black/75 px-3 py-1 rounded-lg border border-emerald-500/30">
-                CAM-02: {currentWO?.vehicleInfo}
+                No camera
               </div>
 
               <div className="absolute top-4 right-4 text-xs font-mono text-slate-300 bg-black/75 px-3 py-1 rounded-lg border border-slate-700">
@@ -544,20 +938,19 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
 
               <div className="absolute bottom-4 left-4 right-4 bg-slate-950/90 backdrop-blur-md p-3.5 rounded-2xl border border-slate-800 text-xs text-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <div>
-                  <div className="font-bold">Active Operation: Ceramic Brake Pad Installation</div>
+                  <div className="font-bold">{currentWO?.reportedProblem || 'No live operation'}</div>
                   <div className="text-[11px] text-slate-400">
-                    Mechanic: Dara Kim • Torque wrench check in progress
+                    {currentWO?.assignedTechnicianName || 'No mechanic is assigned on camera.'}
                   </div>
                 </div>
                 <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 font-mono font-bold text-xs">
-                  Bay Camera Active
+                  No feed
                 </span>
               </div>
             </div>
 
             <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-              <span>Encrypted customer video stream (TLS 1.3)</span>
-              <span className="text-slate-300 font-medium">Auto-refreshes every 3 seconds</span>
+              <span>The garage has not connected a camera to this job.</span>
             </div>
           </div>
 
@@ -572,16 +965,11 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
               <div className="space-y-3 text-xs">
                 <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-300">
                   <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">
-                    Intake Diagnosis by Master Tech Dara Kim:
+                    Job status
                   </div>
-                  Rotors showed 0.08mm lateral runout exceeding factory 0.04mm spec. Lathe resurfacing completed within 0.01mm tolerance. Installing fresh Akebono ceramic pads with molybdenum disulfide lubricant on sliding shims.
-                </div>
-
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-300">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase mb-1">
-                    Quality Inspection Roadmap:
-                  </div>
-                  Post-assembly road test scheduled for 03:30 PM. Vehicle will receive exterior foam wash and tire shine before handover.
+                  <span className={`font-bold ${trackingStatusTone(currentWO?.status).text}`}>
+                    {currentWO?.statusLabel || statusLabel(currentWO?.status)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -594,22 +982,129 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
               </div>
 
               <div className="space-y-2 text-xs text-slate-300 border-t border-slate-800/80 pt-3">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Genuine OEM Parts ({partsUsed.length} items):</span>
-                  <span className="font-mono text-white">${totalPartsCost.toFixed(2)}</span>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setPartsExpanded((open) => !open)}
+                    disabled={partsUsed.length === 0 && openPartRequests.length === 0}
+                    className="w-full flex items-center justify-between gap-2 text-left disabled:cursor-default"
+                  >
+                    <span className="text-slate-400 inline-flex items-center gap-1.5">
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 shrink-0 transition-transform ${
+                          partsExpanded ? 'rotate-0' : '-rotate-90'
+                        } ${partsUsed.length === 0 && openPartRequests.length === 0 ? 'opacity-30' : ''}`}
+                      />
+                      Parts ({partsUsed.length} issued
+                      {openPartRequests.length ? ` · ${openPartRequests.length} requested` : ''}):
+                    </span>
+                    <span className="font-mono text-white">${partsLineTotal.toFixed(2)}</span>
+                  </button>
+                  {partsExpanded && (partsUsed.length > 0 || openPartRequests.length > 0) && (
+                    <ul className="mt-2 space-y-1.5 rounded-xl border border-slate-800 bg-slate-950/80 p-2.5">
+                      {groupedOpenPartRequests.map((row) => (
+                        <li key={row.key} className="flex justify-between gap-3 text-[11px]">
+                          <span className="min-w-0 text-slate-300">
+                            {row.productName}
+                            {row.quantity > 1 ? ` (x${row.quantity})` : ''}
+                            <span className="block font-mono text-[10px] text-amber-400/90">
+                              {row.quantity > 1
+                                ? `${row.numbers[0]}… · requested`
+                                : `${row.numbers[0]} · requested`}
+                            </span>
+                          </span>
+                          <span className="font-mono text-slate-200 shrink-0">${row.lineTotal.toFixed(2)}</span>
+                        </li>
+                      ))}
+                      {partsUsed.map((part) => (
+                        <li key={part.partId} className="flex justify-between gap-3 text-[11px]">
+                          <span className="min-w-0 text-slate-300">
+                            {part.partName}
+                            <span className="block font-mono text-[10px] text-emerald-400/90">
+                              {part.partNumber || '—'} · issued ×{part.quantity}
+                            </span>
+                          </span>
+                          <span className="font-mono text-slate-200 shrink-0">
+                            ${((part as { total?: number; totalPrice?: number }).total ?? part.totalPrice ?? 0).toFixed(2)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setServicesExpanded((open) => !open)}
+                    disabled={!canExpandServices}
+                    className="w-full flex items-center justify-between gap-2 text-left disabled:cursor-default"
+                  >
+                    <span className="text-slate-400 inline-flex items-center gap-1.5">
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 shrink-0 transition-transform ${
+                          servicesExpanded && canExpandServices ? 'rotate-0' : '-rotate-90'
+                        } ${canExpandServices ? '' : 'opacity-30'}`}
+                      />
+                      Approved services ({serviceLines.length}):
+                    </span>
+                    <span className="font-mono text-white">${serviceAmount.toFixed(2)}</span>
+                  </button>
+                  {servicesExpanded && canExpandServices && (
+                    <ul className="mt-2 space-y-1.5 rounded-xl border border-slate-800 bg-slate-950/80 p-2.5">
+                      {serviceLines.map((row) => (
+                        <li key={row.key} className="flex justify-between gap-3 text-[11px]">
+                          <span className="min-w-0 text-slate-300">
+                            {row.name}
+                            {row.detail ? (
+                              <span className="block font-mono text-[10px] text-blue-400/90">{row.detail}</span>
+                            ) : null}
+                          </span>
+                          <span className="font-mono text-slate-200 shrink-0">${row.price.toFixed(2)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Certified Mechanic Labor:</span>
-                  <span className="font-mono text-white">$120.00</span>
+                  <span className="text-slate-400">Mechanic labor:</span>
+                  <span className="font-mono text-white">${laborAmount.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">60-Point Inspection & Digital Scan:</span>
-                  <span className="font-mono text-emerald-400">FREE ($35.00 Value)</span>
-                </div>
+                {(currentWO?.discountAmount || 0) > 0 && (
+                  <div className="flex justify-between text-emerald-300">
+                    <span>Discount</span>
+                    <span className="font-mono">−${(currentWO?.discountAmount || 0).toFixed(2)}</span>
+                  </div>
+                )}
+                {(currentWO?.taxAmount || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Tax</span>
+                    <span className="font-mono text-white">${(currentWO?.taxAmount || 0).toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between pt-2 border-t border-slate-800 font-bold text-sm">
-                  <span className="text-white">Estimated Total:</span>
-                  <span className="text-emerald-400 font-mono">${(totalPartsCost + 120.0).toFixed(2)}</span>
+                  <span className="text-white">Approved quote total:</span>
+                  <span className="text-emerald-400 font-mono">
+                    {quotedAmount > 0 ? `$${quotedAmount.toFixed(2)}` : 'Not quoted'}
+                  </span>
                 </div>
+                {jobInvoice && (
+                  <div className="flex justify-between items-center pt-1 text-[11px]">
+                    <span className="text-slate-500">
+                      Invoice {jobInvoice.invoiceNumber}
+                      {jobInvoice.status ? ` · ${jobInvoice.status}` : ''}
+                      {jobInvoice.amountPaid > 0 ? ` · paid $${jobInvoice.amountPaid.toFixed(2)}` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(`/invoices?invoice=${encodeURIComponent(jobInvoice.invoiceNumber)}`)
+                      }
+                      className="font-semibold text-blue-400 hover:text-blue-300"
+                    >
+                      Open invoice
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -685,116 +1180,79 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
       {activeTrackingTab === 'INSPECTION' && (
         <div className="space-y-6">
           <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 sm:p-8 space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-4 border-b border-slate-800">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 pb-4 border-b border-slate-800">
               <div>
-                <h3 className="text-lg font-bold text-white">Pre-Repair Digital Intake Inspection Report</h3>
+                <h3 className="text-lg font-bold text-white">Check-in inspection</h3>
                 <p className="text-xs text-slate-400">
-                  Recorded upon arrival: {currentWO?.vehicleInfo}
+                  Recorded when the car arrived: {currentWO?.vehicleInfo}
                 </p>
               </div>
-
-              <span className="px-3 py-1 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 self-start sm:self-auto">
-                Customer Confirmation: Confirmed ✓
-              </span>
-            </div>
-
-            {/* Gauge Metrics */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider block">
-                  Intake Mileage
-                </span>
-                <span className="text-lg font-black text-white font-mono mt-1 block">42,500 km</span>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider block">
-                  Fuel Level
-                </span>
-                <div className="flex items-center gap-2 mt-1">
-                  <Fuel className="w-4 h-4 text-amber-400" />
-                  <span className="text-lg font-black text-white font-mono">65%</span>
+              {report ? (
+                <div className="flex items-center gap-3 self-start sm:self-auto">
+                  <StaffFace name={report.inspectorName} photo={report.inspectorPhoto} />
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500 block">Inspected by</span>
+                    <strong className="text-sm text-white">{report.inspectorName || 'Not recorded'}</strong>
+                    {report.inspectionDate && (
+                      <span className="block text-[11px] text-slate-400">{report.inspectionDate}</span>
+                    )}
+                  </div>
                 </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1.5">
-                  <div className="bg-amber-400 h-full rounded-full w-[65%]" />
-                </div>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider block">
-                  Exterior Condition
-                </span>
-                <span className="text-sm font-bold text-emerald-400 mt-1 block">Good (Clean)</span>
-                <span className="text-[10px] text-slate-500">Minor chip on bumper</span>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider block">
-                  Engine & Battery
-                </span>
-                <span className="text-sm font-bold text-emerald-400 mt-1 block">Optimal Health</span>
-                <span className="text-[10px] text-slate-500">12.6V resting charge</span>
-              </div>
+              ) : null}
             </div>
 
-            {/* Condition Notes */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                <h4 className="font-bold text-white uppercase text-[11px] tracking-wide">
-                  Existing Exterior & Interior Conditions
-                </h4>
-                <ul className="text-slate-300 space-y-1.5 list-disc list-inside">
-                  <li>Small 1.5cm surface scratch on front-right fender (no metal exposure).</li>
-                  <li>Slight curb rash on front-left 18&quot; alloy rim outer edge.</li>
-                  <li>Interior upholstery clean with factory floor mats in place.</li>
-                </ul>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                <h4 className="font-bold text-white uppercase text-[11px] tracking-wide">
-                  Post-Repair Final Condition Guarantee
-                </h4>
-                <ul className="text-slate-300 space-y-1.5 list-disc list-inside">
-                  <li>Brake friction material renewed to 100% factory specifications.</li>
-                  <li>Rotors polished and balanced, zero shudder at high speed.</li>
-                  <li>Complimentary engine bay dust-clean and tire conditioning.</li>
-                </ul>
-              </div>
-            </div>
-
-            {/* Clickable Inspection Photos Gallery */}
-            <div>
-              <div className="flex justify-between items-center mb-3">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <Camera className="w-4 h-4 text-blue-400" />
-                  <span>Inspection Photos (Click to Zoom Lightbox)</span>
-                </h4>
-                <span className="text-xs text-slate-400">4 high-resolution photos</span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {inspectionPhotos.map((photo) => (
-                  <div
-                    key={photo.title}
-                    onClick={() => setLightboxPhoto(photo)}
-                    className="group bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 hover:border-blue-500 cursor-pointer transition-all relative"
-                  >
-                    <img
-                      src={photo.url}
-                      alt={photo.title}
-                      className="w-full h-32 object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <Maximize2 className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="p-2.5">
-                      <div className="text-xs font-bold text-white truncate">{photo.title}</div>
-                      <div className="text-[10px] text-slate-400 line-clamp-1">{photo.note}</div>
+            {report ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                    <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider block">
+                      Intake mileage
+                    </span>
+                    <span className="text-lg font-black text-white font-mono mt-1 block">
+                      {report.mileage.toLocaleString()} km
+                    </span>
+                  </div>
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                    <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider block">
+                      Fuel level
+                    </span>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Fuel className="w-4 h-4 text-amber-400" />
+                      <span className="text-lg font-black text-white font-mono">{report.fuelLabel || 'Not recorded'}</span>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 sm:col-span-2">
+                    <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider block">
+                      Condition
+                    </span>
+                    <span className="text-sm font-medium text-white mt-1 block">
+                      {report.conditionSummary || 'No condition note.'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                    <h4 className="font-bold text-white uppercase text-[11px] tracking-wide">Damage noted</h4>
+                    <p className="text-slate-300 leading-relaxed">{report.damageSummary || 'No damage recorded.'}</p>
+                  </div>
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                    <h4 className="font-bold text-white uppercase text-[11px] tracking-wide">Complaint</h4>
+                    <p className="text-slate-300 leading-relaxed">{report.complaint || 'No complaint recorded.'}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                  <StaffFace name={currentWO?.assignedTechnicianName || ''} photo={currentWO?.assignedTechnicianPhoto} />
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500 block">Repaired by</span>
+                    <strong className="text-sm text-white">{currentWO?.assignedTechnicianName || 'Unassigned'}</strong>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-slate-400">No inspection has been recorded for this job yet.</p>
+            )}
           </div>
         </div>
       )}
@@ -804,17 +1262,44 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
         <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 sm:p-8 space-y-4">
           <div className="flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-bold text-white">Parts Used & Inventory Allocation</h3>
+              <h3 className="text-lg font-bold text-white">Parts on this visit</h3>
               <p className="text-xs text-slate-400">
-                100% serialized genuine components installed during this service.
+                Requested on the quote and issued from the shelf for this repair.
               </p>
             </div>
             <span className="text-sm font-mono font-black text-emerald-400">
-              Total Parts: ${totalPartsCost.toFixed(2)}
+              Total: ${partsLineTotal.toFixed(2)}
             </span>
           </div>
 
+          {groupedOpenPartRequests.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Requested on quote</h4>
+              <ul className="space-y-1.5">
+                {groupedOpenPartRequests.map((row) => (
+                  <li
+                    key={row.key}
+                    className="flex justify-between gap-3 text-xs text-slate-200 bg-slate-950 rounded-xl px-3 py-2.5 border border-slate-800"
+                  >
+                    <span>
+                      {row.productName}
+                      {row.quantity > 1 ? ` (x${row.quantity})` : ''}
+                      <span className="block text-[10px] font-mono text-slate-500">
+                        {row.quantity > 1
+                          ? `${row.numbers.join(' · ')} · ${row.status}`
+                          : `${row.numbers[0]} · ${row.status}`}
+                        {row.quantity > 1 ? ` · $${row.unitPrice.toFixed(2)} each` : ''}
+                      </span>
+                    </span>
+                    <span className="font-mono text-slate-300">${row.lineTotal.toFixed(2)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
+            <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Issued from stock</h4>
             <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
                 <tr>
@@ -826,14 +1311,21 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
+                {partsUsed.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-4 text-slate-500">
+                      No parts issued from stock yet. Quote requests stay listed above until the garage issues them.
+                    </td>
+                  </tr>
+                )}
                 {partsUsed.map((part) => (
                   <tr key={part.partId} className="hover:bg-slate-800/40">
                     <td className="p-3 font-bold text-white">{part.partName}</td>
                     <td className="p-3 font-mono text-slate-400">{part.partNumber}</td>
                     <td className="p-3 text-center">{part.quantity}</td>
-                    <td className="p-3 text-right font-mono">${part.unitPrice.toFixed(2)}</td>
+                    <td className="p-3 text-right font-mono">${(part.unitPrice || 0).toFixed(2)}</td>
                     <td className="p-3 text-right font-mono font-bold text-white">
-                      ${part.total.toFixed(2)}
+                      ${(part.totalPrice || 0).toFixed(2)}
                     </td>
                   </tr>
                 ))}
@@ -876,30 +1368,6 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
         </div>
       )}
 
-      {/* PHOTO LIGHTBOX MODAL */}
-      {lightboxPhoto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-          <div className="relative max-w-3xl w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
-            <button
-              onClick={() => setLightboxPhoto(null)}
-              className="absolute top-4 right-4 p-2 rounded-full bg-slate-800 text-slate-300 hover:text-white z-10"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <img
-              src={lightboxPhoto.url}
-              alt={lightboxPhoto.title}
-              className="w-full h-96 object-cover"
-            />
-
-            <div className="p-6 bg-slate-900 space-y-2">
-              <h4 className="text-lg font-bold text-white">{lightboxPhoto.title}</h4>
-              <p className="text-xs text-slate-300 leading-relaxed">{lightboxPhoto.note}</p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

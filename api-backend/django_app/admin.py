@@ -3,7 +3,8 @@ import re
 from decimal import Decimal
 
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group
@@ -13,20 +14,26 @@ from django.contrib.admin.views.main import ChangeList
 from django.db import router
 from django.db.models import BooleanField, Case, Count, DateField, DateTimeField, F, FileField, ImageField, IntegerField, Max, Prefetch, Q, Sum, TimeField, When
 from django.db.models.functions import Coalesce
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.utils.html import format_html
-from django.shortcuts import redirect
-from django.urls import reverse
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import path, reverse
 from django.utils.timezone import localdate, now
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.forms import AdminPasswordChangeForm
 
 from django_app.models import (
+    AuthProvider,
     Booking,
     Customer,
+    BlogPost,
+    Estimate,
     Inspection,
+    InspectionImage,
+    Notification,
     Invoice,
     Mechanic,
+    PartRequest,
     PartsUsage,
     Payment,
     RepairJob,
@@ -39,6 +46,36 @@ from django_app.models import (
     User,
     Vehicle,
     apply_user_identity,
+    advance_part_request,
+    booking_blocking_part_requests,
+    booking_can_cancel,
+    booking_can_check_in,
+    booking_can_confirm,
+    booking_can_finish,
+    BOOKING_STATUS_ORDER,
+    booking_slot_taken,
+    booking_status_locked,
+    cancel_booking,
+    cancel_part_request,
+    check_in_booking,
+    complete_booking,
+    confirm_part_request,
+    ensure_confirmed_job,
+    inspection_fields_filled,
+    inspection_is_complete,
+    inspection_missing_fields,
+    job_advance_block_reason,
+    job_can_reach,
+    customer_must_confirm,
+    linked_job,
+    next_inspection_status,
+    next_invoice_status,
+    next_job_status,
+    next_part_request_status,
+    progress_for_job_status,
+    sync_booking_from_job,
+    sync_vehicle_shop_status,
+    visit_service_total,
     current_customer_qs,
     role_choices,
     role_codes,
@@ -330,6 +367,52 @@ def _lock_user_owned_fields(form, field_names, related_name="", taken_label="alr
             )
 
 
+class StatusToneSelect(forms.Select):
+    """Status choices use the same colors as the badges on the lists."""
+
+    TONE = {
+        "WAITING": "waiting",
+        "DIAGNOSING": "progress",
+        "WAITING_APPROVAL": "pending",
+        "REPAIRING": "progress",
+        "CHECKING": "progress",
+        "CHECK_IN": "progress",
+        "QUALITY_CHECK": "inspection",
+        "READY_FOR_PICKUP": "ready",
+        "COMPLETED": "completed",
+        "PENDING": "pending",
+        "CONFIRMED": "confirmed",
+        "CHECKED_IN": "confirmed",
+        "IN_SERVICE": "progress",
+        "CANCELLED": "cancelled",
+        "ACTIVE": "ready",
+        "INACTIVE": "inactive",
+        "IN_SHOP": "progress",
+        "DRAFT": "inactive",
+        "UNPAID": "waiting",
+        "PARTIAL": "pending",
+        "PAID": "ready",
+        "FAILED": "cancelled",
+        "REFUNDED": "inactive",
+        "NOTED": "pending",
+        "SENT": "progress",
+        "APPROVED": "ready",
+        "REJECTED": "cancelled",
+    }
+
+    def __init__(self, attrs=None, choices=(), tone_map=None):
+        super().__init__(attrs, choices)
+        self.tone_map = tone_map or self.TONE
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        key = str(getattr(value, "value", value) or "")
+        tone = self.tone_map.get(key)
+        if tone:
+            option["attrs"]["data-tone"] = tone
+        return option
+
+
 class CustomerGarageForm(forms.ModelForm):
     class Meta:
         model = Customer
@@ -341,9 +424,11 @@ class CustomerGarageForm(forms.ModelForm):
             "email": forms.EmailInput(attrs={"class": "cf-input", "placeholder": "e.g. client@example.com"}),
             "address": forms.TextInput(attrs={"class": "cf-input", "placeholder": "e.g. St. 271, Sangkat Boeung Tumpun, Phnom Penh"}),
             "gender": forms.Select(attrs={"class": "cf-input"}),
-            "status": forms.Select(attrs={"class": "cf-input"}),
+            "status": StatusToneSelect(attrs={"class": "cf-input"}),
             "notes": forms.Textarea(attrs={"class": "cf-input", "rows": 3, "placeholder": "Vehicle preferences, preferred contact times, discount arrangements..."}),
-            "photo": forms.ClearableFileInput(attrs={"class": "cf-file", "accept": "image/*"}),
+            "photo": forms.ClearableFileInput(
+                attrs={"class": "cf-file", "accept": "image/jpeg,image/png,image/webp,image/gif"}
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -376,6 +461,17 @@ class CustomerGarageForm(forms.ModelForm):
         return customer
 
 
+def _is_image_filename(value):
+    from django_app.uploads import looks_like_image_filename
+
+    return looks_like_image_filename(value)
+
+
+def _vehicle_title(vehicle):
+    brand = "" if _is_image_filename(vehicle.brand) else vehicle.brand
+    return f"{brand} {vehicle.model} ({vehicle.year})".replace("  ", " ").strip()
+
+
 class VehicleGarageForm(forms.ModelForm):
     class Meta:
         model = Vehicle
@@ -394,25 +490,77 @@ class VehicleGarageForm(forms.ModelForm):
             "next_service_date",
             "next_service_mileage",
             "notes",
+            "image",
         )
         widgets = {
             "customer": forms.Select(attrs={"class": "cf-input"}),
-            "brand": forms.TextInput(attrs={"class": "cf-input", "placeholder": "e.g. Toyota"}),
-            "model": forms.TextInput(attrs={"class": "cf-input", "placeholder": "e.g. Camry"}),
+            "brand": forms.TextInput(
+                attrs={
+                    "class": "cf-input",
+                    "placeholder": "e.g. Toyota",
+                    "ondrop": "event.preventDefault()",
+                    "ondragover": "event.preventDefault()",
+                }
+            ),
+            "model": forms.TextInput(
+                attrs={
+                    "class": "cf-input",
+                    "placeholder": "e.g. Camry",
+                    "ondrop": "event.preventDefault()",
+                    "ondragover": "event.preventDefault()",
+                }
+            ),
             "year": forms.NumberInput(attrs={"class": "cf-input"}),
-            "plate": forms.TextInput(attrs={"class": "cf-input", "placeholder": "e.g. PP-1234"}),
+            "plate": forms.TextInput(attrs={"class": "cf-input", "placeholder": "e.g. 2BD-9988"}),
             "vin": forms.TextInput(attrs={"class": "cf-input", "placeholder": "17-character VIN"}),
             "color": forms.TextInput(attrs={"class": "cf-input", "placeholder": "e.g. Pearl White"}),
             "mileage": forms.NumberInput(attrs={"class": "cf-input"}),
             "vehicle_type": forms.TextInput(attrs={"class": "cf-input", "placeholder": "e.g. Sedan, Hybrid"}),
             "engine_number": forms.TextInput(attrs={"class": "cf-input"}),
-            "status": forms.Select(attrs={"class": "cf-input"}),
+            "status": StatusToneSelect(attrs={"class": "cf-input"}),
             "next_service_date": forms.DateInput(attrs={"class": "cf-input", "type": "date"}),
             "next_service_mileage": forms.NumberInput(attrs={"class": "cf-input"}),
             "notes": forms.Textarea(
                 attrs={"class": "cf-input", "rows": 3, "placeholder": "Diagnostic notes, existing wear, special modifications..."}
             ),
+            "image": forms.ClearableFileInput(
+                attrs={"class": "cf-file", "accept": "image/jpeg,image/png,image/webp,image/gif"}
+            ),
         }
+
+    def clean_plate(self):
+        from django_app.plates import normalize_vehicle_plate, require_vehicle_plate
+
+        plate = normalize_vehicle_plate(self.cleaned_data.get("plate"))
+        current = normalize_vehicle_plate(getattr(self.instance, "plate", ""))
+        if self.instance.pk and plate == current:
+            return self.instance.plate
+        return require_vehicle_plate(plate)
+
+    def clean_brand(self):
+        brand = (self.cleaned_data.get("brand") or "").strip()
+        if _is_image_filename(brand):
+            previous = (getattr(self.instance, "brand", "") or "").strip()
+            if previous and not _is_image_filename(previous):
+                return previous
+            raise forms.ValidationError("Enter the vehicle make, for example Toyota or Honda.")
+        return brand
+
+
+class LinkedSelect(forms.Select):
+    """Select whose options carry the foreign keys they belong to."""
+
+    def __init__(self, attrs=None, choices=(), option_attrs=None):
+        super().__init__(attrs, choices)
+        self.option_attrs = option_attrs or {}
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        key = str(getattr(value, "value", value) or "")
+        extra = self.option_attrs.get(key)
+        if extra:
+            option["attrs"].update(extra)
+        return option
 
 
 class VehicleByCustomerSelect(forms.Select):
@@ -449,7 +597,7 @@ class BookingGarageForm(forms.ModelForm):
             "service": forms.Select(attrs={"class": "cf-input"}),
             "booking_date": forms.DateInput(attrs={"class": "cf-input", "type": "date"}),
             "booking_time": forms.TimeInput(attrs={"class": "cf-input", "type": "time"}),
-            "status": forms.Select(attrs={"class": "cf-input"}),
+            "status": StatusToneSelect(attrs={"class": "cf-input"}),
             "problem": forms.Textarea(
                 attrs={
                     "class": "cf-input",
@@ -481,6 +629,18 @@ class BookingGarageForm(forms.ModelForm):
         self.fields["problem"].required = False
         self.fields["note"].required = False
         self.fields["cancel_reason"].required = False
+        if booking_status_locked(self.instance):
+            self.fields["status"].disabled = True
+            self.fields["status"].help_text = "This follows the work order. Change the status on the work order."
+            css = self.fields["status"].widget.attrs.get("class", "cf-input")
+            if "is-locked" not in css:
+                self.fields["status"].widget.attrs["class"] = f"{css} is-locked"
+        else:
+            self.fields["status"].choices = (
+                (Booking.Status.PENDING, "Pending"),
+                (Booking.Status.CONFIRMED, "Confirmed"),
+                (Booking.Status.CANCELLED, "Cancelled"),
+            )
 
     def clean(self):
         cleaned = super().clean()
@@ -488,6 +648,32 @@ class BookingGarageForm(forms.ModelForm):
         vehicle = cleaned.get("vehicle")
         if customer and vehicle and vehicle.customer_id != customer.id:
             self.add_error("vehicle", "This vehicle does not belong to the selected customer.")
+        status = cleaned.get("status")
+        if status == Booking.Status.CANCELLED and getattr(self.instance, "pk", None) and not booking_can_cancel(self.instance):
+            self.add_error("status", "This visit is already in the workshop. Finish the work order instead of cancelling the booking.")
+        previous = getattr(self.instance, "status", None)
+        if (
+            status == Booking.Status.CONFIRMED
+            and previous == Booking.Status.PENDING
+            and getattr(self.instance, "pk", None)
+            and booking_blocking_part_requests(self.instance).exists()
+        ):
+            self.add_error(
+                "status",
+                "Confirm or cancel every part request before accepting this booking.",
+            )
+        if (
+            vehicle
+            and cleaned.get("booking_date")
+            and status != Booking.Status.CANCELLED
+            and booking_slot_taken(
+                vehicle,
+                cleaned.get("booking_date"),
+                cleaned.get("booking_time"),
+                ignore_pk=getattr(self.instance, "pk", None),
+            )
+        ):
+            self.add_error("booking_time", "That vehicle already has a booking at this time.")
         return cleaned
 
 
@@ -500,11 +686,13 @@ class GarageModelForm(forms.ModelForm):
             field.widget.attrs.setdefault("class", "cf-input")
             if isinstance(field.widget, forms.Textarea):
                 field.widget.attrs.setdefault("rows", "3")
-            if name == "status" and not list(getattr(field, "choices", []) or []):
-                field.widget = forms.Select(
-                    choices=(("ACTIVE", "Active"), ("INACTIVE", "Inactive")),
-                    attrs={"class": "cf-input"},
-                )
+            if name == "status" and not isinstance(field.widget, StatusToneSelect):
+                tone = StatusToneSelect(attrs={"class": "cf-input"})
+                if list(getattr(field, "choices", []) or []):
+                    tone.choices = field.choices
+                else:
+                    tone.choices = (("ACTIVE", "Active"), ("INACTIVE", "Inactive"))
+                field.widget = tone
 
 
 def garage_form(model, fields):
@@ -513,7 +701,57 @@ def garage_form(model, fields):
 
 
 ServiceCategoryGarageForm = garage_form(ServiceCategory, ("name", "status"))
-ServiceGarageForm = garage_form(Service, ("category", "name", "description", "price", "duration_minutes", "status"))
+ServiceGarageForm = garage_form(
+    Service, ("category", "name", "description", "price", "duration_minutes", "status", "image")
+)
+
+
+class BlogPostGarageForm(GarageModelForm):
+    class Meta:
+        model = BlogPost
+        fields = (
+            "title",
+            "slug",
+            "category",
+            "excerpt",
+            "body",
+            "tips",
+            "author_name",
+            "image",
+            "read_minutes",
+            "featured",
+            "published",
+            "published_at",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["slug"].required = False
+        self.fields["slug"].help_text = "Leave blank and the address is built from the title."
+        self.fields["excerpt"].widget.attrs["rows"] = 3
+        self.fields["body"].widget.attrs["rows"] = 8
+        self.fields["tips"].widget.attrs["rows"] = 4
+        self.fields["tips"].help_text = "One tip per line. Shown at the end of the article."
+        self.fields["body"].help_text = "Separate paragraphs with a blank line."
+        self.fields["image"].help_text = "JPG, PNG, WEBP, or GIF. 5 MB maximum."
+        self.fields["published"].help_text = "Only published articles appear on the public website."
+        self.fields["published_at"].required = False
+
+    def clean_slug(self):
+        from django.core.exceptions import ValidationError
+        from django.utils.text import slugify
+
+        slug = (self.cleaned_data.get("slug") or "").strip()
+        if not slug:
+            slug = slugify(self.cleaned_data.get("title") or "")[:180]
+        if not slug:
+            raise ValidationError("Enter a title or a slug.")
+        taken = BlogPost.objects.filter(slug=slug)
+        if self.instance.pk:
+            taken = taken.exclude(pk=self.instance.pk)
+        if taken.exists():
+            raise ValidationError("Another article already uses this slug.")
+        return slug
 
 STAFF_POSITION_CHOICES = (
     ("Administrator", "Administrator"),
@@ -609,33 +847,416 @@ class MechanicGarageForm(GarageModelForm):
             mechanic.save()
         return mechanic
 
-InspectionGarageForm = garage_form(
-    Inspection,
-    (
-        "booking",
-        "mileage",
-        "fuel_level",
-        "front_brake_mm",
-        "rear_brake_mm",
-        "tire_tread_mm",
-        "condition",
-        "damage",
-        "complaint",
-        "note",
-        "photos",
-        "staff",
-    ),
-)
-RepairJobGarageForm = garage_form(
-    RepairJob,
-    ("booking", "customer", "vehicle", "mechanic", "problem", "diagnosis", "start_date", "estimated_end", "status", "progress"),
-)
+class MultiImageInput(forms.FileInput):
+    allow_multiple_selected = True
+
+    def value_from_datadict(self, data, files, name):
+        if hasattr(files, "getlist"):
+            return files.getlist(name)
+        file = files.get(name)
+        return [file] if file else []
+
+
+class MultiImageField(forms.FileField):
+    widget = MultiImageInput
+
+    def clean(self, data, initial=None):
+        from django_app.uploads import validate_uploaded_image
+
+        files = data if isinstance(data, (list, tuple)) else ([data] if data not in self.empty_values else [])
+        files = [uploaded for uploaded in files if uploaded not in self.empty_values]
+        if not files:
+            if self.required:
+                raise forms.ValidationError(self.error_messages["required"], code="required")
+            return []
+        cleaned = []
+        for uploaded in files:
+            validate_uploaded_image(uploaded)
+            cleaned.append(uploaded)
+        return cleaned
+
+
+class InspectionGarageForm(GarageModelForm):
+    complaint = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Complaint",
+        widget=forms.Textarea(attrs={"class": "cf-input is-locked", "rows": 3}),
+        help_text="Copied from the work order problem.",
+    )
+    images = MultiImageField(
+        required=False,
+        label="Images",
+        widget=MultiImageInput(
+            attrs={
+                "class": "cf-file",
+                "accept": "image/jpeg,image/png,image/webp,image/gif",
+                "multiple": True,
+            }
+        ),
+        help_text="JPG, PNG, WEBP, or GIF. 5 MB each. Choose more than one photo if you need to.",
+    )
+
+    class Meta:
+        model = Inspection
+        fields = (
+            "repair_job",
+            "status",
+            "mileage",
+            "fuel_level",
+            "front_brake_mm",
+            "rear_brake_mm",
+            "tire_tread_mm",
+            "staff",
+            "condition",
+            "damage",
+            "note",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        jobs = RepairJob.objects.select_related("customer", "vehicle").order_by("-id")
+        if self.instance.pk and self.instance.repair_job_id:
+            jobs = jobs.filter(Q(inspection__isnull=True) | Q(pk=self.instance.repair_job_id))
+        else:
+            jobs = jobs.filter(inspection__isnull=True)
+        option_attrs = {
+            str(job.id): {"data-problem": (job.problem or "").replace("\n", "\\n")}
+            for job in jobs
+        }
+        self.fields["repair_job"].queryset = jobs
+        self.fields["repair_job"].empty_label = "Select value"
+        self.fields["repair_job"].widget = LinkedSelect(
+            attrs={"class": "cf-input", "data-inspection-job": "1"},
+            option_attrs=option_attrs,
+        )
+        self.fields["repair_job"].widget.choices = self.fields["repair_job"].choices
+        self.fields["repair_job"].label_from_instance = (
+            lambda job: f"WO-{job.id:04d} · {job.vehicle.plate} · {job.customer.name}"
+        )
+        self.fields["repair_job"].label = "Work order"
+        self.fields["fuel_level"].required = True
+        self.fields["fuel_level"].empty_label = "Select percentage"
+        self.fields["front_brake_mm"].required = True
+        self.fields["rear_brake_mm"].required = True
+        self.fields["tire_tread_mm"].required = True
+        self.fields["condition"].required = True
+        self.fields["damage"].required = True
+        self.fields["note"].required = True
+        self.fields["staff"].required = True
+        self.fields["mileage"].required = True
+        has_photos = bool(self.instance.pk and self.instance.images.exists())
+        self.fields["images"].required = not has_photos
+        self.fields["images"].help_text = (
+            "At least one photo is required. JPG, PNG, WEBP, or GIF. 5 MB each. "
+            "New uploads are added; existing photos stay until you delete them."
+            if not has_photos
+            else "JPG, PNG, WEBP, or GIF. 5 MB each. New uploads are added; existing photos stay until you delete them."
+        )
+        self.fields["status"].help_text = (
+            "Pending → Check-in when an inspector is assigned → Completed only when every field is filled."
+        )
+        self.fields["staff"].label = "Inspector"
+        self.fields["staff"].help_text = "Assigning an inspector moves this from Pending to Check-in."
+        chosen = None
+        if self.instance.pk and self.instance.repair_job_id:
+            chosen = self.instance.repair_job
+        posted = self.data.get("repair_job") if self.is_bound else None
+        if posted:
+            chosen = jobs.filter(pk=posted).first() or chosen
+        self.fields["complaint"].initial = chosen.problem if chosen is not None else ""
+        self.order_fields(
+            [
+                "repair_job",
+                "status",
+                "mileage",
+                "fuel_level",
+                "front_brake_mm",
+                "rear_brake_mm",
+                "tire_tread_mm",
+                "staff",
+                "complaint",
+                "condition",
+                "damage",
+                "note",
+                "images",
+            ]
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        status = cleaned.get("status")
+        staff = cleaned.get("staff")
+        if status == Inspection.Status.CHECK_IN and not staff:
+            self.add_error("staff", "Select the inspector for Check-in.")
+        if staff and status == Inspection.Status.PENDING:
+            cleaned["status"] = Inspection.Status.CHECK_IN
+        if status == Inspection.Status.COMPLETED:
+            new_photos = cleaned.get("images") or []
+            has_photos = bool(new_photos) or (
+                self.instance.pk and self.instance.images.exists()
+            )
+            if not has_photos:
+                self.add_error("images", "Add at least one photo to complete the inspection.")
+        return cleaned
+
+    def save(self, commit=True):
+        inspection = super().save(commit=False)
+        if inspection.staff_id and inspection.status == Inspection.Status.PENDING:
+            inspection.status = Inspection.Status.CHECK_IN
+        if commit:
+            inspection.save()
+            from django_app.models import InspectionImage
+
+            for uploaded in self.cleaned_data.get("images") or []:
+                InspectionImage.objects.create(inspection=inspection, image=uploaded)
+        return inspection
+
+class RepairJobGarageForm(GarageModelForm):
+    class Meta:
+        model = RepairJob
+        fields = (
+            "customer",
+            "vehicle",
+            "booking",
+            "mechanic",
+            "problem",
+            "start_date",
+            "estimated_end",
+            "status",
+            "progress",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        customers = Customer.objects.order_by("name")
+        vehicles = Vehicle.objects.select_related("customer").order_by("plate")
+        bookings = (
+            Booking.objects.select_related("customer", "vehicle", "service")
+            .exclude(status=Booking.Status.CANCELLED)
+            .order_by("-booking_date", "-id")
+        )
+        if self.instance.pk and self.instance.booking_id:
+            bookings = bookings.filter(Q(repair_job__isnull=True) | Q(pk=self.instance.booking_id))
+        else:
+            bookings = bookings.filter(repair_job__isnull=True)
+
+        self.fields["customer"].queryset = customers
+        self.fields["customer"].empty_label = "Select value"
+        self.fields["customer"].label_from_instance = (
+            lambda item: f"{item.name} ({item.phone})" if item.phone else item.name
+        )
+        self.fields["customer"].help_text = "Choose the customer first."
+        self.fields["customer"].required = False
+
+        self.fields["vehicle"].queryset = vehicles
+        self.fields["vehicle"].empty_label = "Select value"
+        self.fields["vehicle"].widget = LinkedSelect(
+            attrs={"class": "cf-input"},
+            option_attrs={str(item.id): {"data-customer": str(item.customer_id)} for item in vehicles},
+        )
+        self.fields["vehicle"].widget.choices = self.fields["vehicle"].choices
+        self.fields["vehicle"].label_from_instance = (
+            lambda item: f"{item.plate} — {item.brand} {item.model} ({item.year})"
+        )
+        self.fields["vehicle"].help_text = "Only vehicles registered to the customer."
+        self.fields["vehicle"].required = False
+
+        booking_attrs = {}
+        for item in bookings:
+            problem = (item.problem or "").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
+            booking_attrs[str(item.id)] = {
+                "data-customer": str(item.customer_id),
+                "data-vehicle": str(item.vehicle_id),
+                "data-problem": problem,
+                "data-start": item.booking_date.isoformat() if item.booking_date else "",
+            }
+        self.fields["booking"].queryset = bookings
+        self.fields["booking"].empty_label = "Select value"
+        self.fields["booking"].widget = LinkedSelect(
+            attrs={"class": "cf-input", "data-visit-source": "1"},
+            option_attrs=booking_attrs,
+        )
+        self.fields["booking"].widget.choices = self.fields["booking"].choices
+        self.fields["booking"].label_from_instance = self._booking_label
+        self.fields["booking"].help_text = "Only this vehicle's visits that do not already have a work order."
+
+        self.fields["problem"].help_text = "Copied from the visit."
+        self.fields["start_date"].help_text = "The visit date."
+        self.fields["mechanic"].empty_label = "Unassigned"
+        self.fields["mechanic"].required = False
+        self.fields["estimated_end"].required = False
+
+        linked = self._posted_booking()
+        if self.instance.pk and self.instance.booking_id and linked is None:
+            linked = (
+                Booking.objects.select_related("customer", "vehicle")
+                .filter(pk=self.instance.booking_id)
+                .first()
+            )
+        if linked is not None:
+            self.initial["customer"] = linked.customer_id
+            self.initial["vehicle"] = linked.vehicle_id
+            self.initial["booking"] = linked.pk
+            self.initial["problem"] = linked.problem or ""
+            self.initial["start_date"] = linked.booking_date
+            for name in ("problem", "start_date"):
+                self.fields[name].disabled = True
+                self.fields[name].widget.attrs["data-server-locked"] = "1"
+        elif not self.is_bound or not self.data.get("vehicle"):
+            locked = ["booking", "mechanic", "problem", "start_date", "estimated_end", "status", "progress"]
+            if not self.is_bound or not self.data.get("customer"):
+                locked.insert(0, "vehicle")
+            self._widget_lock(*locked)
+        for field in self.fields.values():
+            widgets = [field.widget]
+            inner = getattr(field.widget, "widget", None)
+            if inner is not None:
+                widgets.append(inner)
+            for widget in widgets:
+                widget.attrs["class"] = "cf-input"
+                if isinstance(widget, forms.Textarea):
+                    widget.attrs["rows"] = 3
+        status = StatusToneSelect(attrs={"class": "cf-input"})
+        choices = [choice for choice in self.fields["status"].choices if choice[0] != RepairJob.Status.CANCELLED]
+        if self.instance.pk and self.instance.status == RepairJob.Status.CANCELLED:
+            choices.append((RepairJob.Status.CANCELLED, "Cancelled"))
+        self.fields["status"].choices = choices
+        status.choices = choices
+        if self.fields["status"].widget.attrs.get("disabled"):
+            status.attrs["disabled"] = True
+        self.fields["status"].widget = status
+        chosen_status = self.instance.status if self.instance.pk else RepairJob.Status.WAITING
+        if self.is_bound and self.data.get("status"):
+            chosen_status = self.data.get("status")
+        self.initial["progress"] = progress_for_job_status(chosen_status)
+        self.fields["progress"].disabled = True
+        self.fields["progress"].required = False
+        self.fields["progress"].help_text = "Follows the status. Waiting is 0% and Completed is 100%."
+        self.fields["progress"].widget.attrs["data-progress-locked"] = "1"
+        self.fields["progress"].widget.attrs["class"] = "cf-input is-locked"
+
+    def _widget_lock(self, *names):
+        for name in names:
+            self.fields[name].widget.attrs["disabled"] = True
+
+    def _posted_booking(self):
+        if not self.is_bound:
+            return None
+        raw = self.data.get("booking")
+        if not raw:
+            return None
+        return (
+            Booking.objects.select_related("customer", "vehicle", "service")
+            .filter(pk=raw)
+            .exclude(status=Booking.Status.CANCELLED)
+            .first()
+        )
+
+    @staticmethod
+    def _booking_label(item):
+        when = item.booking_date.isoformat()
+        if item.booking_time:
+            when = f"{when} {item.booking_time.strftime('%H:%M')}"
+        service = item.service.name if item.service_id else "Visit"
+        return f"BK-{item.id:04d} · {service} · {when}"
+
+    def clean(self):
+        cleaned = super().clean()
+        booking = cleaned.get("booking")
+        if booking is None:
+            return cleaned
+        if booking.status == Booking.Status.CANCELLED:
+            self.add_error("booking", "A cancelled visit cannot have a work order.")
+            return cleaned
+        try:
+            existing = booking.repair_job
+        except RepairJob.DoesNotExist:
+            existing = None
+        if existing is not None and existing.pk != self.instance.pk:
+            self.add_error("booking", "This visit already has a work order.")
+            return cleaned
+        cleaned["customer"] = booking.customer
+        cleaned["vehicle"] = booking.vehicle
+        cleaned["problem"] = booking.problem or ""
+        cleaned["start_date"] = booking.booking_date
+        mechanic = cleaned.get("mechanic")
+        previous_mechanic = self.instance.mechanic_id if getattr(self.instance, "pk", None) else None
+        if mechanic is not None and mechanic.pk != previous_mechanic:
+            if mechanic.status != Mechanic.Status.ACTIVE or not mechanic.available:
+                self.add_error("mechanic", "This technician is unavailable.")
+            elif RepairJob.objects.filter(
+                mechanic=mechanic,
+                start_date=cleaned.get("start_date"),
+            ).exclude(status=RepairJob.Status.COMPLETED).exclude(pk=self.instance.pk).exists():
+                self.add_error("mechanic", "This technician already has a job on that date.")
+        status = cleaned.get("status")
+        if status:
+            # Validate against the mechanic chosen on this save, not only the stored job.
+            probe = self.instance
+            probe.mechanic = cleaned.get("mechanic")
+            reason = job_advance_block_reason(probe, status)
+            if reason:
+                self.add_error("status", reason)
+        return cleaned
 SparePartCategoryGarageForm = garage_form(SparePartCategory, ("name", "status"))
 SparePartGarageForm = garage_form(
     SparePart,
     ("part_number", "name", "category", "brand", "image", "unit_price", "quantity", "min_stock", "status"),
 )
 PartsUsageGarageForm = garage_form(PartsUsage, ("repair_job", "spare_part", "quantity", "unit_price", "recorded_by"))
+class PartRequestGarageForm(
+    garage_form(PartRequest, ("customer", "vehicle", "spare_part", "fulfillment", "notes", "cancel_reason", "status"))
+):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        notes = self.fields["notes"].widget
+        notes.attrs["class"] = "cf-input"
+        notes.attrs["rows"] = 3
+        reason = self.fields["cancel_reason"].widget
+        reason.attrs["class"] = "cf-input"
+        reason.attrs["rows"] = 3
+        reason.attrs["placeholder"] = "Required when the part is cancelled (for example out of stock)."
+        self.fields["cancel_reason"].help_text = "Required when status is Cancelled."
+        self.fields["status"].help_text = (
+            "Confirm issues one unit on the vehicle's open work order, reduces shelf stock, "
+            "and adds the price to that job's invoice. Cancel when the part is not available. "
+            "Record payment on the invoice."
+        )
+        if self.instance.pk and self.instance.parts_usage_id:
+            for name in ("customer", "vehicle", "spare_part", "fulfillment", "status", "cancel_reason"):
+                self.fields[name].disabled = True
+            wo = f"WO-{self.instance.repair_job_id:04d}" if self.instance.repair_job_id else "a work order"
+            invoice = (
+                Invoice.objects.filter(repair_job_id=self.instance.repair_job_id)
+                .values_list("number", flat=True)
+                .first()
+                if self.instance.repair_job_id
+                else None
+            )
+            billed = f" Billed on {invoice}." if invoice else ""
+            self.fields["notes"].help_text = f"Already issued on {wo}.{billed} Record payment on that invoice."
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.instance.pk and self.instance.parts_usage_id:
+            return cleaned
+        status = cleaned.get("status")
+        if status == PartRequest.Status.CANCELLED:
+            if not (cleaned.get("cancel_reason") or "").strip():
+                self.add_error("cancel_reason", "Say why this part request was cancelled.")
+            return cleaned
+        if status != PartRequest.Status.CONFIRMED:
+            return cleaned
+        if not cleaned.get("vehicle"):
+            self.add_error("vehicle", "Choose the vehicle. The work order and the invoice both need a car.")
+        part = cleaned.get("spare_part")
+        if part is not None and part.quantity < 1:
+            self.add_error(
+                "spare_part",
+                "That part is out of stock, so it cannot be issued. Set status to Cancelled and say why.",
+            )
+        return cleaned
 InvoiceGarageForm = garage_form(
     Invoice,
     ("number", "customer", "vehicle", "repair_job", "labor_cost", "service_cost", "parts_cost", "discount", "tax", "status"),
@@ -732,11 +1353,22 @@ class ModalFormMixin:
             field.input_formats = ["%H:%M", "%H:%M:%S"]
             return field
         if isinstance(db_field, (ImageField, FileField)):
-            field.widget = forms.ClearableFileInput(attrs={"class": "cf-file", "accept": "image/*"})
+            field.widget = forms.ClearableFileInput(
+                attrs={"class": "cf-file", "accept": "image/jpeg,image/png,image/webp,image/gif"}
+            )
             return field
         field.widget.attrs.setdefault("class", "cf-input")
         if isinstance(field.widget, forms.Textarea):
             field.widget.attrs.setdefault("rows", "3")
+        if db_field.name == "status" and not isinstance(field.widget, StatusToneSelect):
+            tone_map = None
+            if getattr(self, "model", None) is PartRequest:
+                tone_map = {**StatusToneSelect.TONE, "CONFIRMED": "ready", "NOTED": "pending", "CANCELLED": "cancelled"}
+            tone = StatusToneSelect(attrs={"class": "cf-input"}, tone_map=tone_map)
+            tone.choices = field.choices
+            if field.widget.attrs.get("disabled"):
+                tone.attrs["disabled"] = True
+            field.widget = tone
         return field
 
 
@@ -750,11 +1382,12 @@ class UserGarageChangeForm(GarageModelForm):
 
     class Meta:
         model = User
-        fields = ("username", "first_name", "last_name", "email", "phone", "role", "status", "is_staff")
+        fields = ("username", "first_name", "last_name", "email", "phone", "photo", "role", "status", "is_staff", "email_verified")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _bind_role_field(self)
+        self.fields["email"].required = True
 
     def save(self, commit=True):
         user = super().save(commit=False)
@@ -778,11 +1411,12 @@ class UserGarageAddForm(GarageModelForm):
 
     class Meta:
         model = User
-        fields = ("username", "first_name", "last_name", "email", "phone", "role", "status", "is_staff")
+        fields = ("username", "first_name", "last_name", "email", "phone", "photo", "role", "status", "is_staff")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _bind_role_field(self)
+        self.fields["email"].required = True
 
     def clean(self):
         cleaned = super().clean()
@@ -795,6 +1429,7 @@ class UserGarageAddForm(GarageModelForm):
     def save(self, commit=True):
         user = super().save(commit=False)
         user.set_password(self.cleaned_data["password1"])
+        user.email_verified = True
         if commit:
             user.save()
         return user
@@ -815,7 +1450,7 @@ class UserAdmin(ModalFormMixin, BaseUserAdmin, ModelAdmin):
     fieldsets = (
         (
             None,
-            {"fields": ("username", "first_name", "last_name", "email", "phone", "role", "status", "is_staff", "new_password")},
+            {"fields": ("username", "first_name", "last_name", "email", "phone", "role", "status", "is_staff", "email_verified", "new_password")},
         ),
     )
     add_fieldsets = (
@@ -865,8 +1500,8 @@ class UserAdmin(ModalFormMixin, BaseUserAdmin, ModelAdmin):
                     "off": user.status != User.Status.ACTIVE,
                     "cells": [
                         format_html(
-                            '<div class="cc-person"><span class="cc-avatar cc-avatar-round">{}</span><div><div class="cc-name">{}</div>{}</div></div>',
-                            initials,
+                            '<div class="cc-person">{}<div><div class="cc-name">{}</div>{}</div></div>',
+                            _avatar_html(_file_url(user.photo), initials),
                             user.username,
                             _id_html("USR", user.id),
                         ),
@@ -1126,8 +1761,7 @@ class CustomerAdmin(ModelAdmin):
             RepairJob.Status.DIAGNOSING: ("inspection", "INSPECTION"),
             RepairJob.Status.WAITING_APPROVAL: ("assigned", "ASSIGNED"),
             RepairJob.Status.REPAIRING: ("repair", "IN REPAIR"),
-            RepairJob.Status.WAITING_PARTS: ("waiting", "WAITING PARTS"),
-            RepairJob.Status.QUALITY_CHECK: ("inspection", "INSPECTION"),
+            RepairJob.Status.QUALITY_CHECK: ("inspection", "QUALITY CHECK"),
             RepairJob.Status.READY_FOR_PICKUP: ("ready", "READY"),
         }
         if job and job.status != RepairJob.Status.COMPLETED:
@@ -1146,7 +1780,7 @@ class CustomerAdmin(ModelAdmin):
         return {
             "id": vehicle.id,
             "plate": vehicle.plate,
-            "title": f"{vehicle.brand} {vehicle.model} ({vehicle.year})",
+            "title": _vehicle_title(vehicle),
             "mileage": f"{vehicle.mileage:,}",
             "color": vehicle.color or "—",
             "vin": vehicle.vin or "—",
@@ -1298,7 +1932,7 @@ class VehicleAdmin(ModelAdmin):
                 ),
                 Prefetch(
                     "bookings",
-                    queryset=Booking.objects.select_related("service", "inspection__staff__user").order_by(
+                    queryset=Booking.objects.select_related("service", "repair_job__inspection__staff__user").order_by(
                         "-booking_date", "-booking_time", "-id"
                     ),
                 ),
@@ -1322,13 +1956,11 @@ class VehicleAdmin(ModelAdmin):
         last_service = None
         if last_job:
             last_service = last_job.estimated_end or last_job.start_date
-        inspections = []
-        for booking in vehicle.bookings.all():
-            try:
-                inspections.append(booking.inspection)
-            except Inspection.DoesNotExist:
-                pass
-        inspections.sort(key=lambda item: item.checked_in_at, reverse=True)
+        inspections = list(
+            Inspection.objects.filter(repair_job__vehicle=vehicle)
+            .select_related("staff__user")
+            .order_by("-checked_in_at")
+        )
         next_due = "—"
         if vehicle.next_service_date:
             next_due = vehicle.next_service_date.isoformat()
@@ -1337,7 +1969,7 @@ class VehicleAdmin(ModelAdmin):
         return {
             "id": vehicle.id,
             "plate": vehicle.plate,
-            "title": f"{vehicle.brand} {vehicle.model} ({vehicle.year})",
+            "title": _vehicle_title(vehicle),
             "brand": vehicle.brand,
             "model": vehicle.model,
             "year": vehicle.year,
@@ -1359,6 +1991,7 @@ class VehicleAdmin(ModelAdmin):
             "next_due": next_due,
             "next_service_date": vehicle.next_service_date,
             "next_service_mileage": vehicle.next_service_mileage,
+            "image": _file_url(vehicle.image),
             "jobs": [self._job_card(job) for job in vehicle.repair_jobs.all()[:20]],
             "bookings": [self._booking_card(booking) for booking in vehicle.bookings.all()[:20]],
             "invoices": [self._invoice_card(invoice) for invoice in vehicle.invoices.all()[:20]],
@@ -1368,10 +2001,9 @@ class VehicleAdmin(ModelAdmin):
     def _job_card(self, job):
         status_map = {
             RepairJob.Status.WAITING: ("pending", "WAITING"),
-            RepairJob.Status.DIAGNOSING: ("inspection", "DIAGNOSING"),
+            RepairJob.Status.DIAGNOSING: ("inspection", "INSPECTION"),
             RepairJob.Status.WAITING_APPROVAL: ("assigned", "WAITING APPROVAL"),
             RepairJob.Status.REPAIRING: ("progress", "IN PROGRESS"),
-            RepairJob.Status.WAITING_PARTS: ("waiting", "WAITING PARTS"),
             RepairJob.Status.QUALITY_CHECK: ("inspection", "QUALITY CHECK"),
             RepairJob.Status.READY_FOR_PICKUP: ("ready", "READY"),
             RepairJob.Status.COMPLETED: ("completed", "COMPLETED"),
@@ -1387,7 +2019,7 @@ class VehicleAdmin(ModelAdmin):
             "number": f"WO-{job.id:04d}",
             "status_class": status_class,
             "status_label": status_label,
-            "problem": job.problem or job.diagnosis or "No problem notes recorded.",
+            "problem": job.problem or "No problem notes recorded.",
             "tech": str(job.mechanic) if job.mechanic else "Unassigned",
             "progress": job.progress,
             "amount": amount,
@@ -1395,15 +2027,7 @@ class VehicleAdmin(ModelAdmin):
         }
 
     def _booking_card(self, booking):
-        status_map = {
-            Booking.Status.PENDING: ("pending", "PENDING"),
-            Booking.Status.CONFIRMED: ("confirmed", "CONFIRMED"),
-            Booking.Status.CHECKED_IN: ("checked_in", "CHECKED-IN"),
-            Booking.Status.IN_SERVICE: ("progress", "IN PROGRESS"),
-            Booking.Status.COMPLETED: ("completed", "COMPLETED"),
-            Booking.Status.CANCELLED: ("cancelled", "CANCELLED"),
-        }
-        status_class, status_label = status_map.get(booking.status, ("pending", booking.get_status_display().upper()))
+        status_class, status_label = booking_badge(booking.status)
         time_label = booking.booking_time.strftime("%H:%M") if booking.booking_time else "—"
         return {
             "id": booking.id,
@@ -1439,6 +2063,11 @@ class VehicleAdmin(ModelAdmin):
         front = self._pad_tile(inspection.front_brake_mm)
         rear = self._pad_tile(inspection.rear_brake_mm)
         tread = self._tread_tile(inspection.tire_tread_mm)
+        staff = inspection.staff if inspection.staff_id else None
+        staff_user = staff.user if staff and staff.user_id else None
+        staff_initials = ""
+        if staff_user:
+            staff_initials = f"{(staff_user.first_name or staff_user.username)[:1]}{(staff_user.last_name or '')[:1]}".upper()
         return {
             "id": inspection.id,
             "url": reverse("admin:django_app_inspection_change", args=[inspection.id]),
@@ -1447,6 +2076,9 @@ class VehicleAdmin(ModelAdmin):
             "front": front,
             "rear": rear,
             "tread": tread,
+            "staff_name": str(staff) if staff else "",
+            "staff_photo": _file_url(staff_user.photo) if staff_user and staff_user.photo else "",
+            "staff_initials": staff_initials,
         }
 
     def _fuel_tile(self, fuel):
@@ -1501,7 +2133,7 @@ class VehicleAdmin(ModelAdmin):
             "id": vehicle.id,
             "code": _code("VEH", vehicle.id),
             "plate": vehicle.plate,
-            "title": f"{vehicle.brand} {vehicle.model} ({vehicle.year})",
+            "title": _vehicle_title(vehicle),
             "vin": vehicle.vin or "—",
             "owner": vehicle.customer.name,
             "owner_url": owner_url,
@@ -1510,6 +2142,7 @@ class VehicleAdmin(ModelAdmin):
             "status_label": badge_label,
             "next_service": vehicle.next_service_date,
             "color": vehicle.color,
+            "image": _file_url(vehicle.image),
             "view_url": view_url,
             "edit_url": f"{view_url}?edit=1",
             "delete_url": reverse("admin:django_app_vehicle_delete", args=[vehicle.id]),
@@ -1523,8 +2156,7 @@ class VehicleAdmin(ModelAdmin):
             RepairJob.Status.DIAGNOSING: ("inspection", "INSPECTION"),
             RepairJob.Status.WAITING_APPROVAL: ("assigned", "ASSIGNED"),
             RepairJob.Status.REPAIRING: ("repair", "IN REPAIR"),
-            RepairJob.Status.WAITING_PARTS: ("waiting", "WAITING PARTS"),
-            RepairJob.Status.QUALITY_CHECK: ("inspection", "INSPECTION"),
+            RepairJob.Status.QUALITY_CHECK: ("inspection", "QUALITY CHECK"),
             RepairJob.Status.READY_FOR_PICKUP: ("ready", "READY"),
         }
         if job and job.status != RepairJob.Status.COMPLETED:
@@ -1698,6 +2330,24 @@ class ServiceAdmin(ModalFormMixin, ModelAdmin):
         return response
 
 
+def booking_badge(status):
+    badges = {
+        Booking.Status.PENDING: ("pending", "PENDING"),
+        Booking.Status.CONFIRMED: ("confirmed", "CONFIRMED"),
+        Booking.Status.WAITING: ("waiting", "WAITING"),
+        Booking.Status.DIAGNOSING: ("inspection", "INSPECTION"),
+        Booking.Status.WAITING_APPROVAL: ("pending", "WAITING APPROVAL"),
+        Booking.Status.REPAIRING: ("progress", "REPAIRING"),
+        Booking.Status.QUALITY_CHECK: ("inspection", "QUALITY CHECK"),
+        Booking.Status.READY_FOR_PICKUP: ("ready", "READY"),
+        Booking.Status.CHECKED_IN: ("checked_in", "CHECKED-IN"),
+        Booking.Status.IN_SERVICE: ("progress", "IN SERVICE"),
+        Booking.Status.COMPLETED: ("completed", "COMPLETED"),
+        Booking.Status.CANCELLED: ("cancelled", "CANCELLED"),
+    }
+    return badges.get(status, ("pending", str(status or "").replace("_", " ").upper()))
+
+
 @admin.register(Booking)
 class BookingAdmin(ModelAdmin):
     form = BookingGarageForm
@@ -1713,7 +2363,8 @@ class BookingAdmin(ModelAdmin):
         qs = (
             super()
             .get_queryset(request)
-            .select_related("customer", "vehicle", "service", "inspection__staff__user")
+            .select_related("customer", "vehicle", "service", "repair_job__inspection__staff__user")
+            .prefetch_related("part_requests")
         )
         status = request.GET.get("status")
         if status in dict(Booking.Status.choices):
@@ -1721,7 +2372,12 @@ class BookingAdmin(ModelAdmin):
         if request.GET.get("view") == "day":
             day = request.GET.get("date") or str(localdate())
             qs = qs.filter(booking_date=day)
-        return qs
+        status_rank = Case(
+            *[When(status=code, then=rank) for code, rank in BOOKING_STATUS_ORDER.items()],
+            default=50,
+            output_field=IntegerField(),
+        )
+        return qs.annotate(_status_rank=status_rank)
 
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)
@@ -1768,8 +2424,14 @@ class BookingAdmin(ModelAdmin):
         action = request.GET.get("action")
         pk = request.GET.get("pk")
         if action and pk:
-            self._apply_status(pk, action, request.user)
-            return redirect("admin:django_app_booking_changelist")
+            self._apply_status(pk, action, request)
+            params = request.GET.copy()
+            params.pop("action", None)
+            params.pop("pk", None)
+            url = reverse("admin:django_app_booking_changelist")
+            if params:
+                url = f"{url}?{params.urlencode()}"
+            return redirect(url)
 
         qs = self.get_queryset(request)
         query = (request.GET.get("q") or "").strip()
@@ -1782,7 +2444,7 @@ class BookingAdmin(ModelAdmin):
                 | Q(note__icontains=query)
                 | Q(problem__icontains=query)
             )
-        qs = qs.order_by("booking_date", "booking_time", "id")
+        qs = qs.order_by("_status_rank", "booking_date", "booking_time", "id")
 
         if request.GET.get("export") == "csv":
             return self._export_csv(qs)
@@ -1803,7 +2465,7 @@ class BookingAdmin(ModelAdmin):
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         extra_context = extra_context or {}
         if object_id and request.method == "GET" and request.GET.get("action"):
-            self._apply_status(object_id, request.GET.get("action"), request.user)
+            self._apply_status(object_id, request.GET.get("action"), request)
             return redirect("admin:django_app_booking_change", object_id)
         is_add = object_id is None
         editing = is_add or request.method == "POST" or request.GET.get("edit") == "1"
@@ -1832,26 +2494,54 @@ class BookingAdmin(ModelAdmin):
                 obj.cancelled_at = now()
             if not obj.cancelled_by_id:
                 obj.cancelled_by = request.user
+            if obj.pk:
+                job = RepairJob.objects.filter(booking_id=obj.pk).first()
+                if job is not None and job.status == RepairJob.Status.WAITING and not job.parts_used.exists() and not Invoice.objects.filter(repair_job=job).exists():
+                    job.delete()
         super().save_model(request, obj, form, change)
+        if obj.status == Booking.Status.CONFIRMED:
+            ensure_confirmed_job(obj)
+        sync_vehicle_shop_status(obj.vehicle)
 
-    def _apply_status(self, pk, action, user):
+    def _apply_status(self, pk, action, request):
         booking = Booking.objects.filter(pk=pk).first()
         if not booking:
             return
+        user = request.user
         if action == "confirm" and booking.status == Booking.Status.PENDING:
+            if not booking_can_confirm(booking):
+                blocking = booking_blocking_part_requests(booking)
+                if blocking.exists():
+                    names = ", ".join(row.spare_part.name for row in blocking[:4])
+                    more = f" (+{blocking.count() - 4} more)" if blocking.count() > 4 else ""
+                    messages.error(
+                        request,
+                        f"Confirm or cancel every part request before accepting this booking: {names}{more}.",
+                    )
+                else:
+                    messages.error(request, "This booking cannot be confirmed.")
+                return
             booking.status = Booking.Status.CONFIRMED
             booking.save(update_fields=["status"])
-        elif action == "checkin" and booking.status in (Booking.Status.PENDING, Booking.Status.CONFIRMED):
-            booking.status = Booking.Status.CHECKED_IN
-            booking.save(update_fields=["status"])
-        elif action == "finish" and booking.status in (Booking.Status.CHECKED_IN, Booking.Status.IN_SERVICE):
-            booking.status = Booking.Status.COMPLETED
-            booking.save(update_fields=["status"])
-        elif action == "cancel" and booking.status not in (Booking.Status.COMPLETED, Booking.Status.CANCELLED):
-            booking.status = Booking.Status.CANCELLED
-            booking.cancelled_at = now()
-            booking.cancelled_by = user
-            booking.save(update_fields=["status", "cancelled_at", "cancelled_by"])
+            ensure_confirmed_job(booking)
+        elif action == "checkin" and booking_can_check_in(booking):
+            try:
+                check_in_booking(booking, user)
+            except ValidationError as exc:
+                text = " ".join(exc.messages) if getattr(exc, "messages", None) else "This visit could not be checked in."
+                messages.error(request, text)
+        elif action == "finish" and booking_can_finish(booking):
+            try:
+                complete_booking(booking)
+            except ValidationError as exc:
+                text = " ".join(exc.messages) if getattr(exc, "messages", None) else "This visit could not be finished."
+                messages.error(request, text)
+        elif action == "cancel":
+            try:
+                cancel_booking(booking, user)
+            except ValidationError as exc:
+                text = " ".join(exc.messages) if getattr(exc, "messages", None) else "This visit could not be cancelled."
+                messages.error(request, text)
 
     def _profile(self, object_id):
         booking = (
@@ -1860,10 +2550,12 @@ class BookingAdmin(ModelAdmin):
                 "customer",
                 "vehicle",
                 "service",
-                "inspection__staff__user",
                 "cancelled_by",
                 "repair_job__invoice",
+                "repair_job__inspection__staff__user",
+                "repair_job__mechanic__user",
             )
+            .prefetch_related("added_services__service", "part_requests__spare_part")
             .first()
         )
         if not booking:
@@ -1880,24 +2572,30 @@ class BookingAdmin(ModelAdmin):
             except Invoice.DoesNotExist:
                 invoice = None
         inspection = None
-        try:
-            inspection = booking.inspection
-        except Inspection.DoesNotExist:
-            inspection = None
-        status_map = {
-            Booking.Status.PENDING: ("pending", "PENDING"),
-            Booking.Status.CONFIRMED: ("confirmed", "CONFIRMED"),
-            Booking.Status.CHECKED_IN: ("checked_in", "CHECKED-IN"),
-            Booking.Status.IN_SERVICE: ("progress", "IN PROGRESS"),
-            Booking.Status.COMPLETED: ("completed", "COMPLETED"),
-            Booking.Status.CANCELLED: ("cancelled", "CANCELLED"),
-        }
-        status_class, status_label = status_map.get(
-            booking.status, ("pending", booking.get_status_display().upper())
-        )
+        if job is not None:
+            try:
+                inspection = job.inspection
+            except Inspection.DoesNotExist:
+                inspection = None
+        status_class, status_label = booking_badge(booking.status)
         minutes = booking.service.duration_minutes if booking.service_id else 0
+        for extra in booking.added_services.all():
+            minutes += extra.service.duration_minutes or 0
         hours = minutes / 60 if minutes else 0
         hours_label = f"{int(hours)} hrs" if hours == int(hours) else f"{hours:g} hrs"
+        service_rows = []
+        if booking.service_id:
+            service_rows.append({"name": booking.service.name, "price": booking.service.price})
+        for extra in booking.added_services.all():
+            service_rows.append({"name": extra.service.name, "price": extra.price})
+        service_total = sum((row["price"] or 0) for row in service_rows)
+        part_rows = [
+            {"number": item.number or f"PR-{item.id:04d}", "name": item.spare_part.name, "status": item.get_status_display()}
+            for item in booking.part_requests.all()
+        ]
+        mechanic = "Unassigned"
+        if job is not None and job.mechanic_id:
+            mechanic = str(job.mechanic)
         return {
             "id": booking.id,
             "number": f"BK-{booking.id:04d}",
@@ -1910,8 +2608,11 @@ class BookingAdmin(ModelAdmin):
             "vehicle": f"{booking.vehicle.brand} {booking.vehicle.model} ({booking.vehicle.year})",
             "plate": booking.vehicle.plate,
             "vehicle_url": reverse("admin:django_app_vehicle_change", args=[booking.vehicle_id]),
-            "service": booking.service.name,
-            "service_price": booking.service.price,
+            "service": ", ".join(row["name"] for row in service_rows) or "—",
+            "service_price": service_total,
+            "service_rows": service_rows,
+            "part_rows": part_rows,
+            "mechanic": mechanic,
             "duration": hours_label if minutes else "—",
             "date": booking.booking_date,
             "time": booking.booking_time.strftime("%H:%M") if booking.booking_time else "—",
@@ -1919,14 +2620,18 @@ class BookingAdmin(ModelAdmin):
             "note": booking.note,
             "created": booking.created_at,
             "staff": str(inspection.staff) if inspection and inspection.staff_id else "—",
+            "staff_photo": _file_url(inspection.staff.user.photo)
+            if inspection and inspection.staff_id and inspection.staff.user_id and inspection.staff.user.photo
+            else "",
             "cancel_reason": booking.cancel_reason,
             "cancelled_at": booking.cancelled_at,
             "cancelled_by": str(booking.cancelled_by) if booking.cancelled_by_id else "",
             "is_cancelled": booking.status == Booking.Status.CANCELLED,
-            "can_confirm": booking.status == Booking.Status.PENDING,
-            "can_checkin": booking.status in (Booking.Status.PENDING, Booking.Status.CONFIRMED),
-            "can_finish": booking.status in (Booking.Status.CHECKED_IN, Booking.Status.IN_SERVICE),
-            "can_cancel": booking.status not in (Booking.Status.COMPLETED, Booking.Status.CANCELLED),
+            "can_confirm": booking_can_confirm(booking),
+            "parts_pending": booking_blocking_part_requests(booking).exists(),
+            "can_checkin": booking_can_check_in(booking),
+            "can_finish": booking_can_finish(booking),
+            "can_cancel": booking_can_cancel(booking),
             "job_url": reverse("admin:django_app_repairjob_change", args=[job.id]) if job else "",
             "job_number": f"WO-{job.id:04d}" if job else "",
             "inspection_url": reverse("admin:django_app_inspection_change", args=[inspection.id]) if inspection else "",
@@ -1938,11 +2643,13 @@ class BookingAdmin(ModelAdmin):
     def _row(self, booking):
         receptionist = ""
         try:
-            if booking.inspection.staff_id:
-                receptionist = str(booking.inspection.staff)
-        except Inspection.DoesNotExist:
+            inspection = booking.repair_job.inspection
+            if inspection.staff_id:
+                receptionist = str(inspection.staff)
+        except (RepairJob.DoesNotExist, Inspection.DoesNotExist):
             receptionist = ""
         view_url = reverse("admin:django_app_booking_change", args=[booking.id])
+        parts_pending = booking_blocking_part_requests(booking).exists()
         return {
             "id": booking.id,
             "code": _code("BK", booking.id),
@@ -1955,16 +2662,18 @@ class BookingAdmin(ModelAdmin):
             "notes": booking.note or booking.problem,
             "receptionist": receptionist,
             "status": booking.status,
-            "status_label": booking.get_status_display().upper(),
-            "status_class": booking.status.lower(),
+            "status_label": booking_badge(booking.status)[1],
+            "status_class": booking_badge(booking.status)[0],
             "view_url": view_url,
             "edit_url": f"{view_url}?edit=1",
             "delete_url": reverse("admin:django_app_booking_delete", args=[booking.id]),
             **_delete_icon_flags(booking),
-            "can_confirm": booking.status == Booking.Status.PENDING,
-            "can_checkin": booking.status in (Booking.Status.PENDING, Booking.Status.CONFIRMED),
-            "can_finish": booking.status in (Booking.Status.CHECKED_IN, Booking.Status.IN_SERVICE),
-            "can_cancel": booking.status not in (Booking.Status.COMPLETED, Booking.Status.CANCELLED),
+            "can_confirm": booking_can_confirm(booking),
+            "parts_pending": parts_pending,
+            "parts_pending_label": "Confirm or cancel part requests first" if parts_pending else "",
+            "can_checkin": booking_can_check_in(booking),
+            "can_finish": booking_can_finish(booking),
+            "can_cancel": booking_can_cancel(booking),
         }
 
     def _export_csv(self, queryset):
@@ -2130,6 +2839,12 @@ def _file_url(field):
         return str(field) if field else ""
 
 
+def _avatar_html(photo_url, initials):
+    if photo_url:
+        return format_html('<img class="cc-avatar-round" src="{}" alt="">', photo_url)
+    return format_html('<span class="cc-avatar cc-avatar-round">{}</span>', initials)
+
+
 def _badge(kind, label):
     return format_html('<span class="cc-status {}">{}</span>', kind, label)
 
@@ -2184,7 +2899,21 @@ def _id_link(prefix, pk, url):
     return format_html('<a class="wo-num" href="{}">#{}</a>', url, _code(prefix, pk))
 
 
-PAGE_QUERY_KEYS = ("stock", "category", "status", "role", "method", "export", "action", "pk", "view", "date")
+PAGE_QUERY_KEYS = (
+    "stock",
+    "category",
+    "status",
+    "fulfillment",
+    "role",
+    "method",
+    "export",
+    "action",
+    "pk",
+    "mechanic",
+    "staff",
+    "view",
+    "date",
+)
 
 
 class CarsvChangeList(ChangeList):
@@ -2253,8 +2982,8 @@ class StaffAdmin(CarsvPageAdmin):
                     "off": staff.status != Staff.Status.ACTIVE,
                     "cells": [
                         format_html(
-                            '<div class="cc-person"><span class="cc-avatar cc-avatar-round">{}</span><div><div class="cc-name">{}</div>{}{}</div></div>',
-                            initials,
+                            '<div class="cc-person">{}<div><div class="cc-name">{}</div>{}{}</div></div>',
+                            _avatar_html(_file_url(user.photo), initials),
                             str(staff),
                             _id_html("STF", staff.id),
                             _id_html("USR", user.id),
@@ -2305,58 +3034,202 @@ class StaffAdmin(CarsvPageAdmin):
 @admin.register(Inspection)
 class InspectionAdmin(CarsvPageAdmin):
     form = InspectionGarageForm
-    list_display = ("id", "booking", "mileage", "staff", "checked_in_at")
+    list_display = ("id", "repair_job", "status", "mileage", "staff", "checked_in_at")
     modal_title_add = "Add Inspection"
     modal_title_edit = "Edit Inspection"
-    modal_subtitle = "Record check-in measurements, condition, and customer complaint."
+    modal_subtitle = "Check the car for this work order. The complaint comes from the work order."
     modal_save_add = "Save Inspection"
+    STATUS_BADGE = {
+        Inspection.Status.PENDING: "pending",
+        Inspection.Status.CHECK_IN: "progress",
+        Inspection.Status.COMPLETED: "completed",
+    }
+
+    def get_urls(self):
+        info = self.model._meta.app_label, self.model._meta.model_name
+        custom = [
+            path(
+                "<path:object_id>/delete-image/<int:image_id>/",
+                self.admin_site.admin_view(self.delete_inspection_image),
+                name="%s_%s_delete_image" % info,
+            ),
+        ]
+        return custom + super().get_urls()
+
+    def delete_inspection_image(self, request, object_id, image_id):
+        if request.method != "POST":
+            return HttpResponseForbidden("POST required")
+        inspection = get_object_or_404(Inspection, pk=unquote(object_id))
+        if not self.has_change_permission(request, inspection):
+            return HttpResponseForbidden("Not allowed")
+        shot = get_object_or_404(InspectionImage, pk=image_id, inspection=inspection)
+        image_name = shot.image.name if shot.image else ""
+        shot.image.delete(save=False)
+        shot.delete()
+        return JsonResponse({"ok": True, "id": image_id, "removed": image_name})
+
+    def save_model(self, request, obj, form, change):
+        # Admin always calls form.save(commit=False); append new photos (never wipe old).
+        super().save_model(request, obj, form, change)
+        for uploaded in form.cleaned_data.get("images") or []:
+            InspectionImage.objects.create(inspection=obj, image=uploaded)
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related(
-            "booking__customer", "booking__vehicle", "booking__service", "staff__user"
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("repair_job__customer", "repair_job__vehicle", "staff__user")
+            .prefetch_related("images")
         )
+
+    def changelist_view(self, request, extra_context=None):
+        action = request.GET.get("action")
+        pk = request.GET.get("pk")
+        if action and pk:
+            if action == "advance":
+                self._advance(request, pk)
+            elif action == "assign":
+                self._assign_inspector(request, pk, request.GET.get("staff"))
+            params = request.GET.copy()
+            params.pop("action", None)
+            params.pop("pk", None)
+            params.pop("staff", None)
+            url = reverse("admin:django_app_inspection_changelist")
+            if params:
+                url = f"{url}?{params.urlencode()}"
+            return redirect(url)
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def _assign_inspector(self, request, pk, staff_id):
+        item = Inspection.objects.filter(pk=pk).first()
+        if item is None:
+            return
+        if item.staff_id:
+            return
+        if item.status == Inspection.Status.COMPLETED:
+            messages.error(request, "This inspection is already completed.")
+            return
+        staff = Staff.objects.filter(pk=staff_id, status=Staff.Status.ACTIVE).select_related("user").first()
+        if staff is None:
+            messages.error(request, "Choose an available inspector.")
+            return
+        item.staff = staff
+        item.status = Inspection.Status.CHECK_IN
+        item.save(update_fields=["staff", "status"])
+
+    def _advance(self, request, pk):
+        item = (
+            Inspection.objects.filter(pk=pk)
+            .select_related("staff")
+            .prefetch_related("images")
+            .first()
+        )
+        if item is None:
+            return
+        if not item.staff_id:
+            messages.error(request, "Select the inspector before completing this inspection.")
+            return
+        if item.status == Inspection.Status.COMPLETED:
+            return
+        missing = inspection_missing_fields(item)
+        if missing:
+            messages.error(
+                request,
+                f"Fill every inspection field before Completed: {', '.join(missing)}.",
+            )
+            return
+        item.status = Inspection.Status.COMPLETED
+        item.save(update_fields=["status"])
 
     def build_page(self, request):
         qs = self.get_queryset(request)
         query = (request.GET.get("q") or "").strip()
         if query:
             qs = qs.filter(
-                Q(booking__customer__name__icontains=query)
-                | Q(booking__vehicle__plate__icontains=query)
-                | Q(complaint__icontains=query)
+                Q(repair_job__customer__name__icontains=query)
+                | Q(repair_job__vehicle__plate__icontains=query)
+                | Q(repair_job__problem__icontains=query)
                 | Q(note__icontains=query)
             )
+        inspectors = list(
+            Staff.objects.filter(status=Staff.Status.ACTIVE)
+            .select_related("user")
+            .order_by("user__first_name", "user__username")
+        )
+        inspector_choices = [{"id": row.id, "label": str(row)} for row in inspectors]
         cards = []
         for item in qs.order_by("-checked_in_at"):
-            booking = item.booking
+            job = item.repair_job
+            staff_user = item.staff.user if item.staff_id and item.staff.user_id else None
+            if staff_user:
+                initials = f"{(staff_user.first_name or staff_user.username)[:1]}{(staff_user.last_name or '')[:1]}".upper()
+                photo = _file_url(staff_user.photo)
+            else:
+                initials = f"IN-{item.id:02d}"
+                photo = ""
+            next_label = ""
+            next_url = ""
+            next_note = ""
+            next_class = ""
+            needs_inspector = not item.staff_id and item.status != Inspection.Status.COMPLETED
+            # Badge: Pending until an inspector is assigned, then Check-in, then Completed.
+            if item.status == Inspection.Status.COMPLETED:
+                display_status = Inspection.Status.COMPLETED
+            elif item.staff_id:
+                display_status = Inspection.Status.CHECK_IN
+            else:
+                display_status = Inspection.Status.PENDING
+            fields_ready = inspection_fields_filled(item) if item.staff_id else False
+            if needs_inspector:
+                next_note = "Select the inspector first"
+            elif item.staff_id and item.status != Inspection.Status.COMPLETED and fields_ready:
+                from urllib.parse import urlencode
+
+                next_label = "Completed"
+                next_class = "completed"
+                params = {"action": "advance", "pk": item.id}
+                if query:
+                    params["q"] = query
+                next_url = f"{reverse('admin:django_app_inspection_changelist')}?{urlencode(params)}"
+            elif item.staff_id and item.status != Inspection.Status.COMPLETED:
+                next_note = "Fill all inspection fields first"
+            note = job.problem or item.condition or item.note or ""
             cards.append(
                 {
-                    "initials": f"IN-{item.id:02d}",
-                    "title": booking.customer.name,
+                    "initials": initials,
+                    "photo": photo,
+                    "title": f"WO-{job.id:04d}",
                     "record_id": f"ID: #{_code('INSP', item.id)}",
-                    "kicker": f"{booking.vehicle.plate} · {booking.vehicle.brand} {booking.vehicle.model}",
-                    "status_class": booking.status.lower(),
-                    "status_label": booking.get_status_display().upper(),
+                    "kicker": f"{job.vehicle.plate} · {job.customer.name}",
+                    "status_class": self.STATUS_BADGE.get(display_status, "pending"),
+                    "status_label": dict(Inspection.Status.choices).get(display_status, display_status).upper(),
                     "lines": [
-                        f"Mileage: {item.mileage:,} km · Fuel: {item.fuel_level or '—'}",
-                        f"Staff: {item.staff or '—'}",
-                        item.complaint or item.condition or item.note or "No inspection notes.",
+                        f"Mileage: {item.mileage:,} km · Fuel: {item.get_fuel_level_display() or '—'}",
                     ],
+                    "inspector_name": str(item.staff) if item.staff_id else "",
+                    "needs_inspector": needs_inspector,
+                    "inspector_choices": inspector_choices,
+                    "assign_pk": item.id,
+                    "note": note,
                     "footer": item.checked_in_at.strftime("%Y-%m-%d %H:%M") if item.checked_in_at else "",
                     "view_url": reverse("admin:django_app_inspection_change", args=[item.id]),
+                    "next_url": next_url,
+                    "next_label": next_label,
+                    "next_class": next_class,
+                    "next_note": next_note,
                     "delete_url": reverse("admin:django_app_inspection_delete", args=[item.id]),
                     **_delete_icon_flags(item),
                 }
             )
         return {
             "title": "Inspections",
-            "subtitle": "Check-in condition, mileage, and complaints recorded at the front desk.",
+            "subtitle": "Assign an inspector (Check-in), finish the check (Completed), then the work order can wait for approval.",
             "count": Inspection.objects.count(),
             "count_label": "Inspections",
             "model": "inspection",
             "add_url": reverse("admin:django_app_inspection_add"),
             "add_label": "Add Inspection",
-            "search_placeholder": "Search by customer, plate, or complaint...",
+            "search_placeholder": "Search by work order, plate, or problem...",
             "search_query": query,
             "layout": "cards",
             "cards": cards,
@@ -2411,6 +3284,7 @@ class MechanicAdmin(CarsvPageAdmin):
             cards.append(
                 {
                     "initials": initials,
+                    "photo": _file_url(user.photo),
                     "title": str(mechanic),
                     "record_id": f"ID: #{_code('TECH', mechanic.id)} · User #{_code('USR', user.id)}",
                     "kicker": mechanic.specialization or "General",
@@ -2462,22 +3336,26 @@ class RepairJobAdmin(ModalFormMixin, ModelAdmin):
     change_list_template = "admin/django_app/workorder_change_list.html"
     modal_title_add = "Create Work Order"
     modal_title_edit = "Edit Work Order"
-    modal_subtitle = "Assign booking, vehicle, technician, and current job status."
+    modal_subtitle = "Choose the customer, then their vehicle, then the visit. The visit fills the locked fields."
     modal_save_add = "Create Work Order"
 
     def get_changelist(self, request, **kwargs):
         return CarsvChangeList
 
     STATUS_BADGE = {
-        RepairJob.Status.WAITING: ("pending", "PENDING"),
-        RepairJob.Status.DIAGNOSING: ("progress", "IN PROGRESS"),
-        RepairJob.Status.WAITING_APPROVAL: ("assigned", "ASSIGNED"),
-        RepairJob.Status.REPAIRING: ("progress", "IN PROGRESS"),
-        RepairJob.Status.WAITING_PARTS: ("waiting", "WAITING PARTS"),
-        RepairJob.Status.QUALITY_CHECK: ("inspection", "QUALITY CHECK"),
-        RepairJob.Status.READY_FOR_PICKUP: ("ready", "READY FOR PICKUP"),
-        RepairJob.Status.COMPLETED: ("completed", "COMPLETED"),
+        RepairJob.Status.WAITING: "waiting",
+        RepairJob.Status.DIAGNOSING: "progress",
+        RepairJob.Status.WAITING_APPROVAL: "pending",
+        RepairJob.Status.REPAIRING: "progress",
+        RepairJob.Status.QUALITY_CHECK: "inspection",
+        RepairJob.Status.READY_FOR_PICKUP: "ready",
+        RepairJob.Status.COMPLETED: "completed",
+        RepairJob.Status.CANCELLED: "cancelled",
     }
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        sync_booking_from_job(obj)
 
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)
@@ -2493,7 +3371,8 @@ class RepairJobAdmin(ModalFormMixin, ModelAdmin):
         qs = (
             super()
             .get_queryset(request)
-            .select_related("customer", "vehicle", "mechanic__user", "booking__service", "invoice")
+            .select_related("customer", "vehicle", "mechanic__user", "booking__customer", "booking__vehicle", "booking__service", "invoice", "inspection")
+            .prefetch_related("booking__added_services__service")
         )
         status = request.GET.get("status")
         if status in dict(RepairJob.Status.choices):
@@ -2502,6 +3381,21 @@ class RepairJobAdmin(ModalFormMixin, ModelAdmin):
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
+        action = request.GET.get("action")
+        pk = request.GET.get("pk")
+        if action and pk:
+            if action == "advance":
+                self._advance(request, pk)
+            elif action == "assign":
+                self._assign_technician(request, pk, request.GET.get("mechanic"))
+            params = request.GET.copy()
+            params.pop("action", None)
+            params.pop("pk", None)
+            params.pop("mechanic", None)
+            url = reverse("admin:django_app_repairjob_changelist")
+            if params:
+                url = f"{url}?{params.urlencode()}"
+            return redirect(url)
         qs = self.get_queryset(request)
         query = (request.GET.get("q") or "").strip()
         if query:
@@ -2521,22 +3415,12 @@ class RepairJobAdmin(ModalFormMixin, ModelAdmin):
         if request.GET.get("export") == "csv":
             return self._export_csv(qs)
 
+        technicians = list(
+            Mechanic.objects.filter(status=Mechanic.Status.ACTIVE, available=True)
+            .select_related("user")
+            .order_by("user__first_name", "user__username")
+        )
         rows = [self._row(job) for job in qs]
-        if not request.GET.get("status"):
-            pending = Booking.objects.filter(status=Booking.Status.PENDING).select_related(
-                "customer", "vehicle", "service"
-            )
-            if query:
-                pending = pending.filter(
-                    Q(customer__name__icontains=query)
-                    | Q(vehicle__plate__icontains=query)
-                    | Q(problem__icontains=query)
-                    | Q(service__name__icontains=query)
-                )
-            for booking in pending:
-                if hasattr(booking, "repair_job"):
-                    continue
-                rows.append(self._booking_row(booking))
 
         extra_context.update(
             {
@@ -2544,62 +3428,130 @@ class RepairJobAdmin(ModalFormMixin, ModelAdmin):
                 "order_count": RepairJob.objects.count(),
                 "search_query": query,
                 "status_filter": request.GET.get("status") or "ALL",
+                "technician_choices": [{"id": tech.id, "label": str(tech)} for tech in technicians],
             }
         )
         return super().changelist_view(request, extra_context=extra_context)
 
+    def _assign_technician(self, request, pk, mechanic_id):
+        job = RepairJob.objects.filter(pk=pk).first()
+        if job is None:
+            return
+        if job.mechanic_id:
+            messages.info(request, "This work order already has a technician.")
+            return
+        if job.status in (RepairJob.Status.COMPLETED, RepairJob.Status.CANCELLED):
+            messages.error(request, "This work order is closed.")
+            return
+        mechanic = (
+            Mechanic.objects.filter(pk=mechanic_id, status=Mechanic.Status.ACTIVE, available=True)
+            .select_related("user")
+            .first()
+        )
+        if mechanic is None:
+            messages.error(request, "Choose an available technician.")
+            return
+        if (
+            job.start_date
+            and RepairJob.objects.filter(mechanic=mechanic, start_date=job.start_date)
+            .exclude(status=RepairJob.Status.COMPLETED)
+            .exclude(pk=job.pk)
+            .exists()
+        ):
+            messages.error(request, "This technician already has a job on that date.")
+            return
+        job.mechanic = mechanic
+        job.save(update_fields=["mechanic"])
+
+    def _advance(self, request, pk):
+        job = RepairJob.objects.filter(pk=pk).select_related("inspection", "mechanic").first()
+        if job is None:
+            return
+        nxt = next_job_status(job.status)
+        if not nxt:
+            return
+        reason = job_advance_block_reason(job, nxt)
+        if reason:
+            messages.error(request, reason)
+            return
+        job.status = nxt
+        job.save(update_fields=["status"])
+
     def _row(self, job):
-        badge_class, badge_label = self.STATUS_BADGE.get(job.status, ("pending", job.get_status_display().upper()))
-        cost = None
-        if hasattr(job, "invoice"):
-            cost = job.invoice.grand_total
-        elif job.booking_id and job.booking.service_id:
-            cost = job.booking.service.price
-        created = job.booking.created_at if job.booking_id else job.start_date
+        booking = job.booking if job.booking_id else None
+        vehicle = booking.vehicle if booking is not None else job.vehicle
+        customer = booking.customer if booking is not None else job.customer
+        services = []
+        if booking is not None and booking.service_id:
+            services.append(booking.service.name)
+            services.extend(extra.service.name for extra in booking.added_services.all())
+        problem = ""
+        when = ""
+        if booking is not None:
+            problem = booking.problem or (booking.service.name if booking.service_id else "")
+            when = booking.booking_date.isoformat()
+            if booking.booking_time:
+                when = f"{when} {booking.booking_time.strftime('%H:%M')}"
+        else:
+            problem = job.problem
+            when = job.start_date.isoformat() if job.start_date else ""
+        nxt = next_job_status(job.status)
+        next_label = ""
+        inspection_note = ""
+        needs_tech = not job.mechanic_id and job.status not in (
+            RepairJob.Status.COMPLETED,
+            RepairJob.Status.CANCELLED,
+        )
+        block = job_advance_block_reason(job, nxt) if nxt else ""
+        if needs_tech:
+            inspection_note = "Assign a technician first"
+        elif nxt and not block:
+            next_label = dict(RepairJob.Status.choices).get(nxt, "")
+        elif block:
+            inspection_note = block
         return {
+            "id": job.id,
             "number": f"WO-{job.id:04d}",
-            "created": created,
-            "customer": job.customer.name,
-            "problem": job.problem or (job.booking.problem if job.booking_id else ""),
-            "vehicle": f"{job.vehicle.brand} {job.vehicle.model} ({job.vehicle.year})",
-            "plate": job.vehicle.plate,
+            "when": when,
+            "customer": customer.name,
+            "problem": problem,
+            "vehicle": f"{vehicle.brand} {vehicle.model} ({vehicle.year})",
+            "plate": vehicle.plate,
             "tech": str(job.mechanic) if job.mechanic_id else "Unassigned",
-            "bay": "Bay #01" if job.vehicle.status == Vehicle.Status.IN_SHOP else "—",
-            "status_class": badge_class,
-            "status_label": badge_label,
-            "cost": cost,
+            "needs_tech": needs_tech,
+            "service": ", ".join(services) or "—",
+            "status_class": self.STATUS_BADGE.get(job.status, "pending"),
+            "status_label": job.get_status_display(),
+            "progress": job.progress,
+            "next_status": nxt or "",
+            "next_label": next_label,
+            "next_class": self.STATUS_BADGE.get(nxt, "") if next_label else "",
+            "inspection_note": inspection_note,
+            "cost": visit_service_total(booking) if booking is not None else None,
             "view_url": reverse("admin:django_app_repairjob_change", args=[job.id]),
             "delete_url": reverse("admin:django_app_repairjob_delete", args=[job.id]),
             **_delete_icon_flags(job),
-        }
-
-    def _booking_row(self, booking):
-        return {
-            "number": f"BK-{booking.id:04d}",
-            "created": booking.created_at,
-            "customer": booking.customer.name,
-            "problem": booking.problem or booking.service.name,
-            "vehicle": f"{booking.vehicle.brand} {booking.vehicle.model} ({booking.vehicle.year})",
-            "plate": booking.vehicle.plate,
-            "tech": "Unassigned",
-            "bay": "Bay #01" if booking.vehicle.status == Vehicle.Status.IN_SHOP else "—",
-            "status_class": "pending",
-            "status_label": "PENDING",
-            "cost": booking.service.price if booking.service_id else None,
-            "view_url": reverse("admin:django_app_booking_change", args=[booking.id]),
-            "delete_url": reverse("admin:django_app_booking_delete", args=[booking.id]),
-            **_delete_icon_flags(booking),
         }
 
     def _export_csv(self, queryset):
         response = HttpResponse(content_type="text/csv")
         response["Content-Disposition"] = 'attachment; filename="work-orders.csv"'
         writer = csv.writer(response)
-        writer.writerow(["WO", "Customer", "Vehicle", "Plate", "Technician", "Status", "Problem"])
+        writer.writerow(["WO", "Visit", "Customer", "Vehicle", "Plate", "Technician", "Service", "Status", "Problem"])
         for job in queryset:
             row = self._row(job)
             writer.writerow(
-                [row["number"], row["customer"], row["vehicle"], row["plate"], row["tech"], row["status_label"], row["problem"]]
+                [
+                    row["number"],
+                    row["when"],
+                    row["customer"],
+                    row["vehicle"],
+                    row["plate"],
+                    row["tech"],
+                    row["service"],
+                    row["status_label"],
+                    row["problem"],
+                ]
             )
         return response
 
@@ -2892,6 +3844,259 @@ class SparePartAdmin(CarsvPageAdmin):
         return response
 
 
+@admin.register(PartRequest)
+class PartRequestAdmin(CarsvPageAdmin):
+    form = PartRequestGarageForm
+    list_display = ("number", "customer", "vehicle", "spare_part", "fulfillment", "status", "created_at")
+    search_fields = ("number", "customer__name", "vehicle__plate", "spare_part__name", "spare_part__part_number", "notes")
+    modal_title_add = "Add Part Request"
+    modal_title_edit = "Edit Part Request"
+    modal_subtitle = "Advance Pending → Noted → Confirmed to issue the part. Cancel when it is not available and say why."
+    modal_save_add = "Save Request"
+    modal_save_edit = "Save Request"
+    STATUS_BADGE = {
+        PartRequest.Status.PENDING: "waiting",
+        PartRequest.Status.NOTED: "pending",
+        PartRequest.Status.CONFIRMED: "ready",
+        PartRequest.Status.CANCELLED: "cancelled",
+    }
+    NEXT_BUTTON_LABEL = {
+        PartRequest.Status.NOTED: "Noted",
+        PartRequest.Status.CONFIRMED: "Confirm",
+    }
+
+    def changelist_view(self, request, extra_context=None):
+        if request.GET.get("action") == "advance" and request.GET.get("pk"):
+            self._advance(request, request.GET.get("pk"))
+            params = request.GET.copy()
+            params.pop("action", None)
+            params.pop("pk", None)
+            url = reverse("admin:django_app_partrequest_changelist")
+            if params:
+                url = f"{url}?{params.urlencode()}"
+            return redirect(url)
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        if object_id and request.GET.get("cancel") == "1":
+            extra_context.update(
+                {
+                    "modal_title": "Cancel Part Request",
+                    "modal_subtitle": "Say why this part is not available (for example out of stock).",
+                    "modal_save": "Cancel Request",
+                }
+            )
+        return super().changeform_view(request, object_id, form_url, extra_context=extra_context)
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        if request.GET.get("cancel") == "1":
+            initial["status"] = PartRequest.Status.CANCELLED
+        return initial
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj=obj, change=change, **kwargs)
+        if request.GET.get("cancel") == "1" and obj is not None and not obj.parts_usage_id:
+
+            class CancelPartRequestForm(form):
+                def __init__(self, *args, **inner_kwargs):
+                    super().__init__(*args, **inner_kwargs)
+                    if not self.is_bound:
+                        self.instance.status = PartRequest.Status.CANCELLED
+                        self.initial["status"] = PartRequest.Status.CANCELLED
+                        self.fields["status"].initial = PartRequest.Status.CANCELLED
+
+            return CancelPartRequestForm
+        return form
+
+    def _advance(self, request, pk):
+        item = PartRequest.objects.filter(pk=pk).select_related("spare_part").first()
+        if item is None:
+            return
+        try:
+            advance_part_request(item, user=request.user)
+        except ValidationError as exc:
+            messages.error(request, self._validation_text(exc) or "Could not update this part request.")
+
+    def _validation_text(self, exc):
+        if hasattr(exc, "message_dict"):
+            return " ".join(error for errors in exc.message_dict.values() for error in errors)
+        if getattr(exc, "messages", None):
+            return " ".join(exc.messages)
+        return str(exc)
+
+    def save_model(self, request, obj, form, change):
+        previous_status = PartRequest.Status.PENDING
+        if change and obj.pk:
+            previous_status = (
+                PartRequest.objects.filter(pk=obj.pk).values_list("status", flat=True).first() or previous_status
+            )
+        if obj.status == PartRequest.Status.CANCELLED and previous_status != PartRequest.Status.CANCELLED:
+            reason = ((form.cleaned_data.get("cancel_reason") if form else "") or obj.cancel_reason or "").strip()
+            try:
+                if change and obj.pk:
+                    # Keep other field edits, then mark cancelled with reason + notify.
+                    obj.status = previous_status
+                    super().save_model(request, obj, form, change)
+                    cancel_part_request(obj, reason=reason, user=request.user)
+                else:
+                    obj.cancel_reason = reason
+                    super().save_model(request, obj, form, change)
+                    cancel_part_request(obj, reason=reason, user=request.user)
+            except ValidationError as exc:
+                messages.error(request, self._validation_text(exc) or "Could not cancel this request.")
+                if obj.pk:
+                    PartRequest.objects.filter(pk=obj.pk).update(status=previous_status)
+                    obj.status = previous_status
+            return
+        super().save_model(request, obj, form, change)
+        if obj.status != PartRequest.Status.CONFIRMED or obj.parts_usage_id:
+            return
+        try:
+            confirm_part_request(obj, user=request.user)
+        except ValidationError as exc:
+            PartRequest.objects.filter(pk=obj.pk).update(status=previous_status)
+            obj.status = previous_status
+            messages.error(request, self._validation_text(exc) or "Could not confirm this request.")
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("customer", "vehicle", "spare_part", "repair_job__invoice")
+        status = request.GET.get("status")
+        if status in dict(PartRequest.Status.choices):
+            qs = qs.filter(status=status)
+        fulfillment = request.GET.get("fulfillment")
+        if fulfillment in dict(PartRequest.Fulfillment.choices):
+            qs = qs.filter(fulfillment=fulfillment)
+        return qs
+
+    def _row_actions(self, item, query, status_filter, fulfillment_filter):
+        from urllib.parse import urlencode
+
+        change_url = reverse("admin:django_app_partrequest_change", args=[item.id])
+        delete_url = reverse("admin:django_app_partrequest_delete", args=[item.id])
+        nxt = next_part_request_status(item.status)
+        pieces = ['<span class="wo-actions">']
+        args = []
+        if nxt and not item.parts_usage_id:
+            params = {"action": "advance", "pk": item.id}
+            if query:
+                params["q"] = query
+            if status_filter:
+                params["status"] = status_filter
+            if fulfillment_filter:
+                params["fulfillment"] = fulfillment_filter
+            label = self.NEXT_BUTTON_LABEL.get(nxt, dict(PartRequest.Status.choices).get(nxt, nxt))
+            pieces.append('<a class="ap-btn tone-{}" href="{}?{}">{}</a>')
+            args.extend(
+                [
+                    self.STATUS_BADGE.get(nxt, "pending"),
+                    reverse("admin:django_app_partrequest_changelist"),
+                    urlencode(params),
+                    label,
+                ]
+            )
+        if item.status != PartRequest.Status.CANCELLED and not item.parts_usage_id:
+            pieces.append('<a class="ap-btn cancel" href="{}?cancel=1">Cancel</a>')
+            args.append(change_url)
+        pieces.append("{}</span>")
+        args.append(_actions(change_url, delete_url, obj=item))
+        return format_html("".join(pieces), *args)
+
+    def build_page(self, request):
+        qs = self.get_queryset(request)
+        query = (request.GET.get("q") or "").strip()
+        if query:
+            qs = qs.filter(
+                Q(number__icontains=query)
+                | Q(customer__name__icontains=query)
+                | Q(vehicle__plate__icontains=query)
+                | Q(vehicle__brand__icontains=query)
+                | Q(vehicle__model__icontains=query)
+                | Q(spare_part__name__icontains=query)
+                | Q(spare_part__part_number__icontains=query)
+                | Q(notes__icontains=query)
+                | Q(cancel_reason__icontains=query)
+            )
+        status_filter = request.GET.get("status") or ""
+        fulfillment_filter = request.GET.get("fulfillment") or ""
+        rows = []
+        for item in qs.order_by("-created_at", "-id"):
+            if item.vehicle_id:
+                vehicle_cell = _pair(f"{item.vehicle.brand} {item.vehicle.model}", item.vehicle.plate)
+            else:
+                vehicle_cell = "—"
+            if item.repair_job_id:
+                wo_url = reverse("admin:django_app_repairjob_change", args=[item.repair_job_id])
+                wo_label = f"WO-{item.repair_job_id:04d}"
+                invoice = None
+                try:
+                    invoice = item.repair_job.invoice
+                except Invoice.DoesNotExist:
+                    invoice = None
+                if invoice is not None:
+                    inv_url = reverse("admin:django_app_invoice_change", args=[invoice.id])
+                    job_cell = format_html(
+                        '<a class="wo-num" href="{}">{}</a><div class="cc-email"><a href="{}">{}</a></div>',
+                        wo_url,
+                        wo_label,
+                        inv_url,
+                        invoice.number,
+                    )
+                else:
+                    job_cell = format_html('<a class="wo-num" href="{}">{}</a>', wo_url, wo_label)
+            else:
+                job_cell = "—"
+            change_url = reverse("admin:django_app_partrequest_change", args=[item.id])
+            status_cell = _badge(self.STATUS_BADGE.get(item.status, "pending"), item.get_status_display())
+            if item.status == PartRequest.Status.CANCELLED and item.cancel_reason:
+                status_cell = format_html("{}{}", status_cell, _pair("", item.cancel_reason))
+            rows.append(
+                {
+                    "cells": [
+                        format_html('<a class="wo-num" href="{}">{}</a>', change_url, item.number),
+                        item.customer.name,
+                        vehicle_cell,
+                        _pair(item.spare_part.name, item.spare_part.part_number),
+                        item.get_fulfillment_display(),
+                        status_cell,
+                        job_cell,
+                        localdate(item.created_at).strftime("%b %d, %Y") if item.created_at else "—",
+                        self._row_actions(item, query, status_filter, fulfillment_filter),
+                    ]
+                }
+            )
+        return {
+            "title": "Part Requests",
+            "subtitle": "Use Noted / Confirm like work orders. Cancel when the part is not available and record the reason.",
+            "count": PartRequest.objects.count(),
+            "count_label": "Requests",
+            "model": "partrequest",
+            "add_url": reverse("admin:django_app_partrequest_add"),
+            "add_label": "Add Request",
+            "extra_link": {"url": reverse("admin:django_app_sparepart_changelist"), "label": "Parts inventory"},
+            "search_placeholder": "Search by request, customer, plate, or part...",
+            "search_query": query,
+            "filters": [
+                {
+                    "name": "status",
+                    "value": status_filter,
+                    "options": [{"value": "", "label": "All statuses"}]
+                    + [{"value": value, "label": label} for value, label in PartRequest.Status.choices],
+                },
+                {
+                    "name": "fulfillment",
+                    "value": fulfillment_filter,
+                    "options": [{"value": "", "label": "All fulfillments"}]
+                    + [{"value": value, "label": label} for value, label in PartRequest.Fulfillment.choices],
+                },
+            ],
+            "columns": ["Request", "Customer", "Vehicle", "Part", "Fulfillment", "Status", "Work order", "Requested", "Actions"],
+            "rows": rows,
+            "empty": "No part requests match this search.",
+        }
+
+
 @admin.register(PartsUsage)
 class PartsUsageAdmin(CarsvPageAdmin):
     form = PartsUsageGarageForm
@@ -3049,6 +4254,10 @@ class InvoiceAdmin(CarsvPageAdmin):
         has_extra_parts = False
         booked_on = getattr(booking, "booking_date", None)
         if job:
+            from django_app.models import sync_invoice_costs, visit_open_part_requests
+
+            sync_invoice_costs(job)
+            invoice.refresh_from_db()
             for usage in job.parts_used.all():
                 used_day = usage.used_at.date() if usage.used_at else None
                 extra = bool(booked_on and used_day and used_day > booked_on)
@@ -3063,6 +4272,20 @@ class InvoiceAdmin(CarsvPageAdmin):
                         "qty": usage.quantity,
                         "unit": _money(usage.unit_price),
                         "total": _money(usage.total),
+                    }
+                )
+            for request_row in visit_open_part_requests(job):
+                has_extra_parts = True
+                part = request_row.spare_part
+                part_rows.append(
+                    {
+                        "name": part.name,
+                        "sku": part.part_number,
+                        "when": "Requested",
+                        "extra": True,
+                        "qty": 1,
+                        "unit": _money(part.unit_price),
+                        "total": _money(part.unit_price),
                     }
                 )
         paid = invoice.payments.exclude(
@@ -3081,8 +4304,6 @@ class InvoiceAdmin(CarsvPageAdmin):
         note_parts = []
         if job and job.problem:
             note_parts.append(job.problem)
-        if job and job.diagnosis:
-            note_parts.append(job.diagnosis)
         can_pay = invoice.status not in (Invoice.Status.PAID, Invoice.Status.CANCELLED) and balance > 0
         return {
             "id": invoice.id,
@@ -3124,6 +4345,15 @@ class InvoiceAdmin(CarsvPageAdmin):
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
+        if request.GET.get("action") == "advance" and request.GET.get("pk"):
+            self._advance(request, request.GET.get("pk"))
+            params = request.GET.copy()
+            params.pop("action", None)
+            params.pop("pk", None)
+            url = reverse("admin:django_app_invoice_changelist")
+            if params:
+                url = f"{url}?{params.urlencode()}"
+            return redirect(url)
         extra_context["page"] = self.prepare_page(request)
         qs = self._filtered(request)
         if request.GET.get("export") == "csv":
@@ -3135,6 +4365,62 @@ class InvoiceAdmin(CarsvPageAdmin):
                 writer.writerow([invoice.number, invoice.customer.name, invoice.vehicle.plate, invoice.grand_total, invoice.status, invoice.invoice_date])
             return response
         return super(CarsvPageAdmin, self).changelist_view(request, extra_context=extra_context)
+
+    def _advance(self, request, pk):
+        invoice = Invoice.objects.filter(pk=pk).first()
+        if invoice is None:
+            return
+        nxt = next_invoice_status(invoice.status)
+        if not nxt:
+            return
+        invoice.status = nxt
+        invoice.save(update_fields=["status"])
+        messages.success(request, f"{invoice.number} is now {invoice.get_status_display()}.")
+
+    def _row_action(self, invoice, query, status_filter):
+        from urllib.parse import urlencode
+
+        badge_map = {
+            Invoice.Status.PAID: "ready",
+            Invoice.Status.UNPAID: "waiting",
+            Invoice.Status.PARTIAL: "pending",
+            Invoice.Status.DRAFT: "inactive",
+            Invoice.Status.CANCELLED: "cancelled",
+        }
+        nxt = next_invoice_status(invoice.status)
+        next_html = ""
+        if nxt:
+            params = {"action": "advance", "pk": invoice.id}
+            if query:
+                params["q"] = query
+            if status_filter:
+                params["status"] = status_filter
+            next_html = format_html(
+                '<a class="ap-btn tone-{}" href="{}?{}">{}</a>',
+                badge_map.get(nxt, "pending"),
+                reverse("admin:django_app_invoice_changelist"),
+                urlencode(params),
+                dict(Invoice.Status.choices).get(nxt, nxt),
+            )
+        elif invoice.status not in (Invoice.Status.PAID, Invoice.Status.CANCELLED):
+            paid = invoice.payments.exclude(
+                status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
+            ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+            if invoice.grand_total - paid > 0:
+                next_html = format_html(
+                    '<a class="ap-btn tone-waiting" href="{}">Record payment</a>',
+                    reverse("admin:django_app_payment_add") + f"?invoice={invoice.id}",
+                )
+        return format_html(
+            '<div class="wo-actions">{}{}</div>',
+            next_html,
+            _actions(
+                reverse("admin:django_app_invoice_change", args=[invoice.id]),
+                reverse("admin:django_app_invoice_delete", args=[invoice.id]),
+                obj=invoice,
+                edit_url=reverse("admin:django_app_invoice_change", args=[invoice.id]) + "?edit=1",
+            ),
+        )
 
     def _filtered(self, request):
         qs = self.get_queryset(request)
@@ -3150,6 +4436,7 @@ class InvoiceAdmin(CarsvPageAdmin):
     def build_page(self, request):
         qs = self._filtered(request)
         query = (request.GET.get("q") or "").strip()
+        status_filter = request.GET.get("status") or ""
         paid = Invoice.objects.filter(status=Invoice.Status.PAID)
         pending = Invoice.objects.filter(status__in=(Invoice.Status.UNPAID, Invoice.Status.PARTIAL, Invoice.Status.DRAFT))
         paid_total = paid.aggregate(total=Sum("grand_total"))["total"] or Decimal("0")
@@ -3173,12 +4460,7 @@ class InvoiceAdmin(CarsvPageAdmin):
                         invoice.invoice_date,
                         format_html('<span class="cc-spent">${}</span>', invoice.grand_total),
                         _badge(badge_map.get(invoice.status, "pending"), invoice.get_status_display().upper()),
-                        _actions(
-                            reverse("admin:django_app_invoice_change", args=[invoice.id]),
-                            reverse("admin:django_app_invoice_delete", args=[invoice.id]),
-                            obj=invoice,
-                            edit_url=reverse("admin:django_app_invoice_change", args=[invoice.id]) + "?edit=1",
-                        ),
+                        self._row_action(invoice, query, status_filter),
                     ]
                 }
             )
@@ -3306,3 +4588,169 @@ class PaymentAdmin(CarsvPageAdmin):
             "rows": rows,
             "empty": "No payments match this search.",
         }
+
+
+@admin.register(BlogPost)
+class BlogPostAdmin(CarsvPageAdmin):
+    form = BlogPostGarageForm
+    list_display = ("title", "category", "featured", "published", "published_at")
+    search_fields = ("title", "excerpt", "body", "category", "author_name")
+    modal_title_add = "Add article"
+    modal_title_edit = "Edit article"
+    modal_subtitle = "Published articles appear on the public website. Drafts stay in the admin."
+    modal_save_add = "Save article"
+    modal_save_edit = "Save article"
+    modal_wide = True
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        status = request.GET.get("status")
+        if status == "published":
+            qs = qs.filter(published=True)
+        elif status == "draft":
+            qs = qs.filter(published=False)
+        category = (request.GET.get("category") or "").strip()
+        if category:
+            qs = qs.filter(category=category)
+        return qs
+
+    def changelist_view(self, request, extra_context=None):
+        action = request.GET.get("action")
+        pk = request.GET.get("pk")
+        if action in {"publish", "feature"} and pk and str(pk).isdigit():
+            post = BlogPost.objects.filter(pk=pk).first()
+            if post and action == "publish":
+                post.published = not post.published
+                if post.published and not post.published_at:
+                    post.published_at = localdate()
+                post.save(update_fields=["published", "published_at"])
+            elif post and action == "feature":
+                turning_on = not post.featured
+                if turning_on:
+                    BlogPost.objects.exclude(pk=post.pk).update(featured=False)
+                post.featured = turning_on
+                post.save(update_fields=["featured"])
+            return redirect(reverse("admin:django_app_blogpost_changelist"))
+        return super().changelist_view(request, extra_context)
+
+    def build_page(self, request):
+        qs = self.get_queryset(request)
+        query = (request.GET.get("q") or "").strip()
+        if query:
+            qs = qs.filter(
+                Q(title__icontains=query)
+                | Q(excerpt__icontains=query)
+                | Q(category__icontains=query)
+                | Q(author_name__icontains=query)
+            )
+        list_url = reverse("admin:django_app_blogpost_changelist")
+        rows = []
+        for post in qs.order_by("-featured", "-published_at", "-id"):
+            rows.append(
+                {
+                    "off": not post.published,
+                    "cells": [
+                        format_html(
+                            '<div class="cc-name">{}</div><div class="cc-id">{}</div><div class="cc-muted">{}</div>',
+                            post.title,
+                            post.slug,
+                            post.excerpt,
+                        ),
+                        post.category,
+                        post.author_name,
+                        format_html(
+                            '<a href="{}?action=publish&amp;pk={}">{}</a>',
+                            list_url,
+                            post.pk,
+                            _badge("ready" if post.published else "inactive", "Published" if post.published else "Draft"),
+                        ),
+                        format_html(
+                            '<a href="{}?action=feature&amp;pk={}">{}</a>',
+                            list_url,
+                            post.pk,
+                            _badge("active" if post.featured else "inactive", "Featured" if post.featured else "Not featured"),
+                        ),
+                        post.published_at.strftime("%b %d, %Y") if post.published_at else "—",
+                        _actions(
+                            reverse("admin:django_app_blogpost_change", args=[post.id]),
+                            reverse("admin:django_app_blogpost_delete", args=[post.id]),
+                            obj=post,
+                        ),
+                    ],
+                }
+            )
+        categories = (
+            BlogPost.objects.order_by("category").values_list("category", flat=True).distinct()
+        )
+        return {
+            "title": "Blog",
+            "subtitle": "Articles on the public website. Add, edit, or remove them here. Only published rows are visible to visitors.",
+            "count": BlogPost.objects.count(),
+            "count_label": "Articles",
+            "model": "blogpost",
+            "add_url": reverse("admin:django_app_blogpost_add"),
+            "add_label": "Add article",
+            "search_placeholder": "Search title, category, or author...",
+            "search_query": query,
+            "kpis": [
+                {
+                    "label": "Published",
+                    "value": BlogPost.objects.filter(published=True).count(),
+                    "hint": "Shown on the public blog",
+                },
+                {
+                    "label": "Drafts",
+                    "value": BlogPost.objects.filter(published=False).count(),
+                    "hint": "Hidden from visitors",
+                },
+                {
+                    "label": "Featured",
+                    "value": BlogPost.objects.filter(featured=True).count(),
+                    "hint": "Highlighted on the home page",
+                },
+            ],
+            "filters": [
+                {
+                    "name": "status",
+                    "value": request.GET.get("status") or "",
+                    "options": [
+                        {"value": "", "label": "All articles"},
+                        {"value": "published", "label": "Published"},
+                        {"value": "draft", "label": "Drafts"},
+                    ],
+                },
+                {
+                    "name": "category",
+                    "value": request.GET.get("category") or "",
+                    "options": [{"value": "", "label": "All categories"}]
+                    + [{"value": name, "label": name} for name in categories],
+                },
+            ],
+            "columns": ["Article", "Category", "Author", "Status", "Featured", "Published", "Actions"],
+            "rows": rows,
+            "empty": "No articles match this search.",
+        }
+
+
+@admin.register(Estimate)
+class EstimateAdmin(UnfoldModelAdmin):
+    list_display = ("number", "customer", "vehicle", "status", "created_at")
+    list_filter = ("status",)
+    search_fields = ("number", "customer__name", "vehicle__plate")
+    autocomplete_fields = ("customer", "vehicle", "repair_job")
+
+
+@admin.register(Notification)
+class NotificationAdmin(UnfoldModelAdmin):
+    list_display = ("title", "customer", "kind", "read", "created_at")
+    list_filter = ("kind", "read")
+    search_fields = ("title", "message", "customer__name")
+    autocomplete_fields = ("customer",)
+
+
+@admin.register(AuthProvider)
+class AuthProviderAdmin(UnfoldModelAdmin):
+    list_display = ("user", "provider", "provider_user_id", "created_at")
+    search_fields = ("user__username", "user__email", "provider_user_id")
+    list_filter = ("provider",)
+    raw_id_fields = ("user",)

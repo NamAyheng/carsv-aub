@@ -1,8 +1,5 @@
-from django.contrib.auth import authenticate, get_user_model
-from rest_framework import status, viewsets
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from rest_framework.views import APIView
+from django.contrib.auth import get_user_model
+from rest_framework import viewsets
 
 from django_app.models import (
     Booking,
@@ -25,7 +22,6 @@ from django_app.serializers import (
     CustomerSerializer,
     InspectionSerializer,
     InvoiceSerializer,
-    LoginSerializer,
     MechanicSerializer,
     PartsUsageSerializer,
     PaymentSerializer,
@@ -115,32 +111,3 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 class PaymentViewSet(viewsets.ModelViewSet):
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
-
-
-class LoginView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
-    serializer_class = LoginSerializer
-
-    def post(self, request):
-        serializer = LoginSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data["email"].strip()
-        password = serializer.validated_data["password"]
-
-        user = User.objects.filter(email__iexact=email).first()
-        if user is None:
-            return Response(
-                {"ok": False, "error": "No account with this email."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        authed = authenticate(request, username=user.username, password=password)
-        if authed is None:
-            return Response(
-                {"ok": False, "error": "Wrong password."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        username = authed.get_full_name() or authed.username
-        return Response({"ok": True, "username": username, "role": authed.role})

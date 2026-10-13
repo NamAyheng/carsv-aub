@@ -54,9 +54,12 @@
             <select name="status" onchange="this.form.submit()">
                 <option value="">All Statuses</option>
                 <option value="PENDING" {% if status_filter == "PENDING" %}selected{% endif %}>Pending</option>
-                <option value="CONFIRMED" {% if status_filter == "CONFIRMED" %}selected{% endif %}>Confirmed</option>
-                <option value="CHECKED_IN" {% if status_filter == "CHECKED_IN" %}selected{% endif %}>Checked in</option>
-                <option value="IN_SERVICE" {% if status_filter == "IN_SERVICE" %}selected{% endif %}>In service</option>
+                <option value="WAITING" {% if status_filter == "WAITING" %}selected{% endif %}>Waiting</option>
+                <option value="DIAGNOSING" {% if status_filter == "DIAGNOSING" %}selected{% endif %}>Inspection</option>
+                <option value="WAITING_APPROVAL" {% if status_filter == "WAITING_APPROVAL" %}selected{% endif %}>Waiting for approval</option>
+                <option value="REPAIRING" {% if status_filter == "REPAIRING" %}selected{% endif %}>Repairing</option>
+                <option value="QUALITY_CHECK" {% if status_filter == "QUALITY_CHECK" %}selected{% endif %}>Quality check</option>
+                <option value="READY_FOR_PICKUP" {% if status_filter == "READY_FOR_PICKUP" %}selected{% endif %}>Ready for pickup</option>
                 <option value="COMPLETED" {% if status_filter == "COMPLETED" %}selected{% endif %}>Completed</option>
                 <option value="CANCELLED" {% if status_filter == "CANCELLED" %}selected{% endif %}>Cancelled</option>
             </select>
@@ -118,26 +121,20 @@
                     </div>
                 </div>
                 <div class="ap-actions">
+                    {% if row.can_confirm %}
+                        <a class="ap-btn primary" href="?action=confirm&amp;pk={{ row.id }}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">Confirm</a>
+                    {% elif row.parts_pending %}
+                        <span class="ap-note">{{ row.parts_pending_label }}</span>
+                    {% endif %}
+                    {% if row.can_cancel %}
+                        <a class="ap-btn cancel" href="?action=cancel&amp;pk={{ row.id }}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">Cancel</a>
+                    {% endif %}
                     <a class="ap-icon" href="{{ row.edit_url }}" title="Edit booking">
                         <span class="material-symbols-outlined">edit</span>
                     </a>
                     <span class="cc-actions">
                         {% include "admin/django_app/_delete_icon.html" with delete_url=row.delete_url can_delete=row.can_delete delete_warn=row.delete_warn %}
                     </span>
-                    {% if row.can_confirm %}
-                        <a class="ap-btn ghost" href="?action=confirm&amp;pk={{ row.id }}">Confirm</a>
-                    {% endif %}
-                    {% if row.can_checkin %}
-                        <a class="ap-btn primary" href="?action=checkin&amp;pk={{ row.id }}">Check In Vehicle</a>
-                    {% endif %}
-                    {% if row.can_finish %}
-                        <a class="ap-btn done" href="?action=finish&amp;pk={{ row.id }}">Mark Finished</a>
-                    {% endif %}
-                    {% if row.can_cancel %}
-                        <a class="ap-x" href="?action=cancel&amp;pk={{ row.id }}" title="Cancel booking">
-                            <span class="material-symbols-outlined">cancel</span>
-                        </a>
-                    {% endif %}
                 </div>
             </article>
         {% endfor %}

@@ -1,15 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowRight, Calendar, Car, Menu, Phone, UserCheck, Wrench, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowRight, Calendar, Car, Menu, Phone, UserCheck, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { pathForSection, sectionForPath } from '../../routes';
 import { ThemeToggle } from '../common/ThemeToggle';
 
 export interface CustomerPublicShellHandlers {
   onOpenAuth?: (mode: 'LOGIN' | 'REGISTER') => void;
   onOpenBooking?: (serviceId?: string) => void;
   onEnterCustomerPortal?: () => void;
-  onEnterStaffERP?: () => void;
   onOpenCustomerPortal?: () => void;
-  onOpenStaffLogin?: () => void;
   onOpenBlog?: () => void;
   onBackHome?: () => void;
 }
@@ -18,8 +18,6 @@ interface CustomerPublicShellProps extends CustomerPublicShellHandlers {
   currentPage: 'home' | 'blog';
   children: React.ReactNode;
 }
-
-const SECTION_IDS = ['home', 'about', 'services', 'how-it-works', 'transparency', 'contact'];
 
 const NAV = [
   { id: 'home', label: 'Home' },
@@ -37,38 +35,15 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
   onOpenAuth,
   onOpenBooking,
   onEnterCustomerPortal,
-  onEnterStaffERP,
-  onOpenCustomerPortal,
-  onOpenStaffLogin,
-  onOpenBlog,
-  onBackHome
+  onOpenCustomerPortal
 }) => {
   const { isAuthenticated, currentRole, theme } = useApp();
   const isDark = theme === 'dark';
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState('home');
-
-  useEffect(() => {
-    if (currentPage === 'blog') {
-      setActiveSection('blog');
-      return;
-    }
-
-    const onScroll = () => {
-      const marker = 160;
-      let current = 'home';
-      for (const id of SECTION_IDS) {
-        const el = document.getElementById(id);
-        if (!el) continue;
-        if (el.getBoundingClientRect().top <= marker) current = id;
-      }
-      setActiveSection(current);
-    };
-
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, [currentPage]);
+  const fromPath = sectionForPath(pathname);
+  const activeSection = currentPage === 'blog' ? 'blog' : fromPath === 'live-bay' ? 'transparency' : fromPath;
 
   const greyBtn = isDark
     ? 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
@@ -87,36 +62,14 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
   };
 
   const handleEnterCustomer = () => {
-    if (onOpenCustomerPortal) onOpenCustomerPortal();
+    if (isAuthenticated && currentRole === 'CUSTOMER') navigate('/dashboard');
+    else if (onOpenCustomerPortal) onOpenCustomerPortal();
     else if (onEnterCustomerPortal) onEnterCustomerPortal();
   };
 
-  const handleEnterStaff = () => {
-    if (onOpenStaffLogin) onOpenStaffLogin();
-    else if (onEnterStaffERP) onEnterStaffERP();
-  };
-
-  const goHomeSection = (id: string) => {
-    setMobileMenuOpen(false);
-    if (currentPage !== 'home') {
-      onBackHome?.();
-      window.setTimeout(() => {
-        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-      }, 80);
-      return;
-    }
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   const handleNav = (id: string) => {
-    if (id === 'blog') {
-      setMobileMenuOpen(false);
-      setActiveSection('blog');
-      onOpenBlog?.();
-      return;
-    }
-    setActiveSection(id);
-    goHomeSection(id);
+    setMobileMenuOpen(false);
+    navigate(pathForSection(id));
   };
 
   const navClass = (id: string) => {
@@ -163,15 +116,6 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
                   className="hover:text-white transition-colors cursor-pointer text-slate-300 font-medium"
                 >
                   Customer Sign In
-                </button>
-                <span className="text-slate-700">|</span>
-                <button
-                  type="button"
-                  onClick={handleEnterStaff}
-                  className="text-slate-400 hover:text-amber-400 transition-colors cursor-pointer flex items-center gap-1"
-                >
-                  <Wrench className="w-3 h-3 text-amber-500" />
-                  <span>Garage Staff ERP Login</span>
                 </button>
               </div>
             )}
@@ -288,16 +232,6 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
               >
                 {isAuthenticated && currentRole === 'CUSTOMER' ? 'Back to portal' : 'Customer Login'}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  handleEnterStaff();
-                }}
-                className="w-full py-3 rounded-xl bg-amber-600/20 text-amber-300 font-semibold text-center border border-amber-600/30"
-              >
-                Garage Staff ERP Login
-              </button>
             </div>
           </div>
         )}
@@ -332,11 +266,8 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
                   {id === 'home' ? 'Home' : id === 'about' ? 'What We Are' : id === 'services' ? 'Services' : 'Blog'}
                 </button>
               ))}
-              <button type="button" onClick={() => handleOpenAuth('LOGIN')} className="hover:text-white transition-colors">
+              <button type="button" onClick={handleEnterCustomer} className="hover:text-white transition-colors">
                 Customer Portal
-              </button>
-              <button type="button" onClick={handleEnterStaff} className="text-amber-400 hover:underline">
-                Staff ERP
               </button>
             </div>
           </div>

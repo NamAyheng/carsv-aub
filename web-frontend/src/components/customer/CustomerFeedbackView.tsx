@@ -42,25 +42,18 @@ export const CustomerFeedbackView: React.FC = () => {
       return;
     }
 
-    setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-
-      addFeedback({
-        customerId: demoCustomerId(currentUser),
-        customerName: currentUser.name,
-        customerAvatar: currentUser.avatar,
-        workOrderId: 'wo-1',
-        vehicleInfo: 'Toyota Camry Hybrid (PP-1234)',
-        overallRating,
-        serviceRating,
-        technicianRating,
-        speedRating: 5,
-        comment: comment.trim(),
-        managerResponse: 'Thank you for your warm rating, John! Master Technician Dara and the entire CarSV workshop team appreciate your trust.'
-      });
-      setComment('');
-    }, 500);
+    addFeedback({
+      customerId: demoCustomerId(currentUser),
+      customerName: currentUser.name,
+      customerAvatar: currentUser.avatar,
+      workOrderId: '',
+      vehicleInfo: '',
+      overallRating,
+      serviceRating,
+      technicianRating,
+      speedRating: overallRating,
+      comment: comment.trim(),
+    });
   };
 
   const renderStars = (rating: number, onChange?: (r: number) => void) => {
@@ -183,7 +176,7 @@ export const CustomerFeedbackView: React.FC = () => {
                   <div className="flex justify-between items-start gap-3">
                     <div className="min-w-0">
                       <div className={`font-bold text-sm ${title}`}>
-                        {item.vehicleInfo || 'Toyota Camry Hybrid (PP-1234)'}
+                        {item.vehicleInfo || 'Vehicle'}
                       </div>
                       <div className={`text-xs mt-0.5 ${muted}`}>{item.createdAt || 'Recent'}</div>
                     </div>

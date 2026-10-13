@@ -10,13 +10,15 @@ import {
   ArrowRight,
   ArrowLeft,
   Sparkles,
-  Plus
+  Plus,
+  Package,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { belongsToCurrentCustomer, demoCustomerId } from '../../utils/customerScope';
-import { findDuplicateVehicle } from '../../utils/garageLogic';
+import { findDuplicateVehicle, isValidVehiclePlate, normalizeVehiclePlate } from '../../utils/garageLogic';
 import { Appointment } from '../../types';
 import { ThemedDatePicker } from '../common/ThemedDatePicker';
+import { createCustomerPartRequest } from '../../api/garage';
 
 interface CustomerBookAppointmentModalProps {
   isOpen: boolean;
@@ -34,11 +36,16 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
   const {
     vehicles,
     services,
+    inventory,
     currentUser,
     addAppointment,
     addVehicle,
     addToast,
-    theme
+    theme,
+    appointments,
+    liveCustomer,
+    persistCustomerVehicle,
+    persistCustomerBooking,
   } = useApp();
   const isDark = theme === 'dark';
 
@@ -55,13 +62,19 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
   const [problemDescription, setProblemDescription] = useState<string>('');
   const [priority, setPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
   const [additionalNotes, setAdditionalNotes] = useState<string>('');
+  const [draftPartIds, setDraftPartIds] = useState<string[]>([]);
+  const [partQuery, setPartQuery] = useState('');
+  const [showPartsPicker, setShowPartsPicker] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Quick New Vehicle Inline Modal/State
   const [showAddVehicleInline, setShowAddVehicleInline] = useState(false);
-  const [newBrand, setNewBrand] = useState('Toyota');
+  const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
   const [newYear, setNewYear] = useState('2022');
   const [newPlate, setNewPlate] = useState('');
+  const [newPhoto, setNewPhoto] = useState<File | null>(null);
+  const [newPhotoPreview, setNewPhotoPreview] = useState('');
 
   // Filter vehicles belonging to the customer
   const customerVehicles = (vehicles || []).filter((v) => belongsToCurrentCustomer(currentUser, v));
@@ -86,64 +99,144 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
     '13:30', '14:15', '15:00', '15:45', '16:30'
   ];
 
+  const slotTaken = (time: string) =>
+    (appointments || []).some(
+      (item) =>
+        item.vehicleId === selectedVehicleId &&
+        item.date === appointmentDate &&
+        (item.time || '').slice(0, 5) === time &&
+        item.status !== 'CANCELLED'
+    );
+
   const selectedVehicle = (vehicles || []).find((v) => v.id === selectedVehicleId) || customerVehicles[0];
   const selectedService = (services || []).find((s) => s.id === selectedServiceId) || (services || [])[0];
 
-  const handleCreateVehicleInline = (e: React.FormEvent) => {
+  const handleCreateVehicleInline = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newModel || !newPlate) {
       addToast({ type: 'error', title: 'Missing Information', message: 'Please enter model and license plate.' });
       return;
     }
-    if (findDuplicateVehicle(vehicles || [], newPlate, '')) {
+    const plate = normalizeVehiclePlate(newPlate);
+    if (!isValidVehiclePlate(plate)) {
+      addToast({
+        type: 'error',
+        title: 'Invalid License Plate',
+        message: 'Use 2, then 1 or 2 letters, a hyphen, and 4 digits. Example: 2BD-9988.'
+      });
+      return;
+    }
+    if (findDuplicateVehicle(vehicles || [], plate, '')) {
       addToast({ type: 'error', title: 'Duplicate Vehicle', message: 'This license plate is already registered.' });
       return;
     }
-    const created = addVehicle({
+    const payload = {
       customerId: demoCustomerId(currentUser),
       customerName: currentUser.name,
       brand: newBrand,
       model: newModel,
       year: parseInt(newYear) || 2022,
-      licensePlate: newPlate,
-      vin: 'VIN' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+      licensePlate: plate,
+      vin: '',
       mileage: 35000,
-      fuelType: 'Gasoline',
-      transmission: 'Automatic',
+      fuelType: 'Gasoline' as const,
+      transmission: 'Automatic' as const,
       color: 'Metallic Silver',
-      status: 'READY',
-      image: '/images/cars/white-mercedes-suv-garage-neon.jpg'
-    });
+      status: 'READY' as const,
+      image: newPhotoPreview,
+      imageFile: newPhoto,
+    };
+    const { imageFile: _imageFile, ...vehicleFields } = payload;
+    const created = liveCustomer
+      ? await persistCustomerVehicle(payload)
+      : addVehicle({ ...vehicleFields, vin: 'VIN' + Math.random().toString(36).substring(2, 9).toUpperCase() });
     if (!created) return;
     setSelectedVehicleId(created.id);
     setShowAddVehicleInline(false);
+    if (newPhotoPreview) URL.revokeObjectURL(newPhotoPreview);
+    setNewPhoto(null);
+    setNewPhotoPreview('');
   };
 
-  const handleConfirmAppointment = () => {
+  const draftParts = (inventory || []).filter((part) => draftPartIds.includes(part.id));
+  const shelfParts = (inventory || [])
+    .filter((part) => part.stockQuantity > 0 && !draftPartIds.includes(part.id))
+    .filter((part) => {
+      const query = partQuery.trim().toLowerCase();
+      if (!query) return true;
+      return part.name.toLowerCase().includes(query) || part.sku.toLowerCase().includes(query);
+    });
+  const partsTotal = draftParts.reduce((sum, part) => sum + (part.unitPrice || 0), 0);
+  const bookingTotal = (selectedService?.basePrice || 0) + partsTotal;
+
+  const handleConfirmAppointment = async () => {
     if (!selectedVehicleId || !selectedServiceId) {
       addToast({ type: 'error', title: 'Incomplete Booking', message: 'Please select both a vehicle and a service.' });
       return;
     }
 
-    const newAppointment: Appointment = {
-      id: 'apt-' + Date.now(),
+    const newAppointment: Omit<Appointment, 'id'> = {
       customerId: demoCustomerId(currentUser),
       customerName: currentUser.name,
-      customerPhone: currentUser.phone || '+855 12 345 678',
+      customerPhone: currentUser.phone || '',
       vehicleId: selectedVehicle?.id || 'veh-1',
-      vehicleInfo: `${selectedVehicle?.brand || 'Toyota'} ${selectedVehicle?.model || 'Camry'} (${selectedVehicle?.licensePlate || 'PP-1234'})`,
+      vehicleInfo: selectedVehicle ? `${selectedVehicle.brand} ${selectedVehicle.model} (${selectedVehicle.licensePlate})` : '',
       serviceName: selectedService?.name || 'Full Vehicle Service',
       serviceId: selectedService?.id || 'srv-1',
       date: appointmentDate,
       time: appointmentTime,
-      problemDescription: problemDescription || 'Routine maintenance and inspection requested.',
+      problemDescription: problemDescription,
       priority,
       status: 'SCHEDULED',
-      assignedStaffId: 'user-tech-dara',
-      assignedStaffName: 'Dara Kim',
       estimatedDurationHours: selectedService?.estimatedDurationHours || 1.5,
       notes: additionalNotes
     };
+
+    if (slotTaken(appointmentTime)) {
+      addToast({
+        type: 'error',
+        title: 'Time already booked',
+        message: 'That vehicle already has a booking at this time. Choose another slot.',
+      });
+      return;
+    }
+
+    if (liveCustomer) {
+      setSubmitting(true);
+      try {
+        const saved = await persistCustomerBooking(newAppointment);
+        if (!saved) return;
+        for (const part of draftParts) {
+          await createCustomerPartRequest({
+            sparePartId: part.id,
+            vehicleId: saved.vehicleId,
+            bookingId: saved.id,
+            fulfillment: 'INSTALL_IN_WORKSHOP',
+          });
+        }
+        if (draftParts.length > 0) {
+          addToast({
+            type: 'success',
+            title: 'Parts attached to this booking',
+            message: `${draftParts.length} workshop part${draftParts.length === 1 ? '' : 's'} will show on the visit quote. Stock stays on the shelf until the garage issues them.`,
+          });
+        }
+        setDraftPartIds([]);
+        setPartQuery('');
+        setShowPartsPicker(false);
+        setStep(6);
+      } catch (error) {
+        addToast({
+          type: 'error',
+          title: 'Parts were not attached',
+          message: error instanceof Error ? error.message : 'The booking was created, but a part request failed.',
+        });
+        setStep(6);
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
 
     addAppointment(newAppointment);
     setStep(6); // Success confirmation
@@ -151,6 +244,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
 
   const handleResetAndClose = () => {
     setStep(1);
+    setDraftPartIds([]);
+    setPartQuery('');
+    setShowPartsPicker(false);
     onClose();
   };
 
@@ -250,10 +346,27 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                         type="text"
                         value={newPlate}
                         onChange={(e) => setNewPlate(e.target.value)}
-                        placeholder="PP-1234"
+                        placeholder="e.g. 2BD-9988"
                         className="w-full text-xs p-2 rounded-lg bg-slate-900 border border-slate-700 text-white"
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400">Vehicle photo</label>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (newPhotoPreview) URL.revokeObjectURL(newPhotoPreview);
+                        setNewPhoto(file || null);
+                        setNewPhotoPreview(file ? URL.createObjectURL(file) : '');
+                      }}
+                      className="w-full text-xs p-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 file:mr-2 file:rounded-md file:border-0 file:bg-blue-600 file:px-2 file:py-1 file:text-[10px] file:text-white"
+                    />
+                    {newPhotoPreview ? (
+                      <img src={newPhotoPreview} alt="Selected vehicle" className="mt-2 h-20 w-full rounded-lg object-cover" />
+                    ) : null}
                   </div>
                   <div className="flex justify-end gap-2 pt-1">
                     <button
@@ -286,11 +399,15 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                         : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
                     }`}
                   >
-                    <img
-                      src={v.imageUrl || '/images/cars/white-mercedes-suv-garage-neon.jpg'}
-                      alt={v.model}
-                      className="w-16 h-12 object-cover rounded-lg border border-slate-800 shrink-0"
-                    />
+                    {v.imageUrl || v.image ? (
+                      <img
+                        src={v.imageUrl || v.image}
+                        alt={v.model}
+                        className="w-16 h-12 object-cover rounded-lg border border-slate-800 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-16 h-12 rounded-lg border border-slate-800 shrink-0 bg-slate-900" />
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="font-bold text-white text-sm truncate">
                         {v.brand} {v.model}
@@ -399,21 +516,27 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                {timeSlots.map((time) => (
+                {timeSlots.map((time) => {
+                  const taken = slotTaken(time);
+                  return (
                   <button
                     key={time}
                     type="button"
+                    disabled={taken}
                     onClick={() => setAppointmentTime(time)}
                     className={`py-3 px-2 rounded-xl text-center text-xs font-bold transition-all border ${
-                      appointmentTime === time
+                      taken
+                        ? 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
+                        : appointmentTime === time
                         ? 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/30'
                         : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                     }`}
                   >
                     <Clock className="w-3.5 h-3.5 mx-auto mb-1 opacity-70" />
-                    <span>{time}</span>
+                    <span>{taken ? 'Booked' : time}</span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -467,11 +590,105 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                   </div>
                 </div>
 
+                <div className="space-y-2">
+                  {!showPartsPicker && draftParts.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowPartsPicker(true)}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-dashed border-slate-700 bg-slate-950 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:border-slate-500"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add workshop parts (optional)
+                    </button>
+                  ) : (
+                    <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                          <Package className="w-3.5 h-3.5 text-blue-400" />
+                          Workshop parts for this booking
+                        </div>
+                        {draftParts.length === 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowPartsPicker(false);
+                              setPartQuery('');
+                            }}
+                            className="text-[10px] font-bold text-slate-500 hover:text-slate-300"
+                          >
+                            Hide
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Optional. You can remove these before you submit. After submit, changes wait until the quote.
+                      </p>
+                      {draftParts.length > 0 && (
+                        <ul className="space-y-1.5">
+                          {draftParts.map((part) => (
+                            <li
+                              key={part.id}
+                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                            >
+                              <span>
+                                {part.name}
+                                <span className="block font-mono text-[10px] text-slate-500">{part.sku}</span>
+                              </span>
+                              <span className="flex items-center gap-2">
+                                <span className="font-mono text-slate-400">${part.unitPrice.toFixed(2)}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setDraftPartIds((ids) => ids.filter((id) => id !== part.id))}
+                                  className="text-[10px] font-bold text-rose-300"
+                                >
+                                  Remove
+                                </button>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {(showPartsPicker || draftParts.length > 0) && (
+                        <>
+                          <input
+                            value={partQuery}
+                            onChange={(event) => setPartQuery(event.target.value)}
+                            placeholder="Search shelf part"
+                            className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
+                          />
+                          <ul className="max-h-56 overflow-y-auto space-y-1">
+                            {shelfParts.map((part) => (
+                              <li key={part.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDraftPartIds((ids) => [...ids, part.id]);
+                                    setShowPartsPicker(true);
+                                  }}
+                                  className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 hover:bg-blue-50 hover:text-slate-900"
+                                >
+                                  <span>{part.name}</span>
+                                  <span className="font-mono text-slate-500">
+                                    {part.sku} · ${part.unitPrice.toFixed(2)}
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                            {shelfParts.length === 0 && (
+                              <li className="text-[11px] text-slate-500">No matching part in stock.</li>
+                            )}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* Summary Box */}
                 <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2 text-xs">
                   <div className="font-bold text-white flex items-center justify-between">
                     <span>Booking Summary</span>
-                    <span className="text-blue-400 font-mono">${selectedService?.basePrice.toFixed(2)}</span>
+                    <span className="text-blue-400 font-mono">${bookingTotal.toFixed(2)}</span>
                   </div>
                   <div className="text-slate-300">
                     Vehicle: <strong className="text-white">{selectedVehicle?.brand} {selectedVehicle?.model} ({selectedVehicle?.licensePlate})</strong>
@@ -479,6 +696,11 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                   <div className="text-slate-300">
                     Service: <strong className="text-white">{selectedService?.name}</strong>
                   </div>
+                  {draftParts.length > 0 && (
+                    <div className="text-slate-300">
+                      Parts: <strong className="text-white">{draftParts.length} workshop install</strong>
+                    </div>
+                  )}
                   <div className="text-slate-300">
                     Schedule: <strong className="text-white">{appointmentDate} at {appointmentTime}</strong>
                   </div>
@@ -516,7 +738,7 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Status:</span>
-                  <span className="text-emerald-400 font-bold">Scheduled (Bay Reserved)</span>
+                  <span className="text-emerald-400 font-bold">Pending confirmation</span>
                 </div>
               </div>
 
@@ -567,14 +789,25 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={handleConfirmAppointment}
-                className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Confirm Appointment</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleResetAndClose}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => void handleConfirmAppointment()}
+                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{submitting ? 'Saving…' : 'Confirm Appointment'}</span>
+                </button>
+              </div>
             )}
           </div>
         )}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Car,
   Wrench,
@@ -28,9 +28,10 @@ import {
   Camera,
   BookOpen
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { ServiceItem } from '../../types';
-import { PUBLIC_BLOG_POSTS } from '../../data/publicBlog';
+import { pathForSection } from '../../routes';
+import { loadPublicBlog, PublicBlogPost } from '../../api/blog';
 import { CustomerPublicShell } from './CustomerPublicShell';
 
 
@@ -38,9 +39,7 @@ interface CustomerPublicLandingProps {
   onOpenAuth?: (mode: 'LOGIN' | 'REGISTER') => void;
   onOpenBooking?: (serviceId?: string) => void;
   onEnterCustomerPortal?: () => void;
-  onEnterStaffERP?: () => void;
   onOpenCustomerPortal?: () => void;
-  onOpenStaffLogin?: () => void;
   onOpenBlog?: () => void;
 }
 
@@ -48,13 +47,13 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
   onOpenAuth,
   onOpenBooking,
   onEnterCustomerPortal,
-  onEnterStaffERP,
   onOpenCustomerPortal,
-  onOpenStaffLogin,
   onOpenBlog
 }) => {
-  const { services, currentUser, isAuthenticated, currentRole, theme } = useApp();
+  const { services, isAuthenticated, theme } = useApp();
+  const navigate = useNavigate();
   const isDark = theme === 'dark';
+  const [featuredPost, setFeaturedPost] = useState<PublicBlogPost | null>(null);
 
   const handleOpenAuth = (mode: 'LOGIN' | 'REGISTER') => {
     if (onOpenAuth) onOpenAuth(mode);
@@ -73,11 +72,24 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
     else if (onEnterCustomerPortal) onEnterCustomerPortal();
   };
 
-  const featuredBlog = PUBLIC_BLOG_POSTS.find((p) => p.featured) || PUBLIC_BLOG_POSTS[0];
   const goToBlog = () => {
-    if (onOpenBlog) onOpenBlog();
+    navigate(pathForSection('blog'));
   };
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadPublicBlog()
+      .then((rows) => {
+        if (!cancelled) setFeaturedPost(rows.find((post) => post.featured) || rows[0] || null);
+      })
+      .catch(() => {
+        if (!cancelled) setFeaturedPost(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const greyBtn = isDark
     ? 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
@@ -86,8 +98,11 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
     ? 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
     : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-300';
 
-  // Categories extracted from services
-  const categories = ['ALL', 'Maintenance', 'Brakes', 'Engine', 'Transmission', 'AC & Climate', 'Tires'];
+  const categories = ['ALL', ...Array.from(new Set((services || []).map((service) => service.category).filter(Boolean)))];
+  const listedServices = services || [];
+  const startingPrice = listedServices.length
+    ? Math.min(...listedServices.map((service) => service.basePrice))
+    : null;
 
   const filteredServices = (services || []).filter((s) => {
     if (selectedCategory === 'ALL') return true;
@@ -95,10 +110,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
   });
 
   const scrollToSection = (id: string) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth' });
-    }
+    navigate(pathForSection(id));
   };
 
   return (
@@ -107,9 +119,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
       onOpenAuth={onOpenAuth}
       onOpenBooking={onOpenBooking}
       onEnterCustomerPortal={onEnterCustomerPortal}
-      onEnterStaffERP={onEnterStaffERP}
       onOpenCustomerPortal={onOpenCustomerPortal}
-      onOpenStaffLogin={onOpenStaffLogin}
       onOpenBlog={onOpenBlog}
     >
       {/* 2. Hero Section */}
@@ -124,7 +134,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
             <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-semibold">
                 <Sparkles className="w-4 h-4 text-blue-400" />
-                <span>Next-Generation Automotive Service Platform</span>
+                <span>Phnom Penh workshop · book a service, then follow it in your account</span>
               </div>
 
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.12]">
@@ -135,7 +145,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
               </h1>
 
               <p className="text-lg sm:text-xl text-slate-300 font-normal leading-relaxed max-w-2xl mx-auto lg:mx-0">
-                CarSV helps you book automotive services, track your vehicle repairs, view inspection results, and manage your service history in one place.
+                The public site lists the services this garage offers and explains them in the journal. Sign in to see your vehicles, the parts in stock, and your invoices.
               </p>
 
               {/* Action Buttons */}
@@ -161,20 +171,22 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
               {/* Verified Trust Metrics */}
               <div className="pt-6 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-4 text-left">
                 <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-                  <div className="text-2xl font-black text-white">12,500+</div>
-                  <div className="text-xs text-slate-400 font-medium mt-0.5">Vehicles Serviced</div>
+                  <div className="text-2xl font-black text-white">{listedServices.length}</div>
+                  <div className="text-xs text-slate-400 font-medium mt-0.5">Services you can book</div>
                 </div>
                 <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-                  <div className="text-2xl font-black text-emerald-400">99.4%</div>
-                  <div className="text-xs text-slate-400 font-medium mt-0.5">First-Time Fix Rate</div>
+                  <div className="text-2xl font-black text-emerald-400">
+                    {startingPrice === null ? '—' : `$${startingPrice.toFixed(0)}`}
+                  </div>
+                  <div className="text-xs text-slate-400 font-medium mt-0.5">Lowest starting price</div>
                 </div>
                 <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-                  <div className="text-2xl font-black text-amber-400">4.9 ★</div>
-                  <div className="text-xs text-slate-400 font-medium mt-0.5">Customer Satisfaction</div>
+                  <div className="text-2xl font-black text-amber-400">{isAuthenticated ? 'Yours' : 'Sign in'}</div>
+                  <div className="text-xs text-slate-400 font-medium mt-0.5">Parts, cars, invoices</div>
                 </div>
                 <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-                  <div className="text-2xl font-black text-blue-400">100%</div>
-                  <div className="text-xs text-slate-400 font-medium mt-0.5">Genuine OEM Parts</div>
+                  <div className="text-2xl font-black text-blue-400">Mon–Sat</div>
+                  <div className="text-xs text-slate-400 font-medium mt-0.5">07:30–18:30</div>
                 </div>
               </div>
             </div>
@@ -183,7 +195,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
             <div className="lg:col-span-5 relative">
               <div className="relative rounded-2xl overflow-hidden border border-slate-700/80 shadow-2xl bg-slate-900 group">
                 <img
-                  src="/images/others/bmw-wheel-impact-wrench-service.jpg"
+                  src="/media/blog/bmw-wheel-impact-wrench-service.jpg"
                   alt="CarSV High-Tech Workshop Bay"
                   className="w-full h-[460px] object-cover group-hover:scale-105 transition-transform duration-700"
                 />
@@ -193,28 +205,23 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                 <div className="absolute bottom-4 left-4 right-4 bg-slate-900/90 backdrop-blur-md p-4 rounded-xl border border-slate-700/80 shadow-xl space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                      <span className="text-xs font-bold text-white tracking-wide uppercase">Live Repair In Progress</span>
+                      <span className="w-2.5 h-2.5 rounded-full bg-slate-500" />
+                      <span className="text-xs font-bold text-white tracking-wide uppercase">No live repair</span>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                      Bay #02 • Active
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                      No camera
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between text-xs">
                     <div>
-                      <div className="font-bold text-white">Toyota Camry Hybrid (2022)</div>
-                      <div className="text-slate-400 text-[11px]">Brake Overhaul & 60-Point Inspection</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-emerald-400 font-bold">70% Complete</div>
-                      <div className="text-[11px] text-slate-400">Tech: Dara Kim</div>
+                      <div className="font-bold text-white">No vehicle is on a lift</div>
+                      <div className="text-slate-400 text-[11px]">Repair progress appears here after the garage opens a job.</div>
                     </div>
                   </div>
 
-                  {/* Progress Line */}
                   <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-500 to-emerald-500 h-full rounded-full w-[70%]" />
+                    <div className="bg-slate-700 h-full rounded-full w-0" />
                   </div>
                 </div>
               </div>
@@ -383,10 +390,10 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                 <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
                   <div className="text-blue-400 font-bold text-sm mb-1 flex items-center gap-1.5">
                     <Video className="w-4 h-4 text-red-400" />
-                    <span>Live CCTV Bay Streaming</span>
+                    <span>Repair progress in your portal</span>
                   </div>
                   <p className="text-xs text-slate-400">
-                    Log into your customer portal and watch your vehicle live while on the lift in Bay #02. Complete peace of mind.
+                    After check-in, your portal shows the job status, assigned mechanic, and parts used. No bay camera is connected.
                   </p>
                 </div>
 
@@ -418,7 +425,10 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                 Our Service Catalog & Upfront Pricing
               </h2>
               <p className="text-slate-400 text-base mt-2 max-w-xl">
-                Every service includes a multi-point safety check, genuine materials, and certified technician labor.
+                These are the jobs you can book without an account. Starting prices come from the workshop catalog.
+                {isAuthenticated
+                  ? ' Your portal adds parts in stock, your vehicles, and your invoices.'
+                  : ' Sign in for parts in stock, your vehicles, and your invoices.'}
               </p>
             </div>
 
@@ -450,12 +460,12 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                 {/* Real Service Photography Header */}
                 <div className="relative h-48 w-full bg-slate-950 overflow-hidden">
                   <img
-                    src={service.imageUrl || '/images/others/service-oil-change.jpg'}
+                    src={service.imageUrl || '/media/services/service-oil-change.jpg'}
                     alt={service.name}
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = '/images/others/service-oil-change.jpg';
+                      (e.target as HTMLImageElement).src = '/media/services/service-oil-change.jpg';
                     }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/30 to-transparent" />
@@ -484,11 +494,13 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                   </div>
 
                   {/* Performed count badge */}
-                  <div className="absolute bottom-2.5 right-3">
-                    <span className="px-2 py-0.5 rounded text-[9px] font-semibold bg-emerald-950/85 backdrop-blur-md text-emerald-300 border border-emerald-500/30">
-                      {service.timesPerformed}+ completed
-                    </span>
-                  </div>
+                  {service.timesPerformed > 0 && (
+                    <div className="absolute bottom-2.5 right-3">
+                      <span className="px-2 py-0.5 rounded text-[9px] font-semibold bg-emerald-950/85 backdrop-blur-md text-emerald-300 border border-emerald-500/30">
+                        {service.timesPerformed}+ completed
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
@@ -592,7 +604,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
               </div>
               <h4 className="font-bold text-white text-base mb-1.5">Live Bay Tracking</h4>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Follow technician progress in real-time. Watch the live CCTV camera stream of Bay #02 while mechanics work.
+                Follow the job status in your portal after the garage checks the vehicle in. No bay camera is connected.
               </p>
             </div>
 
@@ -633,11 +645,11 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                 </div>
 
                 <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight leading-tight">
-                  Watch Your Vehicle Repair Live in Your Customer Portal
+                  Follow Your Repair in the Customer Portal
                 </h2>
 
                 <p className="text-white text-base leading-relaxed">
-                  No more wondering what is happening to your car behind garage doors. CarSV is Cambodia&apos;s first automotive garage equipped with live bay monitoring, giving vehicle owners direct video access to their designated lift.
+                  After the garage opens a job, the portal shows status, the assigned mechanic, and the parts used on your vehicle. No bay camera is connected.
                 </p>
 
                 <div className="space-y-3 text-sm text-white">
@@ -661,7 +673,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                     className="px-6 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all flex items-center gap-2 cursor-pointer"
                   >
                     <Eye className="w-4 h-4" />
-                    <span>View Customer Portal Demo</span>
+                    <span>Open customer portal</span>
                   </button>
 
                   <button
@@ -679,31 +691,16 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                   <div className="p-3 bg-black flex items-center justify-between border-b border-white/10 text-xs">
                     <div className="flex items-center gap-2">
                       <Video className="w-4 h-4 text-red-500 animate-pulse" />
-                      <span className="font-bold text-white">CarSV Live Feed • Bay #02 (Brake Bay)</span>
+                      <span className="font-bold text-white">Bay camera</span>
                     </div>
-                    <span className="px-2 py-0.5 rounded bg-red-950/80 text-red-400 text-[10px] font-mono font-bold border border-red-800">
-                      LIVE • 1080P
+                    <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-mono font-bold border border-slate-700">
+                      No feed
                     </span>
                   </div>
 
                   <div className="relative aspect-video">
-                    <img
-                      src="/images/cars/black-range-rover-front.jpg"
-                      alt="Live Bay Feed"
-                      className="w-full h-full object-cover opacity-90"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
-
-                    <div className="absolute top-3 left-3 text-[10px] font-mono text-emerald-400 bg-black/70 px-2 py-1 rounded border border-emerald-500/30">
-                      CAM-02: TOYOTA CAMRY (PP-1234)
-                    </div>
-
-                    <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center bg-black/85 backdrop-blur-xs p-2.5 rounded-lg border border-white/10 text-xs text-white">
-                      <div>
-                        <div className="font-bold text-white">Active: Brake Rotor Resurfacing</div>
-                        <div className="text-[11px] text-slate-300">Master Tech: Dara Kim</div>
-                      </div>
-                      <span className="text-emerald-400 font-mono font-bold">75% Done</span>
+                    <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-slate-300">
+                      No bay camera is connected.
                     </div>
                   </div>
                 </div>
@@ -727,7 +724,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="/images/others/service-oil-change.jpg"
+                src="/media/services/service-oil-change.jpg"
                 alt="Hydraulic Lifts"
                 className="w-full h-44 object-cover"
               />
@@ -741,7 +738,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="/images/cars/white-audi-suv-snow-road.jpg"
+                src="/media/vehicles/white-audi-suv-snow-road.jpg"
                 alt="3D Laser Alignment"
                 className="w-full h-44 object-cover"
               />
@@ -755,7 +752,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="/images/cars/silver-bmw-coupe-sunset.jpg"
+                src="/media/vehicles/silver-bmw-coupe-sunset.jpg"
                 alt="OBD Diagnostics"
                 className="w-full h-44 object-cover"
               />
@@ -769,14 +766,14 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="/images/others/cafe-interior-broel.jpg"
+                src="/media/blog/cafe-interior-broel.jpg"
                 alt="Customer Lounge"
                 className="w-full h-44 object-cover"
               />
               <div className="p-4">
                 <h4 className="font-bold text-white text-base">VIP Customer Lounge</h4>
                 <p className="text-xs text-slate-400 mt-1">
-                  Complimentary high-speed Wi-Fi, Italian espresso, work stations, and live bay TV monitors.
+                  A waiting area with Wi-Fi while the car is in the workshop.
                 </p>
               </div>
             </div>
@@ -788,105 +785,34 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
       <section className="py-20 border-b border-slate-800/80">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-14">
-            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-center gap-1">
-              <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-              <span>4.9 / 5.0 Star Rated Experience</span>
-            </span>
             <h2 className="text-3xl font-extrabold text-white mt-2">What Our Customers Say</h2>
             <p className="text-slate-400 text-sm mt-1">
-              Read verified feedback from car owners who trust CarSV with their daily drivers.
+              No customer reviews are published yet.
             </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 space-y-4">
-              <div className="flex items-center gap-1 text-amber-400">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                ))}
-              </div>
-              <p className="text-sm text-slate-300 italic leading-relaxed">
-                &quot;The live CCTV feature is unbelievable. I was sitting at my office desk in BKK1 while watching the mechanic replace my Camry brake pads. No other garage provides this level of honesty.&quot;
-              </p>
-              <div className="pt-2 flex items-center gap-3">
-                <img
-                  src="/images/people/man-glasses-green-polo.jpg"
-                  alt="John Doe"
-                  className="w-10 h-10 rounded-full object-cover border border-slate-700"
-                />
-                <div>
-                  <div className="font-bold text-white text-sm">John Doe</div>
-                  <div className="text-xs text-slate-400">Toyota Camry Hybrid Owner</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 space-y-4">
-              <div className="flex items-center gap-1 text-amber-400">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                ))}
-              </div>
-              <p className="text-sm text-slate-300 italic leading-relaxed">
-                &quot;Their upfront digital quotes match the final bill to the cent. No sudden &apos;surprise parts&apos; added at pickup. The inspection report came with 12 photos of my suspension wear.&quot;
-              </p>
-              <div className="pt-2 flex items-center gap-3">
-                <img
-                  src="/images/people/woman-striped-shirt-outdoor.jpg"
-                  alt="Sokha Chan"
-                  className="w-10 h-10 rounded-full object-cover border border-slate-700"
-                />
-                <div>
-                  <div className="font-bold text-white text-sm">Sokha Chan</div>
-                  <div className="text-xs text-slate-400">Honda CR-V Fleet Manager</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 space-y-4">
-              <div className="flex items-center gap-1 text-amber-400">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                ))}
-              </div>
-              <p className="text-sm text-slate-300 italic leading-relaxed">
-                &quot;Booking an appointment took me under two minutes on my phone. The digital service history logbook makes selling or maintaining vehicles so much easier.&quot;
-              </p>
-              <div className="pt-2 flex items-center gap-3">
-                <img
-                  src="/images/people/woman-portrait-blue-lighting.jpg"
-                  alt="Linda Smith"
-                  className="w-10 h-10 rounded-full object-cover border border-slate-700"
-                />
-                <div>
-                  <div className="font-bold text-white text-sm">Linda Smith</div>
-                  <div className="text-xs text-slate-400">Hyundai Tucson Owner</div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </section>
 
       {/* 9. Blog teaser — full journal lives on its own public page */}
-      <section className={`py-16 border-b ${isDark ? 'border-slate-800/80' : 'border-slate-200 bg-slate-50'}`}>
+      <section id="blog" className={`py-16 border-b ${isDark ? 'border-slate-800/80' : 'border-slate-200 bg-slate-50'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div
             className={`rounded-3xl border overflow-hidden grid lg:grid-cols-2 ${
               isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
             }`}
           >
-            <img src={featuredBlog.image} alt="" className="w-full h-56 lg:h-full object-cover" />
             <div className="p-8 flex flex-col justify-center">
               <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
                 <BookOpen className="w-4 h-4 inline mr-1.5" />
                 From the CarSV Blog
               </p>
               <h2 className={`text-2xl sm:text-3xl font-extrabold tracking-tight mt-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                {featuredBlog.title}
+                {featuredPost ? featuredPost.title : 'No articles are published'}
               </h2>
               <p className={`text-sm leading-relaxed mt-3 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                {featuredBlog.excerpt} Guides, seasonal offers, and parts talk — no login.
+                {featuredPost
+                  ? featuredPost.excerpt
+                  : 'The workshop has not published a journal entry yet. The service catalog above is still the list of what you can book.'}
               </p>
               <button
                 type="button"
@@ -897,6 +823,11 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
+            {featuredPost?.image ? (
+              <button type="button" onClick={goToBlog} className="min-h-56">
+                <img src={featuredPost.image} alt={featuredPost.title} className="w-full h-full object-cover min-h-56" />
+              </button>
+            ) : null}
           </div>
         </div>
       </section>

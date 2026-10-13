@@ -231,6 +231,12 @@ function ServiceRepairSheet({ invoice, theme }: InvoiceDocumentProps) {
                 <Hash className="w-3 h-3" />
                 {invoice.workOrderNumber || 'WO'}
               </span>
+              {invoice.vehiclePlate && (
+                <span className="inline-flex items-center gap-1">
+                  <Car className="w-3 h-3" />
+                  {invoice.vehiclePlate}
+                </span>
+              )}
               {invoice.bayNumber && (
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="w-3 h-3" />
@@ -288,48 +294,63 @@ function ServiceRepairSheet({ invoice, theme }: InvoiceDocumentProps) {
           </div>
         </div>
 
-        <div>
-          <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${muted}`}>2. Parts used on this job</h4>
-          <div className={`overflow-x-auto rounded-xl border ${tableBorder}`}>
-            <table className="w-full text-left text-xs">
-              <thead className={tableHead}>
-                <tr className="uppercase text-[10px] tracking-wider">
-                  <th className="p-3 font-semibold">Part / SKU</th>
-                  <th className="p-3 font-semibold">When</th>
-                  <th className="p-3 text-center font-semibold">Qty</th>
-                  <th className="p-3 text-right font-semibold">Unit</th>
-                  <th className="p-3 text-right font-semibold">Total</th>
-                </tr>
-              </thead>
-              <tbody className={`divide-y ${divide}`}>
-                {jobParts.map((item) => (
-                  <tr key={item.id} className={item.addedAfterBooking ? (dark ? 'bg-slate-950/40' : 'bg-slate-50') : undefined}>
-                    <td className="p-3">
-                      <div className={`font-medium ${title}`}>{item.description}</div>
-                      {item.sku && <div className={`font-mono text-[10px] ${muted}`}>{item.sku}</div>}
-                    </td>
-                    <td className="p-3">
-                      {item.addedAfterBooking ? (
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${
-                            dark ? 'bg-slate-800 text-slate-200' : 'bg-slate-200 text-slate-700'
-                          }`}
-                        >
-                          Added after booking
-                        </span>
-                      ) : (
-                        <span className={muted}>On original job</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-center font-mono">{item.quantity}</td>
-                    <td className="p-3 text-right font-mono">{money(item.unitPrice)}</td>
-                    <td className={`p-3 text-right font-mono font-semibold ${title}`}>{money(itemAmount(item))}</td>
+        {jobParts.length > 0 ? (
+          <div>
+            <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${muted}`}>2. Parts used on this job</h4>
+            <div className={`overflow-x-auto rounded-xl border ${tableBorder}`}>
+              <table className="w-full text-left text-xs">
+                <thead className={tableHead}>
+                  <tr className="uppercase text-[10px] tracking-wider">
+                    <th className="p-3 font-semibold">Part / SKU</th>
+                    <th className="p-3 font-semibold">When</th>
+                    <th className="p-3 text-center font-semibold">Qty</th>
+                    <th className="p-3 text-right font-semibold">Unit</th>
+                    <th className="p-3 text-right font-semibold">Total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className={`divide-y ${divide}`}>
+                  {jobParts.map((item) => (
+                    <tr key={item.id} className={item.addedAfterBooking ? (dark ? 'bg-slate-950/40' : 'bg-slate-50') : undefined}>
+                      <td className="p-3">
+                        <div className={`font-medium ${title}`}>{item.description}</div>
+                        {item.sku && <div className={`font-mono text-[10px] ${muted}`}>{item.sku}</div>}
+                      </td>
+                      <td className="p-3">
+                        {item.requested ? (
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${
+                              dark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-50 text-amber-800'
+                            }`}
+                          >
+                            Requested on quote
+                          </span>
+                        ) : item.addedAfterBooking ? (
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${
+                              dark ? 'bg-slate-800 text-slate-200' : 'bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            Added after booking
+                          </span>
+                        ) : (
+                          <span className={muted}>On original job</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-center font-mono">{item.quantity}</td>
+                      <td className="p-3 text-right font-mono">{money(item.unitPrice)}</td>
+                      <td className={`p-3 text-right font-mono font-semibold ${title}`}>{money(itemAmount(item))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className={`text-xs ${muted}`}>
+            <span className="font-semibold uppercase tracking-wider">2. Parts used on this job</span>
+            <span className="ml-2 font-mono">$0.00</span>
+          </div>
+        )}
 
         <Totals invoice={invoice} dark={dark} />
 
@@ -380,10 +401,12 @@ function Totals({
             <span className="font-mono">−{money(invoice.discountAmount)}</span>
           </div>
         )}
-        <div className={`flex justify-between ${muted}`}>
-          <span>VAT {invoice.taxRatePercent}%</span>
-          <span className="font-mono">{money(invoice.taxAmount)}</span>
-        </div>
+        {invoice.taxAmount > 0 && (
+          <div className={`flex justify-between ${muted}`}>
+            <span>{invoice.taxRatePercent > 0 ? `VAT ${invoice.taxRatePercent}%` : 'Tax'}</span>
+            <span className="font-mono">{money(invoice.taxAmount)}</span>
+          </div>
+        )}
         <div className={`flex justify-between pt-2 border-t text-sm font-bold ${line} ${title}`}>
           <span>Total</span>
           <span className="font-mono">{money(invoice.totalAmount)}</span>

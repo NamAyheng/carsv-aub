@@ -20,6 +20,8 @@ from django_app.models import (
 
 
 class UserSerializer(serializers.HyperlinkedModelSerializer):
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
     class Meta:
         model = AppUser
         fields = [
@@ -31,8 +33,30 @@ class UserSerializer(serializers.HyperlinkedModelSerializer):
             "phone",
             "role",
             "status",
-            "groups",
+            "password",
         ]
+        extra_kwargs = {
+            "email": {"required": True},
+        }
+
+    def create(self, validated_data):
+        password = validated_data.pop("password", None)
+        user = AppUser(**validated_data)
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
+        user.save()
+        return user
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
 
 
 class CustomerSerializer(serializers.HyperlinkedModelSerializer):
@@ -42,6 +66,20 @@ class CustomerSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class VehicleSerializer(serializers.HyperlinkedModelSerializer):
+    def validate_plate(self, value):
+        from django.core.exceptions import ValidationError
+
+        from django_app.plates import normalize_vehicle_plate, require_vehicle_plate
+
+        plate = normalize_vehicle_plate(value)
+        current = normalize_vehicle_plate(getattr(self.instance, "plate", "")) if getattr(self.instance, "pk", None) else ""
+        if current and plate == current:
+            return self.instance.plate
+        try:
+            return require_vehicle_plate(plate)
+        except ValidationError as exc:
+            raise serializers.ValidationError(exc.messages)
+
     class Meta:
         model = Vehicle
         fields = [
@@ -59,6 +97,7 @@ class VehicleSerializer(serializers.HyperlinkedModelSerializer):
             "status",
             "next_service_date",
             "next_service_mileage",
+            "image",
         ]
 
 
@@ -106,7 +145,8 @@ class InspectionSerializer(serializers.HyperlinkedModelSerializer):
         model = Inspection
         fields = [
             "url",
-            "booking",
+            "repair_job",
+            "status",
             "mileage",
             "fuel_level",
             "front_brake_mm",
@@ -114,9 +154,7 @@ class InspectionSerializer(serializers.HyperlinkedModelSerializer):
             "tire_tread_mm",
             "condition",
             "damage",
-            "complaint",
             "note",
-            "photos",
             "checked_in_at",
             "staff",
         ]
@@ -139,7 +177,6 @@ class RepairJobSerializer(serializers.HyperlinkedModelSerializer):
             "vehicle",
             "mechanic",
             "problem",
-            "diagnosis",
             "start_date",
             "estimated_end",
             "status",
@@ -227,5 +264,13 @@ class PaymentSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, style={"input_type": "password"})
+    email = serializers.CharField(required=False, allow_blank=True)
+    username = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        identifier = (attrs.get("email") or attrs.get("username") or "").strip()
+        if not identifier:
+            raise serializers.ValidationError("Enter your email or username.")
+        attrs["identifier"] = identifier
+        return attrs

@@ -168,7 +168,7 @@
             <div class="cp-list">
                 {% for job in profile.jobs %}
                     <a class="cp-item" href="{% url 'admin:django_app_repairjob_change' job.id %}">
-                        <strong>#JOB-{{ job.id|stringformat:"04d" }}</strong>
+                        <strong>#WO-{{ job.id|stringformat:"04d" }}</strong>
                         <span>{{ job.vehicle.plate }} · {{ job.get_status_display }}{% if job.mechanic %} · {{ job.mechanic }}{% endif %}</span>
                     </a>
                 {% empty %}

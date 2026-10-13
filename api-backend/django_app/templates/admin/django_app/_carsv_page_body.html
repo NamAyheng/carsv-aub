@@ -80,7 +80,11 @@
                 <article class="sv-card {% if card.status_class == 'inactive' %}is-off{% endif %}">
                     <div class="sv-top">
                         <div class="cc-person">
-                            <span class="cc-avatar">{{ card.initials }}</span>
+                            {% if card.photo %}
+                                <img class="cc-avatar-round" src="{{ card.photo }}" alt="">
+                            {% else %}
+                                <span class="cc-avatar">{{ card.initials }}</span>
+                            {% endif %}
                             <div>
                                 <a class="cc-name" href="{{ card.view_url }}">{{ card.title }}</a>
                                 {% if card.record_id %}<div class="cc-id">{{ card.record_id }}</div>{% endif %}
@@ -92,11 +96,43 @@
                     {% for line in card.lines %}
                         <p>{{ line }}</p>
                     {% endfor %}
+                    {% if card.needs_inspector %}
+                        <form method="get" class="wo-assign sv-assign">
+                            {% if page.search_query %}
+                                <input type="hidden" name="q" value="{{ page.search_query }}">
+                            {% endif %}
+                            <input type="hidden" name="action" value="assign">
+                            <input type="hidden" name="pk" value="{{ card.assign_pk }}">
+                            <label class="sv-assign-label">Inspector</label>
+                            <select name="staff" class="wo-assign-select" required onchange="this.form.submit()">
+                                <option value="">Assign inspector…</option>
+                                {% for tech in card.inspector_choices %}
+                                    <option value="{{ tech.id }}">{{ tech.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </form>
+                    {% elif card.inspector_name %}
+                        <p>Inspector: {{ card.inspector_name }}</p>
+                    {% endif %}
+                    {% if card.note %}
+                        <div class="wo-scroll sv-note-scroll" title="{{ card.note }}">
+                            <span class="wo-scroll-text">{{ card.note }}</span>
+                        </div>
+                    {% endif %}
                     <div class="sv-foot">
                         <span class="cc-email">{{ card.footer }}</span>
-                        <div class="cc-actions">
-                            <a href="{{ card.view_url }}" title="Edit"><span class="material-symbols-outlined">edit</span></a>
-                            {% include "admin/django_app/_delete_icon.html" with delete_url=card.delete_url can_delete=card.can_delete delete_warn=card.delete_warn %}
+                        <div class="wo-actions">
+                            {% if card.next_label %}
+                                <a class="ap-btn tone-{{ card.next_class }}" href="{{ card.next_url }}">{{ card.next_label }}</a>
+                            {% elif card.next_note %}
+                                <span class="wo-scroll wo-scroll-note" title="{{ card.next_note }}">
+                                    <span class="wo-scroll-text wo-note">{{ card.next_note }}</span>
+                                </span>
+                            {% endif %}
+                            <span class="cc-actions">
+                                <a href="{{ card.view_url }}" title="Edit"><span class="material-symbols-outlined">edit</span></a>
+                                {% include "admin/django_app/_delete_icon.html" with delete_url=card.delete_url can_delete=card.can_delete delete_warn=card.delete_warn %}
+                            </span>
                         </div>
                     </div>
                 </article>

@@ -15,6 +15,7 @@ export interface User {
   lastLogin: string;
   createdAt: string;
   specialization?: string;
+  address?: string;
 }
 
 export interface Customer {
@@ -36,6 +37,7 @@ export interface Vehicle {
   id: string;
   customerId: string;
   customerName: string;
+  customerEmail?: string;
   brand: string;
   model: string;
   year: number;
@@ -63,11 +65,16 @@ export interface Appointment {
   id: string;
   customerId: string;
   customerName: string;
+  customerEmail?: string;
   customerPhone: string;
   vehicleId: string;
   vehicleInfo: string; // e.g. "Toyota Camry (PP-1234)"
   serviceName: string;
   serviceId: string;
+  services?: { id?: number | null; name: string; price: number; primary: boolean }[];
+  workOrderNumber?: string;
+  workOrderStatus?: string;
+  statusLabel?: string;
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
   problemDescription: string;
@@ -104,7 +111,8 @@ export type WorkOrderStatus =
   | 'QUALITY_CHECK'
   | 'READY_FOR_PICKUP'
   | 'COMPLETED'
-  | 'DELIVERED';
+  | 'DELIVERED'
+  | 'CANCELLED';
 
 export interface RepairTask {
   id: string;
@@ -137,6 +145,11 @@ export interface InspectionReport {
   workOrderId: string;
   type: 'BEFORE_REPAIR' | 'AFTER_REPAIR';
   inspectorName: string;
+  inspectorPhoto?: string;
+  fuelLabel?: string;
+  conditionSummary?: string;
+  damageSummary?: string;
+  complaint?: string;
   inspectionDate: string;
   mileage: number;
   fuelLevelPercent: number; // 0 - 100
@@ -148,6 +161,11 @@ export interface InspectionReport {
   photos: string[];
   customerSignatureDate?: string;
   notes?: string;
+  inspectionStatus?: string;
+  frontBrakeMm?: string;
+  rearBrakeMm?: string;
+  treadMm?: string;
+  inspectorNote?: string;
 }
 
 export interface WorkOrderPart {
@@ -173,6 +191,7 @@ export interface WorkOrder {
   reportedProblem: string;
   priority: PriorityLevel;
   status: WorkOrderStatus;
+  statusLabel?: string;
   assignedTechnicianId: string;
   assignedTechnicianName: string;
   cctvBayId?: string;
@@ -182,6 +201,7 @@ export interface WorkOrder {
   laborHoursEstimated: number;
   laborHoursActual: number;
   services: string[];
+  visitServices?: { id?: number | null; name: string; price: number; primary: boolean }[];
   tasks: RepairTask[];
   partsUsed: WorkOrderPart[];
   beforePhotos: string[];
@@ -189,7 +209,15 @@ export interface WorkOrder {
   beforeInspection?: InspectionReport;
   afterInspection?: InspectionReport;
   invoiceId?: string;
+  invoiceNumber?: string;
+  laborCost?: number;
+  serviceCost?: number;
+  partsCost?: number;
+  discountAmount?: number;
+  taxAmount?: number;
+  invoiceTotal?: number;
   estimateId?: string;
+  bookingId?: string;
   isPaid: boolean;
   createdAt: string;
   completedAt?: string;
@@ -277,7 +305,7 @@ export interface PurchaseOrder {
 }
 
 export type InvoiceStatus = 'PAID' | 'PENDING' | 'OVERDUE' | 'PARTIAL' | 'CANCELLED';
-
+export type InvoiceStatus = 'PAID' | 'PENDING' | 'DRAFT' | 'OVERDUE' | 'PARTIAL' | 'CANCELLED';
 /** Counter / catalog sale vs workshop booking & repair. Extra parts on a job stay SERVICE_REPAIR. */
 export type InvoiceKind = 'PARTS_SALE' | 'SERVICE_REPAIR';
 
@@ -293,6 +321,8 @@ export interface InvoiceItem {
   sku?: string;
   /** Extra equipment bought after the car was already booked / in the bay. */
   addedAfterBooking?: boolean;
+  /** Still on the quote / visit; not issued from stock yet. */
+  requested?: boolean;
 }
 
 export interface Invoice {
@@ -467,6 +497,9 @@ export interface ServiceHistoryRecord {
   serviceType: string;
   mechanicName: string;
   partsUsed: string;
+  mechanicPhoto?: string;
+  inspectorName?: string;
+  inspectorPhoto?: string;
   laborCost: number;
   totalCost: number;
   nextServiceDate?: string;

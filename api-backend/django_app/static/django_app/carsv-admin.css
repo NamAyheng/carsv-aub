@@ -1370,6 +1370,10 @@ body.model-customer.change-list .object-tools {
   flex-shrink: 0;
 }
 
+.cc-person img.cc-avatar-round {
+  border-radius: 999px;
+}
+
 .cc-avatar {
   display: flex;
   align-items: center;
@@ -1470,6 +1474,14 @@ body.model-customer.change-list .object-tools {
   color: #64748b;
 }
 
+.cc-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  gap: 0.1rem;
+}
+
 .cc-actions a {
   display: inline-flex;
   align-items: center;
@@ -1479,6 +1491,7 @@ body.model-customer.change-list .object-tools {
   border-radius: 0.5rem;
   color: #2563eb;
   text-decoration: none;
+  flex-shrink: 0;
 }
 
 .cc-actions a:nth-child(2) {
@@ -1487,6 +1500,94 @@ body.model-customer.change-list .object-tools {
 
 .cc-actions a.danger {
   color: #e11d48;
+}
+
+.sv-foot {
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.sv-foot .cc-email {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sv-foot .wo-actions {
+  display: inline-flex;
+  margin-left: auto;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: min(100%, 14rem);
+}
+
+.sv-foot .wo-actions .ap-btn {
+  flex-shrink: 0;
+  padding: 0.3rem 0.7rem;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.sv-foot .wo-actions .cc-actions {
+  flex-shrink: 0;
+}
+
+.sv-assign {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0.15rem;
+  max-width: 100%;
+}
+
+.sv-assign-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.sv-assign .wo-assign-select {
+  flex: 1;
+  min-width: 0;
+  max-width: 12rem;
+}
+
+.sv-note-scroll {
+  --wo-scroll-w: 100%;
+  max-width: 100%;
+  margin-top: 0.45rem;
+}
+
+.wo-scroll-note {
+  --wo-scroll-w: 7.5rem;
+  display: inline-block;
+  max-width: 7.5rem;
+  margin-top: 0;
+  vertical-align: middle;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.wo-scroll-note .wo-note,
+.wo-scroll-note .wo-scroll-text.wo-note {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #c2410c;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wo-scroll-note:hover .wo-scroll-text.wo-note {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .cc-actions a.blocked,
@@ -1583,16 +1684,22 @@ body.model-vehicle.change-list .object-tools {
 }
 
 .cc-plate {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 6.25rem;
+  height: 1.75rem;
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: 12px;
-  padding: 0.25rem 0.65rem;
+  padding: 0;
   background: #f1f5f9;
   color: #0f172a;
   border: 1px solid #e2e8f0;
   border-radius: 0.5rem;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .cc-plate:hover {
@@ -1762,7 +1869,6 @@ body.model-booking.change-list .object-tools {
   justify-content: space-between;
   gap: 1rem;
   align-items: center;
-  flex-wrap: wrap;
 }
 
 .ap-card.is-cancelled {
@@ -1774,6 +1880,7 @@ body.model-booking.change-list .object-tools {
   display: flex;
   gap: 1rem;
   min-width: 0;
+  flex: 1;
 }
 
 .ap-time {
@@ -1869,6 +1976,23 @@ body.model-booking.change-list .object-tools {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.ap-note {
+  display: inline-flex;
+  align-items: center;
+  max-width: 11rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.75rem;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  white-space: normal;
 }
 
 .ap-btn {
@@ -1879,6 +2003,7 @@ body.model-booking.change-list .object-tools {
   font-size: 12px;
   font-weight: 700;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .ap-btn.primary {
@@ -1977,8 +2102,20 @@ body.model-servicecategory.change-list .object-tools {
 
 .sv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
+}
+
+@media (max-width: 1100px) {
+  .sv-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .sv-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .sv-card {
@@ -2170,16 +2307,218 @@ body.model-repairjob.change-list .object-tools {
   font-weight: 700;
   color: #2563eb;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .wo-num:hover {
   text-decoration: underline;
 }
 
+.wo-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.wo-table th,
+.wo-table td {
+  vertical-align: middle;
+}
+
+.wo-col-id {
+  width: 22%;
+}
+
+.wo-col-tech {
+  width: 26%;
+}
+
+.wo-col-status {
+  width: 16%;
+}
+
+.wo-col-cost {
+  width: 12%;
+}
+
+.wo-col-actions {
+  width: 24%;
+}
+
+.wo-col-tech .sv-assign {
+  margin: 0 0 0.2rem;
+  max-width: 100%;
+}
+
+.wo-col-tech .wo-assign-select {
+  max-width: 11rem;
+}
+
 .wo-bay {
   font-size: 10px;
   font-weight: 700;
   color: #4f46e5;
+}
+
+.wo-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  max-width: 100%;
+  flex-wrap: nowrap;
+}
+
+.wo-scroll {
+  --wo-scroll-w: 9.5rem;
+  display: block;
+  max-width: var(--wo-scroll-w);
+  width: 100%;
+  margin-top: 0.2rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.wo-scroll-bay {
+  --wo-scroll-w: 8.5rem;
+}
+
+.wo-scroll-text {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+  transform: translateX(0);
+  transition: transform 0.35s ease;
+}
+
+.wo-scroll-bay .wo-scroll-text,
+.wo-scroll-text.wo-bay {
+  font-size: 10px;
+  font-weight: 700;
+  color: #4f46e5;
+}
+
+.wo-scroll:hover .wo-scroll-text {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  transform: translateX(min(0px, calc(var(--wo-scroll-w) - 100%)));
+  transition: transform 3.2s linear;
+}
+
+.wo-actions .ap-btn {
+  white-space: nowrap;
+}
+
+.wo-note {
+  display: inline-block;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 700;
+  color: #c2410c;
+  white-space: nowrap;
+}
+
+.wo-assign {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  max-width: 100%;
+}
+
+.wo-assign-select {
+  width: 100%;
+  max-width: 9.5rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.65rem;
+  background: #fff;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wo-assign-done {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .wo-scroll {
+    --wo-scroll-w: 7.5rem;
+  }
+
+  .wo-scroll-bay {
+    --wo-scroll-w: 7rem;
+  }
+
+  .wo-assign-select {
+    max-width: 7.5rem;
+  }
+
+  .wo-note {
+    max-width: 7rem;
+  }
+}
+
+.cf-image-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.ap-btn.tone-waiting {
+  background: #c2410c;
+  color: #fff;
+}
+
+.ap-btn.tone-progress {
+  background: #2563eb;
+  color: #fff;
+}
+
+.ap-btn.tone-pending,
+.ap-btn.tone-inspection {
+  background: #d97706;
+  color: #fff;
+}
+
+.ap-btn.tone-ready,
+.ap-btn.tone-completed {
+  background: #059669;
+  color: #fff;
+}
+
+.wo-meter {
+  margin-top: 0.4rem;
+  width: 7.5rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.wo-meter span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #2563eb;
+}
+
+.wo-meter-label {
+  margin-top: 0.15rem;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
 }
 
 .wo-open {
@@ -2443,7 +2782,7 @@ body.model-invoice.change-form .object-tools {
   min-width: 0;
 }
 
-.cp-identity img,
+.cp-identity > img,
 .cp-identity .cc-avatar.lg {
   width: 96px;
   height: 96px;
@@ -2488,11 +2827,70 @@ body.model-invoice.change-form .object-tools {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  align-self: stretch;
+}
+
+.vp-mark.has-photo {
+  width: 4.5rem;
+  height: 3.25rem;
+  background: #0f172a;
+  border: none;
+  overflow: hidden;
+  align-self: center;
+  flex-shrink: 0;
 }
 
 .vp-mark .material-symbols-outlined {
   font-size: 32px;
   color: #2563eb;
+}
+
+.vp-mark img.vp-photo {
+  display: block;
+  width: 4.5rem;
+  height: 3.25rem;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  box-shadow: none;
+}
+
+body.model-vehicle .cc-person img,
+body.model-vehicle .vp-list-photo {
+  width: 4.5rem;
+  height: 3.25rem;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  background: #0f172a;
+  flex-shrink: 0;
+}
+
+body.model-vehicle .vp-list-empty {
+  display: block;
+}
+
+.vp-card-photo {
+  display: block;
+  width: 4.5rem;
+  height: 3.25rem;
+  max-width: none;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.cf-image-preview {
+  display: block;
+  width: 160px;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 10px;
+  margin-top: 8px;
+}
+
+.cf-image-preview[hidden] {
+  display: none;
 }
 
 .cp-name-row .cc-status {
@@ -2878,6 +3276,34 @@ body.model-invoice.change-form .object-tools {
   color: #64748b;
 }
 
+.cf-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.cf-progress-track {
+  flex: 1;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.cf-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: #2563eb;
+}
+
+.cf-progress input {
+  width: 4.75rem;
+  text-align: right;
+  pointer-events: none;
+}
+
 .cf-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2898,6 +3324,10 @@ body.model-invoice.change-form .object-tools {
 
 .cf-fields > .cf-field {
   margin-bottom: 0;
+}
+
+.cf-fields > .cf-span:not(.cf-check) {
+  order: 2;
 }
 
 .cf-span {
@@ -3105,6 +3535,32 @@ body.model-invoice.change-form .object-tools {
   margin: 0.25rem 0 0;
   font-size: 12px;
   color: #64748b;
+}
+
+.vd-staff {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+}
+
+.vd-staff img,
+.vd-staff .cc-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.vd-staff span {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.vd-staff strong {
+  display: block;
+  color: #0f172a;
 }
 
 .vd-pass {
@@ -3321,6 +3777,19 @@ body.model-invoice.change-form .object-tools {
   box-sizing: border-box;
 }
 
+html.dark .cf-modal input:not([type="checkbox"]):not([type="file"]),
+html.dark .cf-modal select,
+html.dark .cf-modal textarea,
+html.dark .cf-field input:not([type="checkbox"]):not([type="file"]),
+html.dark .cf-field select,
+html.dark .cf-field textarea {
+  background-color: #fff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+  color-scheme: light !important;
+  -webkit-text-fill-color: #0f172a;
+}
+
 .cf-field.is-locked .cf-input,
 .cf-field.is-locked input,
 .cf-field.is-locked select,
@@ -3332,13 +3801,176 @@ body.model-invoice.change-form .object-tools {
 .cf-field textarea:disabled,
 .cf-modal input:disabled,
 .cf-modal select:disabled,
-.cf-modal textarea:disabled {
-  background: #f1f5f9 !important;
+.cf-modal textarea:disabled,
+html.dark .cf-modal input:disabled,
+html.dark .cf-modal select:disabled,
+html.dark .cf-modal textarea:disabled,
+html.dark .cf-field input:disabled,
+html.dark .cf-field select:disabled,
+html.dark .cf-field textarea:disabled,
+html.dark .cf-modal .dark\:disabled\:\!bg-base-800:disabled,
+html.dark .cf-field .dark\:disabled\:\!bg-base-800:disabled {
+  background-color: #f1f5f9 !important;
   border-color: #cbd5e1 !important;
-  color: #64748b !important;
+  color: #334155 !important;
+  -webkit-text-fill-color: #334155;
   cursor: not-allowed;
   opacity: 1;
   box-shadow: none;
+  color-scheme: light !important;
+}
+
+.cf-modal select + .material-symbols-outlined,
+.cf-field select + .material-symbols-outlined {
+  display: none;
+}
+
+.cf-modal select,
+.cf-field select,
+html.dark .cf-modal select,
+html.dark .cf-field select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 2.15rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23334155' d='M1.2 1.5 6 6.3l4.8-4.8'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 0.85rem center !important;
+  background-size: 12px 8px !important;
+}
+
+.cf-modal select[name="status"] option[data-tone="waiting"],
+.cf-field select[name="status"] option[data-tone="waiting"] {
+  background-color: #fff7ed;
+  color: #c2410c;
+}
+
+.cf-modal select[name="status"] option[data-tone="progress"],
+.cf-field select[name="status"] option[data-tone="progress"] {
+  background-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+.cf-modal select[name="status"] option[data-tone="confirmed"],
+.cf-field select[name="status"] option[data-tone="confirmed"] {
+  background-color: #eff6ff;
+  color: #2563eb;
+}
+
+.cf-modal select[name="status"] option[data-tone="pending"],
+.cf-field select[name="status"] option[data-tone="pending"],
+.cf-modal select[name="status"] option[data-tone="inspection"],
+.cf-field select[name="status"] option[data-tone="inspection"] {
+  background-color: #fffbeb;
+  color: #d97706;
+}
+
+.cf-modal select[name="status"] option[data-tone="ready"],
+.cf-field select[name="status"] option[data-tone="ready"],
+.cf-modal select[name="status"] option[data-tone="completed"],
+.cf-field select[name="status"] option[data-tone="completed"] {
+  background-color: #ecfdf5;
+  color: #059669;
+}
+
+.cf-modal select[name="status"] option[data-tone="inactive"],
+.cf-field select[name="status"] option[data-tone="inactive"] {
+  background-color: #e2e8f0;
+  color: #475569;
+}
+
+.cf-modal select[name="status"] option[data-tone="cancelled"],
+.cf-field select[name="status"] option[data-tone="cancelled"] {
+  background-color: #f1f5f9;
+  color: #64748b;
+}
+
+html.dark .cf-modal select[name="status"][data-tone="waiting"],
+.cf-modal select[name="status"][data-tone="waiting"],
+html.dark .cf-field select[name="status"][data-tone="waiting"],
+.cf-field select[name="status"][data-tone="waiting"] {
+  background-color: #fff7ed !important;
+  color: #c2410c !important;
+  -webkit-text-fill-color: #c2410c;
+  font-weight: 700;
+}
+
+html.dark .cf-modal select[name="status"][data-tone="progress"],
+.cf-modal select[name="status"][data-tone="progress"],
+html.dark .cf-field select[name="status"][data-tone="progress"],
+.cf-field select[name="status"][data-tone="progress"] {
+  background-color: #dbeafe !important;
+  color: #1d4ed8 !important;
+  -webkit-text-fill-color: #1d4ed8;
+  font-weight: 700;
+}
+
+html.dark .cf-modal select[name="status"][data-tone="confirmed"],
+.cf-modal select[name="status"][data-tone="confirmed"],
+html.dark .cf-field select[name="status"][data-tone="confirmed"],
+.cf-field select[name="status"][data-tone="confirmed"] {
+  background-color: #eff6ff !important;
+  color: #2563eb !important;
+  -webkit-text-fill-color: #2563eb;
+  font-weight: 700;
+}
+
+html.dark .cf-modal select[name="status"][data-tone="pending"],
+.cf-modal select[name="status"][data-tone="pending"],
+html.dark .cf-field select[name="status"][data-tone="pending"],
+.cf-field select[name="status"][data-tone="pending"],
+html.dark .cf-modal select[name="status"][data-tone="inspection"],
+.cf-modal select[name="status"][data-tone="inspection"],
+html.dark .cf-field select[name="status"][data-tone="inspection"],
+.cf-field select[name="status"][data-tone="inspection"] {
+  background-color: #fffbeb !important;
+  color: #d97706 !important;
+  -webkit-text-fill-color: #d97706;
+  font-weight: 700;
+}
+
+html.dark .cf-modal select[name="status"][data-tone="ready"],
+.cf-modal select[name="status"][data-tone="ready"],
+html.dark .cf-field select[name="status"][data-tone="ready"],
+.cf-field select[name="status"][data-tone="ready"],
+html.dark .cf-modal select[name="status"][data-tone="completed"],
+.cf-modal select[name="status"][data-tone="completed"],
+html.dark .cf-field select[name="status"][data-tone="completed"],
+.cf-field select[name="status"][data-tone="completed"] {
+  background-color: #ecfdf5 !important;
+  color: #059669 !important;
+  -webkit-text-fill-color: #059669;
+  font-weight: 700;
+}
+
+html.dark .cf-modal select[name="status"][data-tone="inactive"],
+.cf-modal select[name="status"][data-tone="inactive"],
+html.dark .cf-field select[name="status"][data-tone="inactive"],
+.cf-field select[name="status"][data-tone="inactive"] {
+  background-color: #e2e8f0 !important;
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569;
+  font-weight: 700;
+}
+
+html.dark .cf-modal select[name="status"][data-tone="cancelled"],
+.cf-modal select[name="status"][data-tone="cancelled"],
+html.dark .cf-field select[name="status"][data-tone="cancelled"],
+.cf-field select[name="status"][data-tone="cancelled"] {
+  background-color: #f1f5f9 !important;
+  color: #64748b !important;
+  -webkit-text-fill-color: #64748b;
+  font-weight: 700;
+}
+
+.cf-modal input:focus,
+.cf-modal select:focus,
+.cf-modal textarea:focus,
+.cf-field input:focus,
+.cf-field select:focus,
+.cf-field textarea:focus {
+  outline: none;
+  border-color: #93c5fd !important;
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.16);
 }
 
 .cf-field select option,
@@ -3439,6 +4071,7 @@ body.model-invoice.change-form .object-tools {
   cursor: pointer;
   opacity: 0.7;
   filter: none;
+  margin-right: 0.4rem;
 }
 
 .cf-field input[type="number"]::-webkit-inner-spin-button,
@@ -3447,6 +4080,7 @@ body.model-invoice.change-form .object-tools {
 .cf-modal input[type="number"]::-webkit-outer-spin-button {
   opacity: 1;
   filter: none;
+  margin-right: 0.45rem;
 }
 
 .related-widget-wrapper {

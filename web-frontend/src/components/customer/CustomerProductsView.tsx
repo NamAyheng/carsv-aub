@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Package,
   Wrench,
@@ -14,7 +15,6 @@ import {
   DollarSign,
   ChevronRight,
   ArrowRight,
-  Sparkles,
   ShoppingBag,
   Eye,
   SlidersHorizontal,
@@ -30,32 +30,102 @@ import {
   Box,
   Hash
 } from 'lucide-react';
+import { createCustomerPartRequest, CustomerPartRequestRow, listCustomerPartRequests } from '../../api/garage';
 import { useApp } from '../../context/AppContext';
-import { demoCustomerId } from '../../utils/customerScope';
-import { InvoiceFulfillment } from '../../types';
-import {
-  ALL_COMPANY_PRODUCTS,
-  CAR_BRANDS,
-  CompanyProduct
-} from '../../data/companyProducts';
+import { belongsToCurrentCustomer } from '../../utils/customerScope';
+import { Appointment, InventoryPart } from '../../types';
 
-export type { CompanyProduct };
-export { ALL_COMPANY_PRODUCTS, CAR_BRANDS };
+type ProductSpec = { label: string; value: string };
 
-export interface CustomerPartRequest {
+export interface CompanyProduct {
   id: string;
-  productId: string;
-  productName: string;
+  name: string;
   brand: string;
   sku: string;
+  category: string;
+  description: string;
+  features: string[];
   price: number;
-  carBrand: string;
-  vehiclePlate: string;
-  deliveryOrInstall: 'INSTALL_IN_WORKSHOP' | 'PICKUP_AT_COUNTER' | 'DELIVERY';
-  customerNotes?: string;
-  status: 'PENDING_REVIEW' | 'APPROVED' | 'READY_FOR_INSTALL';
-  requestedAt: string;
+  installEstimate?: number;
+  availability: 'IN_STOCK' | 'LOW_STOCK' | 'AVAILABLE_ON_ORDER';
+  stockCount: number;
+  imageUrl: string;
+  rating: number;
+  reviewsCount: number;
+  warranty: string;
+  compatibleBrands: string[];
+  compatibleModelsDescription: string;
+  recommendedForBrands: string[];
+  recommendationReason?: string;
+  oemPartNumber: string;
+  barcode: string;
+  manufacturer: string;
+  countryOfOrigin: string;
+  condition: 'Brand New';
+  unitOfMeasure: string;
+  netWeight: string;
+  packageDimensions: string;
+  material: string;
+  position?: string;
+  certifications: string[];
+  includedInBox: string[];
+  specifications: ProductSpec[];
+  serviceInterval?: string;
+  leadTimeDays: number;
+  warehouseBin: string;
+  hsCode: string;
+  notes: string;
 }
+
+function stockPart(part: InventoryPart): CompanyProduct {
+  return {
+    id: part.id,
+    name: part.name,
+    brand: part.supplierName,
+    sku: part.sku,
+    category: part.location || 'Parts',
+    description: part.location ? `${part.name} (${part.location})` : part.name,
+    features: [],
+    price: part.unitPrice,
+    availability: part.stockQuantity > 0 ? 'IN_STOCK' : 'LOW_STOCK',
+    stockCount: part.stockQuantity,
+    imageUrl: part.imageUrl || '',
+    rating: 0,
+    reviewsCount: 0,
+    warranty: '',
+    compatibleBrands: [],
+    compatibleModelsDescription: '',
+    recommendedForBrands: [],
+    oemPartNumber: part.sku,
+    barcode: '',
+    manufacturer: part.supplierName,
+    countryOfOrigin: '',
+    condition: 'Brand New',
+    unitOfMeasure: 'each',
+    netWeight: '',
+    packageDimensions: '',
+    material: '',
+    certifications: [],
+    includedInBox: [],
+    specifications: part.location ? [{ label: 'Category', value: part.location }] : [],
+    leadTimeDays: 0,
+    warehouseBin: '',
+    hsCode: '',
+    notes: part.stockQuantity > 0 ? `${part.stockQuantity} in stock` : 'Out of stock',
+  };
+}
+
+const FULFILLMENT_LABEL: Record<string, string> = {
+  INSTALL_IN_WORKSHOP: 'Workshop install',
+  PICKUP_AT_COUNTER: 'Counter pickup',
+  DELIVERY: 'Delivery',
+};
+
+const REQUEST_STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Pending',
+  NOTED: 'Noted by the garage',
+  CONFIRMED: 'Confirmed',
+};
 
 interface CustomerProductsViewProps {
   onNavigateTab?: (tab: any) => void;
@@ -66,26 +136,36 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
   onNavigateTab,
   onOpenBookAppointment
 }) => {
-  const { vehicles, currentUser, addToast, createInvoice, invoices } = useApp();
+  const { vehicles, currentUser, addToast, inventory, workOrders, appointments, refreshCustomerPortal } = useApp();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const quoteBookingId = searchParams.get('booking') || '';
+  const quoteVehicleId = searchParams.get('vehicle') || '';
+  const quoteJob = searchParams.get('job') || '';
+  const quoteFulfillment = searchParams.get('fulfillment') || '';
 
-  // Customer registered vehicles
+  const catalog = useMemo(() => (inventory || []).map(stockPart), [inventory]);
+  const categoryChoices = useMemo(
+    () => ['ALL', ...Array.from(new Set(catalog.map((product) => product.category).filter(Boolean)))],
+    [catalog]
+  );
+  const brandChoices = useMemo(
+    () => ['ALL', ...Array.from(new Set((vehicles || []).map((vehicle) => vehicle.brand).filter(Boolean)))],
+    [vehicles]
+  );
+
   const myVehicles = useMemo(() => {
-    return (vehicles || []).filter(
-      (v) =>
-        v.customerId === currentUser?.id ||
-        v.customerName?.toLowerCase().includes('john') ||
-        v.customerName?.toLowerCase().includes('doe') ||
-        true
-    );
+    return (vehicles || []).filter((vehicle) => belongsToCurrentCustomer(currentUser, vehicle));
   }, [vehicles, currentUser]);
 
   const defaultCar = myVehicles[0] || {
-    id: 'veh-1',
-    brand: 'Toyota',
-    model: 'Camry 2.5L XSE',
-    year: 2022,
-    licensePlate: '2A-9812'
+    id: '',
+    brand: '',
+    model: '',
+    licensePlate: '',
   };
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>('ALL');
+  const [shelfMode, setShelfMode] = useState<'ALL_STOCK' | 'USED'>('ALL_STOCK');
 
   // State
   const [selectedBrand, setSelectedBrand] = useState<string>('ALL');
@@ -94,40 +174,88 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Request & Details Modal
-  const [activeDetailProduct, setActiveDetailProduct] = useState<CompanyProduct | null>(null);
-  const [requestProduct, setRequestProduct] = useState<CompanyProduct | null>(null);
-  const [showRequestsDrawer, setShowRequestsDrawer] = useState<boolean>(false);
+  const [requestVehicleId, setRequestVehicleId] = useState<string>(defaultCar.id || '');
 
   // Form State for Request
   const [selectedCarForRequest, setSelectedCarForRequest] = useState<string>(
     `${defaultCar.brand} ${defaultCar.model} (${defaultCar.licensePlate})`
   );
-  const [requestDeliveryOption, setRequestDeliveryOption] = useState<
-    'INSTALL_IN_WORKSHOP' | 'PICKUP_AT_COUNTER' | 'DELIVERY'
-  >('INSTALL_IN_WORKSHOP');
-  const [requestNotes, setRequestNotes] = useState<string>('');
+  const [requestDeliveryOption, setRequestDeliveryOption] = useState('INSTALL_IN_WORKSHOP');
+  const [requestBookingId, setRequestBookingId] = useState('');
+  const [requestNotes, setRequestNotes] = useState('');
+  const [requestProduct, setRequestProduct] = useState<CompanyProduct | null>(null);
+  const [activeDetailProduct, setActiveDetailProduct] = useState<CompanyProduct | null>(null);
+  const [showRequestsDrawer, setShowRequestsDrawer] = useState(false);
+  const [submittedRequests, setSubmittedRequests] = useState<CustomerPartRequestRow[]>([]);
+  const [requestSending, setRequestSending] = useState(false);
 
-  // Submitted Requests
-  const [submittedRequests, setSubmittedRequests] = useState<CustomerPartRequest[]>([
-    {
-      id: 'REQ-1042',
-      productId: 'prod-1',
-      productName: 'Brembo Ceramic Performance Front Brake Pads',
-      brand: 'Brembo',
-      sku: 'BRK-BRE-04465',
-      price: 78.0,
-      carBrand: 'Toyota',
-      vehiclePlate: '2A-9812',
-      deliveryOrInstall: 'INSTALL_IN_WORKSHOP',
-      customerNotes: 'Please install during upcoming 40,000 km service.',
-      status: 'APPROVED',
-      requestedAt: 'Yesterday'
+  useEffect(() => {
+    let cancelled = false;
+    listCustomerPartRequests()
+      .then((rows) => {
+        if (!cancelled) setSubmittedRequests(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setSubmittedRequests([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (quoteVehicleId) {
+      setRequestVehicleId(quoteVehicleId);
+      setSelectedVehicleId(quoteVehicleId);
+      setShelfMode('ALL_STOCK');
     }
-  ]);
+    if (quoteBookingId) setRequestBookingId(quoteBookingId);
+    if (quoteFulfillment) setRequestDeliveryOption(quoteFulfillment);
+  }, [quoteVehicleId, quoteBookingId, quoteFulfillment]);
 
-  // Handle car brand selection
-  const handleSelectBrand = (brand: string) => {
-    setSelectedBrand(brand);
+  const openVisitsForVehicle = (vehicleId: string): Appointment[] =>
+    (appointments || []).filter(
+      (row) =>
+        row.vehicleId === vehicleId &&
+        row.status !== 'CANCELLED' &&
+        row.status !== 'COMPLETED' &&
+        row.status !== 'NO_SHOW'
+    );
+
+  const bookingLabel = (row: Appointment) => {
+    const when = [row.date, row.time].filter(Boolean).join(' ');
+    const status = row.statusLabel || row.status;
+    return `BK-${row.id.padStart(4, '0')} · ${row.serviceName || 'Visit'}${when ? ` · ${when}` : ''}${
+      status ? ` · ${status}` : ''
+    }`;
+  };
+
+  const openPartRequest = (product: CompanyProduct) => {
+    const vehicleId = quoteVehicleId || myVehicles[0]?.id || '';
+    const visits = vehicleId ? openVisitsForVehicle(vehicleId) : [];
+    setRequestVehicleId(vehicleId);
+    setRequestDeliveryOption(quoteFulfillment || 'INSTALL_IN_WORKSHOP');
+    setRequestBookingId(quoteBookingId || visits[0]?.id || '');
+    setRequestNotes('');
+    setRequestProduct(product);
+  };
+  const selectedVehicle = myVehicles.find((vehicle) => vehicle.id === selectedVehicleId) || null;
+
+  const usedSkus = useMemo(() => {
+    const skus = new Set<string>();
+    if (!selectedVehicle) return skus;
+    for (const order of workOrders || []) {
+      if (order.vehicleId !== selectedVehicle.id) continue;
+      for (const part of order.partsUsed || []) {
+        if (part.partNumber) skus.add(part.partNumber);
+      }
+    }
+    return skus;
+  }, [workOrders, selectedVehicle]);
+
+  const selectVehicle = (vehicleId: string) => {
+    setSelectedVehicleId(vehicleId);
+    setShelfMode(vehicleId === 'ALL' ? 'ALL_STOCK' : 'USED');
   };
 
   // Quick select customer registered vehicle
@@ -137,7 +265,7 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
 
   // Filtered products calculation
   const filteredProducts = useMemo(() => {
-    return ALL_COMPANY_PRODUCTS.filter((product) => {
+    return catalog.filter((product) => {
       // 1. Text Search
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
@@ -158,142 +286,86 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
         if (!matchesQuery) return false;
       }
 
-      // 2. Category Filter
-      if (selectedCategory !== 'ALL' && product.category !== selectedCategory) {
+      if (selectedVehicle && shelfMode === 'USED' && !usedSkus.has(product.sku)) {
         return false;
-      }
-
-      // 3. Car Brand Filter & Recommendation
-      if (selectedBrand !== 'ALL') {
-        const fitsBrand =
-          product.compatibleBrands.includes('Universal') ||
-          product.compatibleBrands.includes(selectedBrand);
-
-        if (!fitsBrand) return false;
-
-        // If user specifically clicked "Recommended Only" for this brand
-        if (filterMode === 'RECOMMENDED_ONLY') {
-          const isRecommended =
-            product.recommendedForBrands.includes(selectedBrand) ||
-            product.recommendedForBrands.includes('Universal');
-          if (!isRecommended) return false;
-        }
       }
 
       return true;
     });
-  }, [searchQuery, selectedCategory, selectedBrand, filterMode]);
+  }, [catalog, searchQuery, selectedCategory, selectedVehicle, shelfMode, usedSkus]);
 
-  // Recommended count for currently selected brand
-  const recommendedCountForBrand = useMemo(() => {
-    if (selectedBrand === 'ALL') {
-      return ALL_COMPANY_PRODUCTS.filter((p) => p.recommendedForBrands.length > 0).length;
-    }
-    return ALL_COMPANY_PRODUCTS.filter(
-      (p) =>
-        p.recommendedForBrands.includes(selectedBrand) ||
-        p.recommendedForBrands.includes('Universal')
-    ).length;
-  }, [selectedBrand]);
-
-  // Handle Request Submission
-  const handleConfirmRequest = (e: React.FormEvent) => {
+  const handleConfirmRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!requestProduct) return;
-
-    const newReq: CustomerPartRequest = {
-      id: `REQ-${Math.floor(1000 + Math.random() * 9000)}`,
-      productId: requestProduct.id,
-      productName: requestProduct.name,
-      brand: requestProduct.brand,
-      sku: requestProduct.sku,
-      price: requestProduct.price,
-      carBrand: selectedBrand !== 'ALL' ? selectedBrand : defaultCar.brand,
-      vehiclePlate: defaultCar.licensePlate,
-      deliveryOrInstall: requestDeliveryOption,
-      customerNotes: requestNotes,
-      status: 'APPROVED',
-      requestedAt: 'Just now'
-    };
-
-    const fulfillment: InvoiceFulfillment =
-      requestDeliveryOption === 'DELIVERY'
-        ? 'DELIVERY'
-        : requestDeliveryOption === 'INSTALL_IN_WORKSHOP'
-          ? 'WORKSHOP_INSTALL'
-          : 'COUNTER_PICKUP';
-
-    const partLineTotal = requestProduct.price;
-    const installFee =
-      requestDeliveryOption === 'INSTALL_IN_WORKSHOP' ? requestProduct.installEstimate || 0 : 0;
-    const subtotal = partLineTotal + installFee;
-    const taxAmount = Math.round(subtotal * 0.1 * 100) / 100;
-    const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
-    const seq = String(14 + (invoices?.length || 0)).padStart(3, '0');
-
-    createInvoice({
-      invoiceNumber: `POS-2026-${seq}`,
-      kind: 'PARTS_SALE',
-      customerId: demoCustomerId(currentUser),
-      customerName: currentUser?.name || 'John Doe',
-      customerEmail: currentUser?.email || 'john.doe@example.com',
-      customerPhone: currentUser?.phone || '+855 12 345 678',
-      customerAddress: 'Phnom Penh',
-      vehicleInfo: selectedCarForRequest,
-      vehiclePlate: defaultCar.licensePlate,
-      fulfillment,
-      items: [
-        {
-          id: 'line-part',
-          description: requestProduct.name,
-          type: 'PART',
-          sku: requestProduct.sku,
-          quantity: 1,
-          unitPrice: requestProduct.price,
-          totalPrice: requestProduct.price
-        },
-        ...(installFee
-          ? [
-              {
-                id: 'line-fit',
-                description: 'Parts-counter fitting fee',
-                type: 'LABOR' as const,
-                quantity: 1,
-                unitPrice: installFee,
-                totalPrice: installFee
-              }
-            ]
-          : [])
-      ],
-      subtotal,
-      taxRatePercent: 10,
-      taxAmount,
-      discountPercent: 0,
-      discountAmount: 0,
-      totalAmount,
-      amountPaid: 0,
-      balanceDue: totalAmount,
-      issueDate: new Date().toISOString().split('T')[0],
-      dueDate: new Date().toISOString().split('T')[0],
-      status: 'PENDING',
-      notes: requestNotes
-        ? `Counter sale. ${requestNotes}`
-        : 'Parts-counter equipment sale. This is not a workshop service invoice.'
-    });
-
-    setSubmittedRequests((prev) => [newReq, ...prev]);
-    setRequestProduct(null);
-    setRequestNotes('');
-
-    addToast({
-      type: 'success',
-      title: 'Parts invoice opened',
-      message: `${requestProduct.name} billed as a parts-sale ticket (not a repair invoice). Check Invoices.`
-    });
+    if (!requestProduct || requestSending) return;
+    const install = requestDeliveryOption === 'INSTALL_IN_WORKSHOP';
+    const visits = requestVehicleId ? openVisitsForVehicle(requestVehicleId) : [];
+    if (install && visits.length > 0 && !requestBookingId) {
+      addToast({
+        type: 'error',
+        title: 'Choose a booking',
+        message: 'This car has more than one open visit. Pick which booking this part belongs to.',
+      });
+      return;
+    }
+    setRequestSending(true);
+    try {
+      const saved = await createCustomerPartRequest({
+        sparePartId: requestProduct.id,
+        vehicleId: requestVehicleId || undefined,
+        bookingId: install ? requestBookingId || undefined : undefined,
+        fulfillment: requestDeliveryOption,
+        notes: requestNotes,
+      });
+      setSubmittedRequests((rows) => [saved, ...rows.filter((row) => row.id !== saved.id)]);
+      setRequestProduct(null);
+      setRequestNotes('');
+      await refreshCustomerPortal();
+      addToast({
+        type: 'success',
+        title: install ? 'Part linked to the visit' : 'Purchase request sent',
+        message: install
+          ? `${saved.productName} is on ${saved.bookingId ? `booking BK-${saved.bookingId.padStart(4, '0')}` : 'your open visit'}. It appears on that visit quote.`
+          : `${saved.productName} is saved as ${saved.number}. Confirm it on Quotes, then the garage prepares the invoice and handoff.`,
+      });
+      if (quoteJob || quoteBookingId) {
+        setSearchParams({});
+        navigate(quoteJob ? `/quotes?job=${encodeURIComponent(quoteJob)}` : '/quotes');
+      } else {
+        setShowRequestsDrawer(true);
+      }
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Request was not sent',
+        message: error instanceof Error ? error.message : 'Try again.',
+      });
+    } finally {
+      setRequestSending(false);
+    }
   };
+
+  const requestVisits = requestVehicleId ? openVisitsForVehicle(requestVehicleId) : [];
+  const selectedRequestBooking = requestVisits.find((row) => row.id === requestBookingId) || null;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
+      {(quoteBookingId || quoteJob) && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-amber-100">
+            <span className="font-bold text-white">Adding a part to a quote.</span>{' '}
+            {quoteBookingId ? `Booking BK-${quoteBookingId.padStart(4, '0')}` : 'Open visit'}
+            {quoteJob ? ` · ${quoteJob}` : ''}. Choose Workshop Install and submit — it stays on that booking.
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate(quoteJob ? `/quotes?job=${encodeURIComponent(quoteJob)}` : '/quotes')}
+            className="px-3 py-1.5 rounded-xl bg-slate-900 text-xs font-bold text-white border border-slate-700"
+          >
+            Back to quote
+          </button>
+        </div>
+      )}
+
       {/* 1. HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 pb-6 border-b border-slate-800">
         <div>
@@ -305,15 +377,14 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
               Equipment for Sales
             </span>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">
-              {ALL_COMPANY_PRODUCTS.length} Total SKUs
+              {catalog.length} Total SKUs
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
             Parts & Products Catalog
           </h1>
           <p className="text-sm text-slate-400 max-w-2xl mt-1">
-            Equipment for sales: {ALL_COMPANY_PRODUCTS.length} SKUs with OEM numbers, barcodes, specs,
-            origin, and fitment. Same catalog photos — open Specs & Fit for the full item data.
+            {catalog.length} parts currently in garage stock. Prices and quantities come from the warehouse.
           </p>
         </div>
 
@@ -342,7 +413,7 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
         </div>
       </div>
 
-      {/* 2. CAR BRAND FITMENT & RECOMMENDATION SELECTOR */}
+      {/* 2. VEHICLE + SHELF FILTER */}
       <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 space-y-5 shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -350,39 +421,49 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
               <Car className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-white">
-                  Filter by Car Brand Fitment & Recommendations
-                </h2>
-                {selectedBrand !== 'ALL' && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-bold text-white">Parts for your vehicles</h2>
+                {selectedVehicle && (
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    Active: {selectedBrand}
+                    {selectedVehicle.licensePlate}
                   </span>
                 )}
               </div>
               <p className="text-xs text-slate-400">
-                Choose your vehicle brand to automatically identify compatible parts and certified recommendations.
+                Pick one of your cars to see parts already fitted on it, or browse every part in stock.
               </p>
             </div>
           </div>
 
-          {/* Quick Shortcuts for Customer's Saved Vehicles */}
           {myVehicles.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-slate-400 font-medium">My Vehicles:</span>
+              <button
+                type="button"
+                onClick={() => selectVehicle('ALL')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  !selectedVehicle
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-500'
+                    : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
+                }`}
+              >
+                Full shelf
+              </button>
               {myVehicles.map((veh) => {
-                const isSelected = selectedBrand.toLowerCase() === veh.brand.toLowerCase();
+                const isSelected = selectedVehicle?.id === veh.id;
                 return (
                   <button
                     key={veh.id}
-                    onClick={() => handleSelectCustomerCar(veh.brand)}
+                    type="button"
+                    onClick={() => selectVehicle(veh.id)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                       isSelected
                         ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-500'
                         : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
                     }`}
                   >
-                    <span>🚗 {veh.brand}</span>
+                    <Car className="w-3.5 h-3.5" />
+                    <span>{veh.brand}</span>
                     <span className="text-[10px] opacity-75">({veh.model})</span>
                   </button>
                 );
@@ -391,77 +472,45 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
           )}
         </div>
 
-        {/* Car Brand Pills Bar */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 pt-1 scrollbar-none">
-          {CAR_BRANDS.map((brand) => {
-            const isSelected = selectedBrand === brand;
-            return (
-              <button
-                key={brand}
-                onClick={() => handleSelectBrand(brand)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
-                  isSelected
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30 ring-2 ring-blue-400/50'
-                    : 'bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800/80'
-                }`}
-              >
-                {brand === 'ALL' ? (
-                  <span>Display All Brands</span>
-                ) : brand === 'Universal' ? (
-                  <span>🌐 Universal Fit</span>
-                ) : (
-                  <>
-                    <Car className="w-3.5 h-3.5 opacity-70" />
-                    <span>{brand}</span>
-                  </>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Active Car Brand Fitment Banner (When a specific brand is selected) */}
-        {selectedBrand !== 'ALL' && (
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-950/40 via-slate-950 to-slate-950 border border-blue-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {selectedVehicle && (
+          <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="p-2.5 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
-                <Sparkles className="w-4 h-4 text-amber-300" />
+                <Wrench className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-xs font-bold text-white flex items-center gap-2">
-                  <span>Filtered for {selectedBrand} Vehicles</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    {recommendedCountForBrand} Recommended Parts
+                <div className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
+                  <span>
+                    {selectedVehicle.brand} {selectedVehicle.model}
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-700 border border-amber-500/30">
+                    {usedSkus.size} used on this car
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Showing products verified for {selectedBrand} engineering standards and universal garage consumables.
+                  The count is parts recorded on repair jobs for {selectedVehicle.licensePlate}. The full shelf is every part currently in stock.
                 </p>
               </div>
             </div>
 
-            {/* Filter Mode: All compatible vs Recommended Only */}
             <div className="flex items-center gap-2 bg-slate-900 p-1 rounded-xl border border-slate-800 shrink-0">
               <button
-                onClick={() => setFilterMode('ALL')}
+                type="button"
+                onClick={() => setShelfMode('USED')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  filterMode === 'ALL'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                  shelfMode === 'USED' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                All {selectedBrand} Compatible ({filteredProducts.length})
+                Used on this car ({usedSkus.size})
               </button>
               <button
-                onClick={() => setFilterMode('RECOMMENDED_ONLY')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                  filterMode === 'RECOMMENDED_ONLY'
-                    ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                type="button"
+                onClick={() => setShelfMode('ALL_STOCK')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  shelfMode === 'ALL_STOCK' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <Star className="w-3.5 h-3.5 fill-current" />
-                <span>Recommended Only ({recommendedCountForBrand})</span>
+                Full shelf ({catalog.length})
               </button>
             </div>
           </div>
@@ -490,15 +539,14 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
               </button>
             )}
           </div>
-
-          {/* Reset Filters button if any active filter */}
-          {(selectedBrand !== 'ALL' || selectedCategory !== 'ALL' || searchQuery) && (
+          {(selectedVehicle || selectedCategory !== 'ALL' || searchQuery) && (
             <button
+              type="button"
               onClick={() => {
-                setSelectedBrand('ALL');
+                setSelectedVehicleId('ALL');
+                setShelfMode('ALL_STOCK');
                 setSelectedCategory('ALL');
                 setSearchQuery('');
-                setFilterMode('ALL');
               }}
               className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
             >
@@ -510,26 +558,17 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
 
         {/* Category Filter Chips */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none text-xs font-semibold">
-          {[
-            { id: 'ALL', label: 'All Categories' },
-            { id: 'Brakes & Rotors', label: 'Brakes & Rotors' },
-            { id: 'Fluids & Oils', label: 'Fluids & Oils' },
-            { id: 'Filters', label: 'Filters' },
-            { id: 'Engine & Ignition', label: 'Engine & Ignition' },
-            { id: 'Batteries & Electrical', label: 'Batteries & Electrical' },
-            { id: 'Tires & Wheels', label: 'Tires & Wheels' },
-            { id: 'Belts & Cooling', label: 'Belts & Cooling' }
-          ].map((cat) => (
+          {categoryChoices.map((cat) => (
             <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
               className={`px-3.5 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                selectedCategory === cat.id
+                selectedCategory === cat
                   ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30'
                   : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
               }`}
             >
-              {cat.label}
+              {cat === 'ALL' ? 'All Categories' : cat}
             </button>
           ))}
         </div>
@@ -538,49 +577,32 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
       {/* 4. PRODUCTS CATALOG GRID */}
       {filteredProducts.length === 0 ? (
         <div className="bg-slate-900 rounded-3xl border border-slate-800 p-12 text-center space-y-4 shadow-xl">
-          <div className="w-16 h-16 rounded-2xl bg-slate-800 flex items-center justify-center text-slate-400 mx-auto">
-            <Package className="w-8 h-8" />
-          </div>
-          <h3 className="text-lg font-bold text-white">No Products Found</h3>
-          <p className="text-sm text-slate-400 max-w-md mx-auto">
-            No parts in our inventory matched your search and car brand filter. Try clearing the
-            brand selection or switching categories to see all products.
+          <p className="text-sm text-slate-300">
+            {selectedVehicle && shelfMode === 'USED'
+              ? `No parts have been recorded on the ${selectedVehicle.brand} ${selectedVehicle.model} yet.`
+              : 'No parts in stock matched this search.'}
           </p>
           <button
+            type="button"
             onClick={() => {
-              setSelectedBrand('ALL');
+              setSelectedVehicleId('ALL');
+              setShelfMode('ALL_STOCK');
               setSelectedCategory('ALL');
               setSearchQuery('');
-              setFilterMode('ALL');
             }}
             className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-500 transition-colors cursor-pointer"
           >
-            Show All Company Products
+            Show all parts
           </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredProducts.map((product) => {
-            // Check if this product is recommended for the selected car brand (or universally)
-            const isRecommendedForActiveBrand =
-              selectedBrand !== 'ALL'
-                ? product.recommendedForBrands.includes(selectedBrand) ||
-                  product.recommendedForBrands.includes('Universal')
-                : product.recommendedForBrands.length > 0;
-
-            const fitsActiveBrand =
-              selectedBrand === 'ALL' ||
-              product.compatibleBrands.includes('Universal') ||
-              product.compatibleBrands.includes(selectedBrand);
-
+            const usedOnSelectedVehicle = Boolean(selectedVehicle && usedSkus.has(product.sku));
             return (
               <div
                 key={product.id}
-                className={`bg-slate-900 rounded-3xl border flex flex-col justify-between overflow-hidden shadow-xl transition-all duration-300 hover:-translate-y-1 group ${
-                  isRecommendedForActiveBrand && selectedBrand !== 'ALL'
-                    ? 'border-amber-500/50 shadow-amber-500/5 ring-1 ring-amber-500/20'
-                    : 'border-slate-800 hover:border-slate-700'
-                }`}
+                className="bg-slate-900 rounded-3xl border border-slate-800 hover:border-slate-700 flex flex-col justify-between overflow-hidden shadow-xl transition-all duration-300 hover:-translate-y-1 group"
               >
                 {/* Product Image & Badges */}
                 <div
@@ -633,16 +655,12 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
                       </span>
                     )}
                   </div>
-
-                  {/* Car Brand Recommendation Ribbon */}
-                  {isRecommendedForActiveBrand && (
+                  {usedOnSelectedVehicle && selectedVehicle && (
                     <div className="absolute bottom-3 left-3 right-3">
-                      <div className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 shadow-lg">
-                        <Sparkles className="w-3.5 h-3.5 fill-current shrink-0" />
+                      <div className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 shadow-lg">
+                        <Wrench className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">
-                          {selectedBrand !== 'ALL'
-                            ? `Recommended for ${selectedBrand}`
-                            : `Recommended for ${product.recommendedForBrands.slice(0, 3).join(', ')}`}
+                          Used on {selectedVehicle.brand} {selectedVehicle.model}
                         </span>
                       </div>
                     </div>
@@ -675,34 +693,30 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] text-slate-400 font-medium">
                       <span className="truncate">OEM: {product.oemPartNumber}</span>
                       <span className="truncate">Made in {product.countryOfOrigin}</span>
-                      <span className="truncate">{product.unitOfMeasure}</span>
-                      <span className="truncate">{product.netWeight}</span>
                     </div>
-
-                    {/* Car Brand Compatibility Badges */}
-                    <div className="pt-1 space-y-1.5">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                        <Car className="w-3 h-3 text-blue-400" />
-                        <span>Compatible Car Brands:</span>
+                    {product.compatibleBrands.length > 0 && (
+                      <div className="pt-1 space-y-1.5">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                          <Car className="w-3 h-3 text-blue-400" />
+                          <span>Compatible Car Brands:</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {product.compatibleBrands.map((brand) => (
+                            <span
+                              key={brand}
+                              className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-950 text-slate-300 border border-slate-800"
+                            >
+                              {brand}
+                            </span>
+                          ))}
+                        </div>
+                        {product.compatibleModelsDescription ? (
+                          <p className="text-[11px] text-slate-400 italic truncate">
+                            {product.compatibleModelsDescription}
+                          </p>
+                        ) : null}
                       </div>
-                      <div className="flex flex-wrap gap-1">
-                        {product.compatibleBrands.map((brand) => (
-                          <span
-                            key={brand}
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              selectedBrand === brand
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-950 text-slate-300 border border-slate-800'
-                            }`}
-                          >
-                            {brand}
-                          </span>
-                        ))}
-                      </div>
-                      <p className="text-[11px] text-slate-400 italic truncate">
-                        {product.compatibleModelsDescription}
-                      </p>
-                    </div>
+                    )}
 
                     {/* Recommendation Reason Note */}
                     {product.recommendationReason && (
@@ -741,12 +755,11 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
                         onClick={() => setActiveDetailProduct(product)}
                         className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                       >
-                        <Eye className="w-3.5 h-3.5 text-slate-400" />
                         <span>Specs & Fit</span>
                       </button>
 
                       <button
-                        onClick={() => setRequestProduct(product)}
+                        onClick={() => openPartRequest(product)}
                         className="py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <Wrench className="w-3.5 h-3.5" />
@@ -804,23 +817,28 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
             </div>
 
             <form onSubmit={handleConfirmRequest} className="space-y-4">
-              {/* Select Car for fitment */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                  <Car className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Target Vehicle for this Part:</span>
-                </label>
+                <label className="text-xs font-bold text-slate-300">Vehicle</label>
                 <select
-                  value={selectedCarForRequest}
-                  onChange={(e) => setSelectedCarForRequest(e.target.value)}
+                  value={requestVehicleId}
+                  onChange={(e) => {
+                    const nextVehicle = e.target.value;
+                    setRequestVehicleId(nextVehicle);
+                    const visits = nextVehicle ? openVisitsForVehicle(nextVehicle) : [];
+                    setRequestBookingId(
+                      quoteBookingId && visits.some((row) => row.id === quoteBookingId)
+                        ? quoteBookingId
+                        : visits[0]?.id || ''
+                    );
+                  }}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-white focus:outline-none focus:border-blue-500 cursor-pointer"
                 >
                   {myVehicles.map((v) => (
-                    <option key={v.id} value={`${v.brand} ${v.model} (${v.licensePlate})`}>
+                    <option key={v.id} value={v.id}>
                       {v.brand} {v.model} (Plate: {v.licensePlate})
                     </option>
                   ))}
-                  <option value="Other Vehicle">Other / Unregistered Vehicle</option>
+                  <option value="">Other / Unregistered Vehicle</option>
                 </select>
               </div>
 
@@ -847,7 +865,12 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
                   ].map((opt) => (
                     <div
                       key={opt.id}
-                      onClick={() => setRequestDeliveryOption(opt.id as any)}
+                      onClick={() => {
+                        setRequestDeliveryOption(opt.id);
+                        if (opt.id === 'INSTALL_IN_WORKSHOP' && !requestBookingId && requestVisits[0]) {
+                          setRequestBookingId(requestVisits[0].id);
+                        }
+                      }}
                       className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
                         requestDeliveryOption === opt.id
                           ? 'bg-blue-600/15 border-blue-500 text-white'
@@ -860,6 +883,32 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
                   ))}
                 </div>
               </div>
+
+              {requestDeliveryOption === 'INSTALL_IN_WORKSHOP' && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300">Booking / quote for this car</label>
+                  {requestVisits.length === 0 ? (
+                    <p className="text-[11px] text-slate-500 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2">
+                      No open booking for this vehicle yet. Submit the part anyway, or book a service first — Workshop
+                      Install attaches when a visit exists.
+                    </p>
+                  ) : (
+                    <select
+                      value={requestBookingId}
+                      onChange={(e) => setRequestBookingId(e.target.value)}
+                      required={requestVisits.length > 0}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                    >
+                      <option value="">Choose which visit this part belongs to</option>
+                      {requestVisits.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {bookingLabel(row)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
 
               {/* Special Instructions */}
               <div className="space-y-1.5">
@@ -876,23 +925,19 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
               </div>
 
               {/* Cost Summary */}
-              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[10px] text-slate-400">Estimated Total Cost</div>
-                  <div className="text-lg font-black text-white">
-                    $
-                    {(
-                      requestProduct.price +
-                      (requestDeliveryOption === 'INSTALL_IN_WORKSHOP'
-                        ? requestProduct.installEstimate || 0
-                        : 0)
-                    ).toFixed(2)}
-                  </div>
+                  <div className="text-lg font-black text-white">${requestProduct.price.toFixed(2)}</div>
                 </div>
-                <div className="text-xs text-slate-400 text-right">
+                <div className="text-xs text-slate-400 text-right max-w-[14rem]">
                   {requestDeliveryOption === 'INSTALL_IN_WORKSHOP'
-                    ? `Includes estimated +$${requestProduct.installEstimate} installation`
-                    : 'Part Only Price'}
+                    ? selectedRequestBooking
+                      ? `Links to ${bookingLabel(selectedRequestBooking)}`
+                      : requestVisits.length > 0
+                        ? 'Choose a booking above'
+                        : 'No open booking — part waits until a visit exists'
+                    : 'Parts-only purchase — confirm on Quotes'}
                 </div>
               </div>
 
@@ -901,15 +946,22 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
                   type="button"
                   onClick={() => setRequestProduct(null)}
                   className="w-1/2 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                  disabled={requestSending}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  disabled={
+                    requestSending ||
+                    (requestDeliveryOption === 'INSTALL_IN_WORKSHOP' &&
+                      requestVisits.length > 0 &&
+                      !requestBookingId)
+                  }
+                  className="w-1/2 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-60"
                 >
                   <Check className="w-4 h-4" />
-                  <span>Submit Request</span>
+                  <span>{requestSending ? 'Sending…' : 'Submit Request'}</span>
                 </button>
               </div>
             </form>
@@ -972,30 +1024,30 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
                     <span>{activeDetailProduct.warranty}</span>
                   </div>
                   <div className="text-xs text-slate-400">
-                    {activeDetailProduct.condition} · {activeDetailProduct.stockCount} units on shelf
-                    {activeDetailProduct.position ? ` · ${activeDetailProduct.position}` : ''}
+                    {activeDetailProduct.compatibleBrands.join(', ') || 'Catalog part'}
                   </div>
                 </div>
-
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase">
-                    Vehicle Brand Compatibility
+                {activeDetailProduct.compatibleBrands.length > 0 && (
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase">
+                      Vehicle Brand Compatibility
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {activeDetailProduct.compatibleBrands.map((b) => (
+                        <span
+                          key={b}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600/20 text-blue-300 border border-blue-500/30"
+                        >
+                          {b}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {activeDetailProduct.compatibleBrands.map((b) => (
-                      <span
-                        key={b}
-                        className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600/20 text-blue-300 border border-blue-500/30"
-                      >
-                        {b}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+                )}
 
                 <button
                   onClick={() => {
-                    setRequestProduct(activeDetailProduct);
+                    openPartRequest(activeDetailProduct);
                     setActiveDetailProduct(null);
                   }}
                   className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -1149,6 +1201,7 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
                   <X className="w-5 h-5" />
                 </button>
               </div>
+              <p className="text-xs text-slate-400">Requests you send appear here and in the garage admin.</p>
 
               {submittedRequests.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 space-y-2">
@@ -1158,21 +1211,74 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
               ) : (
                 <div className="space-y-3">
                   {submittedRequests.map((req) => (
-                    <div
-                      key={req.id}
-                      className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-[10px] text-slate-400">{req.id}</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                          {req.status.replace('_', ' ')}
+                    <div key={req.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[10px] text-slate-400">{req.number}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                          req.status === 'CONFIRMED'
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : req.status === 'NOTED'
+                              ? 'bg-sky-500/20 text-sky-700 border-sky-500/30'
+                              : 'bg-amber-500/20 text-amber-700 border-amber-500/30'
+                        }`}>
+                          {REQUEST_STATUS_LABEL[req.status] || req.status}
                         </span>
                       </div>
                       <h4 className="text-xs font-bold text-white">{req.productName}</h4>
-                      <div className="text-[11px] text-slate-400 flex items-center justify-between">
-                        <span>Vehicle: {req.carBrand} ({req.vehiclePlate})</span>
+                      <div className="text-[11px] text-slate-400 flex items-center justify-between gap-3">
+                        <span>
+                          {req.vehiclePlate ? `${req.carBrand} (${req.vehiclePlate})` : req.carBrand}
+                          {' · '}
+                          {FULFILLMENT_LABEL[req.fulfillment] || req.fulfillment}
+                        </span>
                         <strong className="text-white">${req.price.toFixed(2)}</strong>
                       </div>
+                      {req.status === 'CONFIRMED' && req.workOrderNumber ? (
+                        <div className="pt-2 border-t border-slate-800 space-y-2">
+                          <p className="text-[11px] text-slate-300">
+                            On {req.workOrderNumber}
+                            {req.invoiceNumber ? ` · ${req.invoiceNumber}` : ''}
+                            {req.invoiceStatus ? ` · ${req.invoiceStatus}` : ''}
+                          </p>
+                          <p className="text-[11px] text-slate-400">
+                            Invoice ${req.invoiceTotal.toFixed(2)} · paid ${req.amountPaid.toFixed(2)}. The garage records the payment.
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                refreshCustomerPortal()
+                                  .catch(() => {})
+                                  .finally(() => navigate(`/tracking?job=${encodeURIComponent(req.workOrderNumber)}&tab=PARTS`));
+                              }}
+                              className="flex-1 py-2 rounded-lg bg-slate-800 text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              Work order
+                            </button>
+                            {req.invoiceNumber && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  refreshCustomerPortal()
+                                    .catch(() => {})
+                                    .finally(() => navigate(`/invoices?invoice=${encodeURIComponent(req.invoiceNumber)}`));
+                                }}
+                                className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-[11px] font-bold cursor-pointer"
+                              >
+                                Invoice
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ) : req.status === 'CONFIRMED' ? (
+                        <p className="text-[11px] text-slate-500">
+                          Accepted on your appointment. The garage issues it when the car is checked in.
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-slate-500">
+                          Waiting for the garage to confirm. That puts this part on the same visit as your booking.
+                        </p>
+                      )}
                       {req.customerNotes && (
                         <p className="text-[11px] text-slate-400 italic">"{req.customerNotes}"</p>
                       )}

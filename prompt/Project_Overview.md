@@ -79,7 +79,7 @@ Customers **do not** use this sidebar. After customer login they get a dedicated
 | **MANAGER** | Sarah Jenkins | manager@carsv.com | Dispatch, revenue, technician workload, reports, low-stock |
 | **STAFF** | Alex Wong | staff@carsv.com | Front desk: register customers/vehicles, book, check-in, invoices |
 | **TECHNICIAN** | Dara Kim | dara.kim@carsv.com | Assigned tasks, inspections, repair progress, parts used |
-| **CUSTOMER** | John Doe | john.doe@example.com | Own cars, bookings, live tracking, invoices, feedback |
+| **CUSTOMER** | Ayheng Nam | namayheng12345@gmail.com | Own cars, bookings, live tracking, invoices, feedback |
 
 Passwords are cosmetic. Login matches **email** to a seeded user. The staff login screen has 1-click demo role buttons.
 

@@ -39,7 +39,7 @@
                 <input type="hidden" name="status" value="{{ status_filter }}">
             {% endif %}
             <span class="material-symbols-outlined cc-search-icon">search</span>
-            <input type="search" name="q" value="{{ search_query }}" placeholder="Search by license plate (e.g. KH-5521), brand, VIN, or owner...">
+            <input type="search" name="q" value="{{ search_query }}" placeholder="Search by license plate (e.g. 2BD-9988), brand, VIN, or owner...">
         </form>
 
         <form method="get" class="cc-selects">
@@ -83,8 +83,17 @@
                 {% for row in vehicle_rows %}
                     <tr{% if row.status_class == 'inactive' %} class="is-off"{% endif %}>
                         <td>
-                            <a class="cc-plate" href="{{ row.view_url }}">{{ row.plate }}</a>
-                            <div class="cc-id">ID: #{{ row.code }}</div>
+                            <div class="cc-person">
+                                {% if row.image %}
+                                    <img class="vp-list-photo" src="{{ row.image }}" alt="">
+                                {% else %}
+                                    <span class="vp-list-photo vp-list-empty"></span>
+                                {% endif %}
+                                <div>
+                                    <a class="cc-plate" href="{{ row.view_url }}">{{ row.plate }}</a>
+                                    <div class="cc-id">ID: #{{ row.code }}</div>
+                                </div>
+                            </div>
                         </td>
                         <td>
                             <div class="cc-name">{{ row.title }}</div>
@@ -116,6 +125,9 @@
     <section class="cc-cards" x-show="view === 'cards'" x-cloak>
         {% for row in vehicle_rows %}
             <article class="cc-card {% if row.status_class == 'inactive' %}is-off{% endif %}">
+                {% if row.image %}
+                    <img class="vp-card-photo" src="{{ row.image }}" alt="">
+                {% endif %}
                 <div class="cc-card-top">
                     <div>
                         <a class="cc-plate" href="{{ row.view_url }}">{{ row.plate }}</a>

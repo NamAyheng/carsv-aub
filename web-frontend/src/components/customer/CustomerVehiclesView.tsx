@@ -5,7 +5,6 @@ import {
   Wrench,
   Calendar,
   History,
-  FileText,
   Fuel,
   Gauge,
   Sparkles,
@@ -13,12 +12,21 @@ import {
   X,
   ExternalLink,
   ChevronRight,
-  Package
+  Package,
+  Trash2
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { belongsToCurrentCustomer, demoCustomerId } from '../../utils/customerScope';
-import { findDuplicateVehicle } from '../../utils/garageLogic';
+import { findDuplicateVehicle, isValidVehiclePlate, normalizeVehiclePlate } from '../../utils/garageLogic';
 import { Vehicle } from '../../types';
+
+function vehicleMake(brand: string) {
+  return /\.(jpe?g|png|webp|gif)$/i.test(brand.trim()) ? '' : brand;
+}
+
+function vehicleLabel(brand: string, model: string) {
+  return `${vehicleMake(brand)} ${model}`.replace(/\s+/g, ' ').trim();
+}
 
 interface CustomerVehiclesViewProps {
   onBookServiceForVehicle: (vehicleId: string) => void;
@@ -31,39 +39,68 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
   onViewWorkOrder,
   onBrowseParts
 }) => {
-  const { vehicles, workOrders, serviceHistory, currentUser, addVehicle, addToast } = useApp();
+  const {
+    vehicles,
+    workOrders,
+    serviceHistory,
+    currentUser,
+    addVehicle,
+    addToast,
+    liveCustomer,
+    persistCustomerVehicle,
+    saveCustomerVehicle,
+    removeCustomerVehicle,
+    updateCustomerVehiclePhoto,
+    showConfirmDialog
+  } = useApp();
 
   const [selectedVehicleDetails, setSelectedVehicleDetails] = useState<Vehicle | null>(null);
   const [showAddVehicleModal, setShowAddVehicleModal] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [savingVehicle, setSavingVehicle] = useState(false);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState('');
+  const [photoBusyId, setPhotoBusyId] = useState('');
 
   // Add Vehicle Form state
-  const [brand, setBrand] = useState('Toyota');
+  const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
-  const [year, setYear] = useState('2023');
+  const [year, setYear] = useState('');
   const [licensePlate, setLicensePlate] = useState('');
   const [vin, setVin] = useState('');
-  const [mileage, setMileage] = useState('24000');
-  const [color, setColor] = useState('Pearl White');
-  const [fuelType, setFuelType] = useState<Vehicle['fuelType']>('Hybrid');
+  const [mileage, setMileage] = useState('');
+  const [color, setColor] = useState('');
+  const [vehicleType, setVehicleType] = useState('');
+  const [engineNumber, setEngineNumber] = useState('');
+  const [fuelType, setFuelType] = useState<Vehicle['fuelType']>('Gasoline');
   const [transmission, setTransmission] = useState<Vehicle['transmission']>('Automatic');
 
   // Vehicles for the current customer (with fallback demo data if fresh customer)
   const myVehicles = (vehicles || []).filter((v) => belongsToCurrentCustomer(currentUser, v));
 
-  const handleAddVehicleSubmit = (e: React.FormEvent) => {
+  const handleAddVehicleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!model || !licensePlate) {
+    if (!brand.trim() || !model.trim() || !licensePlate.trim() || !year.trim()) {
       addToast({
         type: 'error',
         title: 'Missing Required Fields',
-        message: 'Please provide at least the model and license plate number.'
+        message: 'Please provide the make, model, year, and license plate.'
       });
       return;
     }
 
-    const plate = licensePlate.trim();
+    const plate = normalizeVehiclePlate(licensePlate);
+    const plateUnchanged = Boolean(editingVehicle && plate === normalizeVehiclePlate(editingVehicle.licensePlate));
+    if (!plateUnchanged && !isValidVehiclePlate(plate)) {
+      addToast({
+        type: 'error',
+        title: 'Invalid License Plate',
+        message: 'Use 2, then 1 or 2 letters, a hyphen, and 4 digits. Example: 2BD-9988.'
+      });
+      return;
+    }
     const vinValue = vin.trim();
-    const duplicate = findDuplicateVehicle(vehicles || [], plate, vinValue);
+    const duplicate = findDuplicateVehicle(vehicles || [], plate, vinValue, editingVehicle?.id);
     if (duplicate) {
       addToast({
         type: 'error',
@@ -73,28 +110,115 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
       return;
     }
 
-    const added = addVehicle({
+    const payload = {
       customerId: demoCustomerId(currentUser),
       customerName: currentUser.name,
-      brand,
-      model,
-      year: parseInt(year) || 2023,
+      brand: brand.trim(),
+      model: model.trim(),
+      year: parseInt(year, 10),
       licensePlate: plate,
-      vin: vinValue || 'VIN' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-      mileage: parseInt(mileage) || 15000,
+      vin: vinValue,
+      mileage: Number.isFinite(parseInt(mileage, 10)) ? parseInt(mileage, 10) : 0,
       fuelType,
       transmission,
       color,
-      status: 'READY',
-      image: '/images/cars/white-mercedes-suv-garage-neon.jpg'
-    });
-    if (!added) return;
-    setShowAddVehicleModal(false);
+      vehicleType: vehicleType.trim(),
+      engineNumber: engineNumber.trim(),
+      status: 'READY' as const,
+      image: photoPreview,
+      imageFile: photo,
+    };
+    const { imageFile: _imageFile, ...vehicleFields } = payload;
+    setSavingVehicle(true);
+    const saved = editingVehicle
+      ? await saveCustomerVehicle(editingVehicle.id, payload)
+      : liveCustomer
+        ? await persistCustomerVehicle(payload)
+        : addVehicle({
+            ...vehicleFields,
+            vin: vinValue || 'VIN' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+          });
+    setSavingVehicle(false);
+    if (!saved) return;
+    if (selectedVehicleDetails?.id === saved.id) setSelectedVehicleDetails(saved);
+    closeVehicleForm();
+  };
 
-    // Reset fields
+  const closeVehicleForm = () => {
+    setShowAddVehicleModal(false);
+    setEditingVehicle(null);
+    setBrand('');
     setModel('');
+    setYear('');
     setLicensePlate('');
     setVin('');
+    setMileage('');
+    setColor('');
+    setVehicleType('');
+    setEngineNumber('');
+    setFuelType('Gasoline');
+    setTransmission('Automatic');
+    clearPhoto();
+  };
+
+  const openEditVehicle = (vehicle: Vehicle) => {
+    clearPhoto();
+    setEditingVehicle(vehicle);
+    setBrand(vehicleMake(vehicle.brand) || vehicle.brand);
+    setModel(vehicle.model);
+    setYear(String(vehicle.year || ''));
+    setLicensePlate(vehicle.licensePlate);
+    setVin(vehicle.vin || '');
+    setMileage(String(vehicle.mileage || 0));
+    setColor(vehicle.color || '');
+    setVehicleType(vehicle.vehicleType || '');
+    setEngineNumber(vehicle.engineNumber || '');
+    setFuelType(vehicle.fuelType || 'Gasoline');
+    setTransmission(vehicle.transmission || 'Automatic');
+    setShowAddVehicleModal(true);
+  };
+
+  const askRemoveVehicle = (vehicle: Vehicle) => {
+    showConfirmDialog({
+      title: 'Remove vehicle',
+      message: `Remove ${vehicleLabel(vehicle.brand, vehicle.model)} (${vehicle.licensePlate}) from your garage?`,
+      confirmText: 'Remove',
+      variant: 'danger',
+      onConfirm: () => {
+        void removeCustomerVehicle(vehicle.id).then((removed) => {
+          if (removed && selectedVehicleDetails?.id === vehicle.id) setSelectedVehicleDetails(null);
+        });
+      }
+    });
+  };
+
+  const clearPhoto = () => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhoto(null);
+    setPhotoPreview('');
+  };
+
+  const choosePhoto = (file?: File) => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    if (!file) {
+      setPhoto(null);
+      setPhotoPreview('');
+      return;
+    }
+    setPhoto(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  };
+
+  const replaceVehiclePhoto = async (vehicle: Vehicle, file?: File) => {
+    if (!file) return;
+    if (!liveCustomer) {
+      addToast({ type: 'error', title: 'Sign in required', message: 'Sign in to save a vehicle photo.' });
+      return;
+    }
+    setPhotoBusyId(vehicle.id);
+    const updated = await updateCustomerVehiclePhoto(vehicle.id, file);
+    setPhotoBusyId('');
+    if (updated && selectedVehicleDetails?.id === updated.id) setSelectedVehicleDetails(updated);
   };
 
   return (
@@ -112,7 +236,10 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
         </div>
 
         <button
-          onClick={() => setShowAddVehicleModal(true)}
+          onClick={() => {
+            setEditingVehicle(null);
+            setShowAddVehicleModal(true);
+          }}
           className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition-all flex items-center gap-2 self-start sm:self-auto cursor-pointer"
         >
           <Plus className="w-4 h-4" />
@@ -129,9 +256,12 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
           );
           const activeWO = vehicleWorkOrders.find(
             (wo) =>
+              wo.status === 'PENDING' ||
               wo.status === 'IN_PROGRESS' ||
               wo.status === 'ASSIGNED' ||
               wo.status === 'WAITING_APPROVAL' ||
+              wo.status === 'WAITING_PARTS' ||
+              wo.status === 'QUALITY_CHECK' ||
               wo.status === 'READY_FOR_PICKUP'
           );
 
@@ -141,33 +271,42 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
               className="bg-slate-900 rounded-3xl border border-slate-800/90 overflow-hidden hover:border-slate-700 transition-all flex flex-col justify-between"
             >
               <div>
-                {/* Vehicle Header / Image Banner */}
                 <div className="relative h-48 sm:h-56 bg-slate-950 overflow-hidden">
-                  <img
-                    src={
-                      vehicle.imageUrl ||
-                      vehicle.image ||
-                      '/images/cars/black-mercedes-amg-gt-harbor.jpg'
-                    }
-                    alt={`${vehicle.brand} ${vehicle.model}`}
-                    className="w-full h-full object-cover opacity-85 hover:scale-105 transition-transform duration-500"
-                  />
+                  {vehicle.imageUrl || vehicle.image ? (
+                    <img
+                      src={vehicle.imageUrl || vehicle.image}
+                      alt={`${vehicleMake(vehicle.brand)} ${vehicle.model}`.trim()}
+                      className="w-full h-full object-cover opacity-85 hover:scale-105 transition-transform duration-500"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-950" />
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-black/40" />
 
-                  {/* Badges */}
                   <div className="absolute top-4 left-4 flex gap-2">
                     <span className="px-2.5 py-1 rounded-lg text-xs font-black tracking-wider uppercase bg-blue-600/90 text-white shadow-md">
-                      {vehicle.brand}
+                      {vehicleMake(vehicle.brand) || vehicle.model}
                     </span>
                     <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-900/80 backdrop-blur-xs text-slate-200 border border-slate-700">
                       {vehicle.year}
                     </span>
                   </div>
 
-                  <div className="absolute top-4 right-4">
-                    <span className="px-3 py-1 rounded-lg text-xs font-mono font-bold bg-slate-950/90 text-amber-400 border border-amber-500/30">
-                      Plate: {vehicle.licensePlate}
-                    </span>
+                  <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedVehicleDetails(vehicle)}
+                      className="px-3 py-1 rounded-lg text-xs font-bold bg-slate-950/90 text-white border border-slate-700 cursor-pointer"
+                    >
+                      View Details
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openEditVehicle(vehicle)}
+                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-950/90 text-white border border-slate-700 cursor-pointer"
+                    >
+                      Edit
+                    </button>
                   </div>
 
                   {activeWO && (
@@ -175,7 +314,11 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                         <span className="text-white font-bold">
-                          {activeWO.status === 'READY_FOR_PICKUP' ? 'Ready for pickup' : 'Active in workshop'}
+                          {activeWO.status === 'READY_FOR_PICKUP'
+                            ? 'Ready for pickup'
+                            : activeWO.status === 'PENDING'
+                              ? 'Waiting · 0%'
+                              : 'Active in workshop'}
                         </span>
                       </div>
                       <button
@@ -189,14 +332,18 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                   )}
                 </div>
 
-                {/* Body Details */}
                 <div className="p-6 space-y-4">
-                  <div className="flex justify-between items-baseline">
-                    <h3 className="text-xl font-bold text-white tracking-tight">
-                      {vehicle.brand} {vehicle.model}
-                    </h3>
-                    <span className="text-xs text-slate-400 font-mono">
-                      VIN: {vehicle.vin || 'JT2BF22K1W001928'}
+                  <div className="flex justify-between items-start gap-3">
+                    <div>
+                      <h3 className="text-xl font-bold text-white tracking-tight">
+                        {vehicleLabel(vehicle.brand, vehicle.model)}
+                      </h3>
+                      <span className="mt-2 inline-flex px-3 py-1 rounded-lg text-xs font-mono font-bold bg-slate-950 text-amber-400 border border-amber-500/30">
+                        Plate: {vehicle.licensePlate}
+                      </span>
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono shrink-0">
+                      VIN: {vehicle.vin || 'Not recorded'}
                     </span>
                   </div>
 
@@ -250,38 +397,38 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
               </div>
 
               {/* Action Buttons */}
-              <div className="p-6 pt-0 flex flex-wrap gap-2.5">
+              <div className="p-6 pt-0 grid grid-cols-4 gap-2.5">
                 <button
                   onClick={() => setSelectedVehicleDetails(vehicle)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="h-10 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold transition-all border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                 >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>View Details</span>
-                </button>
-
-                <button
-                  onClick={() => setSelectedVehicleDetails(vehicle)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <History className="w-3.5 h-3.5 text-blue-400" />
+                  <History className="w-3.5 h-3.5 shrink-0 text-blue-400" />
                   <span>Service History</span>
                 </button>
 
                 {onBrowseParts && (
                   <button
                     onClick={onBrowseParts}
-                    className="py-2.5 px-3 rounded-xl bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 text-xs font-bold transition-all border border-blue-500/30 flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="h-10 px-2 rounded-xl bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 text-[11px] font-bold transition-all border border-blue-500/30 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                   >
-                    <Package className="w-3.5 h-3.5" />
+                    <Package className="w-3.5 h-3.5 shrink-0" />
                     <span>Parts</span>
                   </button>
                 )}
 
                 <button
-                  onClick={() => onBookServiceForVehicle(vehicle.id)}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  onClick={() => askRemoveVehicle(vehicle)}
+                  className="h-10 px-2 rounded-xl bg-rose-600/10 hover:bg-rose-600/20 text-rose-300 text-[11px] font-bold transition-all border border-rose-500/30 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                 >
-                  <Calendar className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>Remove</span>
+                </button>
+
+                <button
+                  onClick={() => onBookServiceForVehicle(vehicle.id)}
+                  className="h-10 px-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold shadow-md shadow-blue-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                >
+                  <Calendar className="w-3.5 h-3.5 shrink-0" />
                   <span>Book Service</span>
                 </button>
               </div>
@@ -292,15 +439,15 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
 
       {/* MODAL 1: ADD NEW VEHICLE */}
       {showAddVehicleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Car className="w-5 h-5 text-blue-500" />
-                <h3 className="text-lg font-bold text-white">Register New Vehicle</h3>
+                <h3 className="text-lg font-bold text-white">{editingVehicle ? 'Edit Vehicle' : 'Register New Vehicle'}</h3>
               </div>
               <button
-                onClick={() => setShowAddVehicleModal(false)}
+                onClick={closeVehicleForm}
                 className="p-1.5 text-slate-400 hover:text-white rounded-full bg-slate-800"
               >
                 <X className="w-4 h-4" />
@@ -311,22 +458,20 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Make / Brand</label>
-                  <select
+                  <input
+                    type="text"
+                    required
+                    list="vehicle-makes"
                     value={brand}
                     onChange={(e) => setBrand(e.target.value)}
+                    placeholder="e.g. Toyota"
                     className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
-                  >
-                    <option value="Toyota">Toyota</option>
-                    <option value="Lexus">Lexus</option>
-                    <option value="Honda">Honda</option>
-                    <option value="Ford">Ford</option>
-                    <option value="Hyundai">Hyundai</option>
-                    <option value="Mazda">Mazda</option>
-                    <option value="Mercedes-Benz">Mercedes-Benz</option>
-                    <option value="BMW">BMW</option>
-                    <option value="Audi">Audi</option>
-                    <option value="Kia">Kia</option>
-                  </select>
+                  />
+                  <datalist id="vehicle-makes">
+                    {['Toyota', 'Honda', 'Ford', 'Hyundai', 'Mazda', 'Kia', 'BMW', 'Audi', 'Lexus', 'Nissan', 'Mitsubishi', 'Suzuki'].map((make) => (
+                      <option key={make} value={make} />
+                    ))}
+                  </datalist>
                 </div>
 
                 <div>
@@ -427,19 +572,66 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Vehicle type</label>
+                  <input
+                    type="text"
+                    list="vehicle-types"
+                    value={vehicleType}
+                    onChange={(e) => setVehicleType(e.target.value)}
+                    placeholder="Sedan, SUV, Pickup"
+                    className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                  />
+                  <datalist id="vehicle-types">
+                    {['Sedan', 'SUV', 'Pickup', 'Hatchback', 'Coupe', 'Van'].map((type) => (
+                      <option key={type} value={type} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Engine number</label>
+                  <input
+                    type="text"
+                    value={engineNumber}
+                    onChange={(e) => setEngineNumber(e.target.value)}
+                    className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Vehicle photo</label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={(event) => choosePhoto(event.target.files?.[0])}
+                  className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
+                />
+                <p className="mt-1 text-[10px] text-slate-500">JPG, PNG, WEBP, or GIF. 5 MB maximum.</p>
+                {photoPreview || (editingVehicle && (editingVehicle.imageUrl || editingVehicle.image)) ? (
+                  <img
+                    src={photoPreview || editingVehicle?.imageUrl || editingVehicle?.image}
+                    alt="Selected vehicle"
+                    className="mt-2 h-28 w-full rounded-xl object-cover"
+                  />
+                ) : null}
+              </div>
+
               <div className="pt-3 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddVehicleModal(false)}
+                  onClick={closeVehicleForm}
                   className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg"
+                  disabled={savingVehicle}
+                  className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg disabled:opacity-60"
                 >
-                  Save Vehicle
+                  {savingVehicle ? 'Saving...' : editingVehicle ? 'Save changes' : 'Save Vehicle'}
                 </button>
               </div>
             </form>
@@ -456,7 +648,7 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                 <Car className="w-5 h-5 text-blue-500" />
                 <div>
                   <h3 className="text-lg font-bold text-white">
-                    {selectedVehicleDetails.brand} {selectedVehicleDetails.model} ({selectedVehicleDetails.year})
+                    {vehicleLabel(selectedVehicleDetails.brand, selectedVehicleDetails.model)} ({selectedVehicleDetails.year})
                   </h3>
                   <p className="text-xs text-slate-400 font-mono">
                     Plate: {selectedVehicleDetails.licensePlate} • VIN: {selectedVehicleDetails.vin || 'N/A'}
@@ -472,6 +664,30 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
             </div>
 
             <div className="p-6 overflow-y-auto space-y-6">
+              <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-950">
+                {selectedVehicleDetails.imageUrl || selectedVehicleDetails.image ? (
+                  <img
+                    src={selectedVehicleDetails.imageUrl || selectedVehicleDetails.image}
+                    alt={vehicleLabel(selectedVehicleDetails.brand, selectedVehicleDetails.model)}
+                    className="h-48 w-full object-cover"
+                  />
+                ) : (
+                  <div className="h-32 w-full bg-gradient-to-br from-slate-800 to-slate-950" />
+                )}
+                <label className="flex items-center justify-between gap-3 px-4 py-3 text-xs text-slate-300 cursor-pointer">
+                  <span>{photoBusyId === selectedVehicleDetails.id ? 'Saving photo...' : 'Upload or replace this vehicle photo'}</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="text-[10px] text-slate-400 file:mr-2 file:rounded-lg file:border-0 file:bg-blue-600 file:px-2 file:py-1 file:text-[10px] file:font-semibold file:text-white"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = '';
+                      void replaceVehiclePhoto(selectedVehicleDetails, file);
+                    }}
+                  />
+                </label>
+              </div>
               {/* Detailed Specs Block */}
               <div>
                 <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wide mb-3">
@@ -527,10 +743,24 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                               <span className="font-bold text-white text-sm">{h.serviceType}</span>
                               <span className="text-slate-300 font-mono font-bold text-xs">${h.totalCost.toFixed(2)}</span>
                             </div>
-                            <div className="text-xs text-slate-400">
-                              Technician: {h.mechanicName} · Status:{' '}
-                              <span className={h.status === 'COMPLETED' ? 'text-emerald-400 font-semibold' : 'text-blue-400 font-semibold'}>
-                                {h.status === 'COMPLETED' ? 'Completed' : 'In Progress'}
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-300">
+                              <span className="inline-flex items-center gap-2">
+                                {h.inspectorPhoto ? (
+                                  <img src={h.inspectorPhoto} alt="" className="w-7 h-7 rounded-full object-cover" />
+                                ) : null}
+                                Inspected by {h.inspectorName || 'Not recorded'}
+                              </span>
+                              <span className="inline-flex items-center gap-2">
+                                {h.mechanicPhoto ? (
+                                  <img src={h.mechanicPhoto} alt="" className="w-7 h-7 rounded-full object-cover" />
+                                ) : null}
+                                Repaired by {h.mechanicName || 'Not assigned'}
+                              </span>
+                              <span>
+                                Status:{' '}
+                                <span className={h.status === 'COMPLETED' ? 'text-emerald-400 font-semibold' : 'text-blue-400 font-semibold'}>
+                                  {h.status === 'COMPLETED' ? 'Completed' : 'In Progress'}
+                                </span>
                               </span>
                             </div>
                             <div className="text-[11px] text-slate-500 font-mono">
@@ -554,13 +784,27 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
               </div>
             </div>
 
-            <div className="p-6 pt-3 border-t border-slate-800 flex justify-end">
+            <div className="p-6 pt-3 border-t border-slate-800 flex justify-between gap-3">
               <button
-                onClick={() => setSelectedVehicleDetails(null)}
-                className="px-5 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold"
+                onClick={() => askRemoveVehicle(selectedVehicleDetails)}
+                className="px-4 py-2 rounded-xl bg-rose-600/10 text-rose-300 text-xs font-bold border border-rose-500/30"
               >
-                Close
+                Remove
               </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => openEditVehicle(selectedVehicleDetails)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => setSelectedVehicleDetails(null)}
+                  className="px-5 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

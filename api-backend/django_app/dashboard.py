@@ -9,6 +9,7 @@ from django_app.models import (
     Invoice,
     Mechanic,
     Payment,
+    PartRequest,
     RepairJob,
     SparePart,
     Vehicle,
@@ -47,7 +48,6 @@ JOB_BADGE = {
     RepairJob.Status.DIAGNOSING: ("progress", "IN PROGRESS"),
     RepairJob.Status.WAITING_APPROVAL: ("assigned", "ASSIGNED"),
     RepairJob.Status.REPAIRING: ("progress", "IN PROGRESS"),
-    RepairJob.Status.WAITING_PARTS: ("assigned", "WAITING PARTS"),
     RepairJob.Status.QUALITY_CHECK: ("progress", "QUALITY CHECK"),
     RepairJob.Status.READY_FOR_PICKUP: ("assigned", "READY FOR PICKUP"),
     RepairJob.Status.COMPLETED: ("done", "COMPLETED"),
@@ -58,7 +58,6 @@ ACTIVE_JOBS = [
     RepairJob.Status.DIAGNOSING,
     RepairJob.Status.WAITING_APPROVAL,
     RepairJob.Status.REPAIRING,
-    RepairJob.Status.WAITING_PARTS,
     RepairJob.Status.QUALITY_CHECK,
     RepairJob.Status.READY_FOR_PICKUP,
 ]
@@ -90,6 +89,11 @@ def badge_low_stock(request):
     return f"{count} alert" if count else None
 
 
+def badge_part_requests(request):
+    count = PartRequest.objects.filter(status=PartRequest.Status.PENDING).count()
+    return count or None
+
+
 def badge_unpaid_invoices(request):
     count = Invoice.objects.filter(
         status__in=(Invoice.Status.UNPAID, Invoice.Status.PARTIAL, Invoice.Status.DRAFT)
@@ -114,7 +118,7 @@ def dashboard_callback(request, context):
         badge_class, badge_label = JOB_BADGE.get(job.status, ("pending", job.get_status_display()))
         live_jobs.append(
             {
-                "number": f"JOB-{job.id:04d}",
+                "number": f"WO-{job.id:04d}",
                 "vehicle": f"{job.vehicle.brand} {job.vehicle.model} ({job.vehicle.year})",
                 "plate": job.vehicle.plate,
                 "service": (job.booking.service.name if job.booking_id else job.problem) or job.problem,

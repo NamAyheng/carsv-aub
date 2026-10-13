@@ -16,7 +16,7 @@
                 <h1>Repair Work Orders</h1>
                 <span class="cc-count">{{ order_count }} Orders</span>
             </div>
-            <p>Repair jobs for the workshop. Mechanic task cards live on the Task board.</p>
+            <p>Repair jobs for the workshop. Assign a technician first, then advance the visit.</p>
         </div>
         <div class="cc-hero-actions">
             <a class="cc-btn-ghost" href="?export=csv{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}">
@@ -44,9 +44,10 @@
             {% endif %}
             <select name="status" onchange="this.form.submit()">
                 <option value="">All Statuses</option>
-                <option value="WAITING" {% if status_filter == "WAITING" %}selected{% endif %}>Pending</option>
-                <option value="WAITING_APPROVAL" {% if status_filter == "WAITING_APPROVAL" %}selected{% endif %}>Assigned</option>
-                <option value="REPAIRING" {% if status_filter == "REPAIRING" %}selected{% endif %}>In progress</option>
+                <option value="WAITING" {% if status_filter == "WAITING" %}selected{% endif %}>Waiting</option>
+                <option value="DIAGNOSING" {% if status_filter == "DIAGNOSING" %}selected{% endif %}>Inspection</option>
+                <option value="WAITING_APPROVAL" {% if status_filter == "WAITING_APPROVAL" %}selected{% endif %}>Waiting for approval</option>
+                <option value="REPAIRING" {% if status_filter == "REPAIRING" %}selected{% endif %}>Repairing</option>
                 <option value="QUALITY_CHECK" {% if status_filter == "QUALITY_CHECK" %}selected{% endif %}>Quality check</option>
                 <option value="READY_FOR_PICKUP" {% if status_filter == "READY_FOR_PICKUP" %}selected{% endif %}>Ready for pickup</option>
                 <option value="COMPLETED" {% if status_filter == "COMPLETED" %}selected{% endif %}>Completed</option>
@@ -55,12 +56,10 @@
     </section>
 
     <section class="cc-table-card">
-        <table class="cc-table">
+        <table class="cc-table wo-table">
             <thead>
                 <tr>
                     <th>WO Number</th>
-                    <th>Customer</th>
-                    <th>Vehicle</th>
                     <th>Technician &amp; Bay</th>
                     <th>Status</th>
                     <th>Est. Cost</th>
@@ -70,34 +69,66 @@
             <tbody>
                 {% for row in workorder_rows %}
                     <tr>
-                        <td>
+                        <td class="wo-col-id">
                             <a class="wo-num" href="{{ row.view_url }}">#{{ row.number }}</a>
-                            <div class="cc-id">{% if row.created %}{{ row.created|date:"Y-m-d H:i" }}{% endif %}</div>
+                            <div class="cc-id">{{ row.when }}</div>
+                            {% if row.problem %}
+                                <div class="wo-scroll" title="{{ row.problem }}">
+                                    <span class="wo-scroll-text">{{ row.problem }}</span>
+                                </div>
+                            {% endif %}
                         </td>
-                        <td>
-                            <div class="cc-name">{{ row.customer }}</div>
-                            <div class="cc-id">{{ row.problem }}</div>
+                        <td class="wo-col-tech">
+                            {% if row.needs_tech %}
+                                <form method="get" class="wo-assign">
+                                    {% if status_filter and status_filter != "ALL" %}
+                                        <input type="hidden" name="status" value="{{ status_filter }}">
+                                    {% endif %}
+                                    {% if search_query %}
+                                        <input type="hidden" name="q" value="{{ search_query }}">
+                                    {% endif %}
+                                    <input type="hidden" name="action" value="assign">
+                                    <input type="hidden" name="pk" value="{{ row.id }}">
+                                    <select name="mechanic" class="wo-assign-select" required onchange="this.form.submit()">
+                                        <option value="">Assign technician…</option>
+                                        {% for tech in technician_choices %}
+                                            <option value="{{ tech.id }}">{{ tech.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </form>
+                            {% else %}
+                                <div>{{ row.tech }}</div>
+                            {% endif %}
+                            <div class="wo-scroll wo-scroll-bay" title="{{ row.service }}">
+                                <span class="wo-scroll-text wo-bay">{{ row.service }}</span>
+                            </div>
                         </td>
-                        <td>
-                            <div class="cc-name">{{ row.vehicle }}</div>
-                            <span class="cc-plate">{{ row.plate }}</span>
+                        <td class="wo-col-status">
+                            <span class="cc-status {{ row.status_class }}">{{ row.status_label }}</span>
+                            <div class="wo-meter" title="{{ row.progress }}%">
+                                <span style="width: {{ row.progress }}%"></span>
+                            </div>
+                            <div class="wo-meter-label">{{ row.progress }}%</div>
                         </td>
-                        <td>
-                            <div>{{ row.tech }}</div>
-                            <div class="wo-bay">{{ row.bay }}</div>
-                        </td>
-                        <td><span class="cc-status {{ row.status_class }}">{{ row.status_label }}</span></td>
-                        <td class="cc-spent">{% if row.cost %}${{ row.cost|floatformat:0 }}{% else %}—{% endif %}</td>
-                        <td class="cc-right">
-                            <a class="wo-open" href="{{ row.view_url }}">Open Workspace <span class="material-symbols-outlined">chevron_right</span></a>
-                            <span class="cc-actions">
-                                {% include "admin/django_app/_delete_icon.html" with delete_url=row.delete_url can_delete=row.can_delete delete_warn=row.delete_warn %}
-                            </span>
+                        <td class="cc-spent wo-col-cost">{% if row.cost is not None %}${{ row.cost|floatformat:2 }}{% else %}—{% endif %}</td>
+                        <td class="cc-right wo-col-actions">
+                            <div class="wo-actions">
+                                {% if row.next_label %}
+                                    <a class="ap-btn tone-{{ row.next_class }}" href="?action=advance&amp;pk={{ row.id }}{% if status_filter and status_filter != 'ALL' %}&amp;status={{ status_filter }}{% endif %}{% if search_query %}&amp;q={{ search_query|urlencode }}{% endif %}">{{ row.next_label }}</a>
+                                {% elif row.inspection_note %}
+                                    <span class="wo-scroll wo-scroll-note" title="{{ row.inspection_note }}">
+                                        <span class="wo-scroll-text wo-note">{{ row.inspection_note }}</span>
+                                    </span>
+                                {% endif %}
+                                <span class="cc-actions">
+                                    {% include "admin/django_app/_delete_icon.html" with delete_url=row.delete_url can_delete=row.can_delete delete_warn=row.delete_warn %}
+                                </span>
+                            </div>
                         </td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="7" class="cc-empty">No work orders match this search.</td>
+                        <td colspan="5" class="cc-empty">No work orders match this search.</td>
                     </tr>
                 {% endfor %}
             </tbody>

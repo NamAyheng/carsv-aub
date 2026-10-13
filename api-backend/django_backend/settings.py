@@ -2,6 +2,9 @@
 Django settings for django_backend project.
 """
 
+import os
+import sys
+from datetime import timedelta
 from pathlib import Path
 
 from django.urls import reverse_lazy
@@ -9,7 +12,24 @@ from django.utils.translation import gettext_lazy as _
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = "django-insecure-gpswhb7*&4g*nu#3x4c9psdv$0gql+z)^1^gfsnuil9_9(mhxk"
+
+def _load_dotenv(path):
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv(BASE_DIR / ".env")
+
+SECRET_KEY = os.environ.get(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-gpswhb7*&4g*nu#3x4c9psdv$0gql+z)^1^gfsnuil9_9(mhxk",
+)
 DEBUG = True
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
@@ -23,11 +43,14 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.forms",
     "rest_framework",
+    "rest_framework.authtoken",
+    "rest_framework_simplejwt.token_blacklist",
     "django_app",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "django_backend.middleware.LocalhostCorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -81,11 +104,43 @@ USE_TZ = True
 STATIC_URL = "static/"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+# Django serves this folder while DEBUG is on. In production, serve MEDIA_ROOT at MEDIA_URL.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024
+
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "")
+
+_TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
+REFRESH_COOKIE_NAME = "carsv_refresh"
+REFRESH_COOKIE_PATH = "/api/auth/"
+REFRESH_COOKIE_SECURE = os.environ.get("DJANGO_COOKIE_SECURE", "0") == "1"
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+]
 
 REST_FRAMEWORK = {
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "django_app.permissions.IsGarageAdmin",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "auth": "10000/min" if _TESTING else "10/min",
+        "auth_user": "10000/min" if _TESTING else "30/min",
+    },
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 UNFOLD = {
@@ -134,6 +189,7 @@ UNFOLD = {
                     },
                     {"title": _("Service catalog"), "icon": "build", "link": reverse_lazy("admin:django_app_service_changelist")},
                     {"title": _("Service categories"), "icon": "category", "link": reverse_lazy("admin:django_app_servicecategory_changelist")},
+                    {"title": _("Blog"), "icon": "newspaper", "link": reverse_lazy("admin:django_app_blogpost_changelist")},
                 ],
             },
             {
@@ -163,6 +219,13 @@ UNFOLD = {
                     },
                     {"title": _("Part categories"), "icon": "category", "link": reverse_lazy("admin:django_app_sparepartcategory_changelist")},
                     {"title": _("Parts usage"), "icon": "playlist_add", "link": reverse_lazy("admin:django_app_partsusage_changelist")},
+                    {
+                        "title": _("Part requests"),
+                        "icon": "shopping_bag",
+                        "link": reverse_lazy("admin:django_app_partrequest_changelist"),
+                        "badge": "django_app.dashboard.badge_part_requests",
+                        "badge_variant": "warning",
+                    },
                     {"title": _("Invoices"), "icon": "receipt_long", "link": reverse_lazy("admin:django_app_invoice_changelist"), "badge": "django_app.dashboard.badge_unpaid_invoices", "badge_variant": "warning"},
                     {"title": _("Payments"), "icon": "payments", "link": reverse_lazy("admin:django_app_payment_changelist")},
                 ],

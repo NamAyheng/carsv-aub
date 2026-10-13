@@ -152,44 +152,44 @@
                         </section>
 
                         <section class="iv-section">
-                            <h3>2. Parts used on this job</h3>
-                            <div class="iv-table-wrap">
-                                <table class="iv-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Part / SKU</th>
-                                            <th>When</th>
-                                            <th class="qty">Qty</th>
-                                            <th class="num">Unit</th>
-                                            <th class="num">Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for row in sheet.part_rows %}
+                            {% if sheet.part_rows %}
+                                <h3>2. Parts used on this job</h3>
+                                <div class="iv-table-wrap">
+                                    <table class="iv-table">
+                                        <thead>
                                             <tr>
-                                                <td>
-                                                    <div class="strong">{{ row.name }}</div>
-                                                    {% if row.sku %}<div class="iv-sku">{{ row.sku }}</div>{% endif %}
-                                                </td>
-                                                <td>
-                                                    {% if row.extra %}
-                                                        <span class="iv-when-extra">Added after booking</span>
-                                                    {% else %}
-                                                        <span class="iv-when">On original job</span>
-                                                    {% endif %}
-                                                </td>
-                                                <td class="qty mono">{{ row.qty }}</td>
-                                                <td class="num mono">{{ row.unit }}</td>
-                                                <td class="num mono strong">{{ row.total }}</td>
+                                                <th>Part / SKU</th>
+                                                <th>When</th>
+                                                <th class="qty">Qty</th>
+                                                <th class="num">Unit</th>
+                                                <th class="num">Total</th>
                                             </tr>
-                                        {% empty %}
-                                            <tr>
-                                                <td colspan="5" class="iv-empty">No parts recorded on this job.</td>
-                                            </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
+                                        </thead>
+                                        <tbody>
+                                            {% for row in sheet.part_rows %}
+                                                <tr>
+                                                    <td>
+                                                        <div class="strong">{{ row.name }}</div>
+                                                        {% if row.sku %}<div class="iv-sku">{{ row.sku }}</div>{% endif %}
+                                                    </td>
+                                                    <td>
+                                                        {% if row.extra %}
+                                                            <span class="iv-when-extra">{% if row.when == "Requested" %}Requested on quote{% else %}Added after booking{% endif %}</span>
+                                                        {% else %}
+                                                            <span class="iv-when">On original job</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td class="qty mono">{{ row.qty }}</td>
+                                                    <td class="num mono">{{ row.unit }}</td>
+                                                    <td class="num mono strong">{{ row.total }}</td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            {% else %}
+                                <h3>2. Parts used on this job <span class="mono">$0.00</span></h3>
+                            {% endif %}
                         </section>
 
                         <div class="iv-totals">

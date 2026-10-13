@@ -28,7 +28,7 @@ python manage.py runserver
 - `startproject django_backend .` — project settings live in this folder (the `.` means current directory)
 - `startapp django_app` — app for models, views, admin
 - Superuser: `administrator` / `Admin123!@#` (`admin@carsv.com`)
-- Customer user: `Ayheng` / `AyhengCarSV!23` (`ayheng@carsv.com`)
+- Customer user: `Ayheng` / `Ayheng123!@#` (`namayheng12345@gmail.com`)
 - Admin: http://127.0.0.1:8000/admin/
 - API root (DRF): http://127.0.0.1:8000/api/
 - If port 8000 is busy: `python manage.py runserver 8001` then use http://127.0.0.1:8001/

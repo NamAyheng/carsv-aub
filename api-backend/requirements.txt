@@ -2,6 +2,8 @@ Pillow>=10.0.0
 asgiref==3.12.1
 Django==6.1.1
 djangorestframework==3.18.1
+djangorestframework-simplejwt==5.5.1
+google-auth==2.49.1
 django-unfold==0.107.0
 sqlparse==0.6.0
 tzdata==2026.4

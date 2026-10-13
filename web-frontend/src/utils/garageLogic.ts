@@ -27,6 +27,16 @@ export function nextOilChangeMileage(currentMileage: number, intervalKm = 5000) 
   return currentMileage + intervalKm;
 }
 
+const VEHICLE_PLATE = /^2[A-Z]{1,2}-\d{4}$/;
+
+export function normalizeVehiclePlate(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, '');
+}
+
+export function isValidVehiclePlate(value: string) {
+  return VEHICLE_PLATE.test(normalizeVehiclePlate(value));
+}
+
 export function findDuplicateVehicle(
   vehicles: Vehicle[],
   plate: string,

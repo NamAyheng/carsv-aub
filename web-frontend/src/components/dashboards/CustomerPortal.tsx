@@ -3,10 +3,7 @@ import { CustomerPortalApp } from '../customer/CustomerPortalApp';
 import { CustomerPublicLanding } from '../customer/CustomerPublicLanding';
 import { CustomerPublicBlog } from '../customer/CustomerPublicBlog';
 import { CustomerBookAppointmentModal } from '../customer/CustomerBookAppointmentModal';
-import { useApp } from '../../context/AppContext';
-
 export const CustomerPortal: React.FC = () => {
-  const { switchRole } = useApp();
   const [viewMode, setViewMode] = useState<'DASHBOARD' | 'PUBLIC_SITE' | 'BLOG'>('DASHBOARD');
   const [bookingOpen, setBookingOpen] = useState(false);
   const [preselectedService, setPreselectedService] = useState<string | undefined>(undefined);
@@ -23,7 +20,6 @@ export const CustomerPortal: React.FC = () => {
           onBackHome={() => setViewMode('PUBLIC_SITE')}
           onOpenCustomerPortal={() => setViewMode('DASHBOARD')}
           onOpenBooking={() => openBooking()}
-          onOpenStaffLogin={() => switchRole('ADMIN')}
           onOpenBlog={() => setViewMode('BLOG')}
         />
         <CustomerBookAppointmentModal
@@ -46,7 +42,6 @@ export const CustomerPortal: React.FC = () => {
           onOpenCustomerPortal={() => setViewMode('DASHBOARD')}
           onEnterCustomerPortal={() => setViewMode('DASHBOARD')}
           onOpenBooking={openBooking}
-          onOpenStaffLogin={() => switchRole('ADMIN')}
           onOpenBlog={() => setViewMode('BLOG')}
         />
         <CustomerBookAppointmentModal
@@ -65,7 +60,6 @@ export const CustomerPortal: React.FC = () => {
   return (
     <CustomerPortalApp
       onBackToPublicSite={() => setViewMode('PUBLIC_SITE')}
-      onSwitchToStaffERP={() => switchRole('ADMIN')}
     />
   );
 };

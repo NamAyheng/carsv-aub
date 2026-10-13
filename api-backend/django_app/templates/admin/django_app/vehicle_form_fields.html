@@ -25,6 +25,7 @@
     <div class="cf-field">
         <label for="{{ adminform.form.plate.id_for_label }}">License plate *</label>
         {{ adminform.form.plate }}
+        <p class="cf-help">2, then 1 or 2 letters, a hyphen, and 4 digits. Example: 2BD-9988 or 2A-1234.</p>
         {{ adminform.form.plate.errors }}
     </div>
     <div class="cf-field">
@@ -79,3 +80,25 @@
     {{ adminform.form.notes }}
     {{ adminform.form.notes.errors }}
 </div>
+<div class="cf-field">
+    <label for="{{ adminform.form.image.id_for_label }}">Vehicle photo</label>
+    {{ adminform.form.image }}
+    {% if adminform.form.instance.image %}
+        <img src="{{ adminform.form.instance.image.url }}" alt="" class="cf-image-preview">
+    {% else %}
+        <img alt="" class="cf-image-preview" hidden>
+    {% endif %}
+    <p class="cf-help">JPG, PNG, WEBP, or GIF. 5 MB maximum. Clear the checkbox to remove the current photo.</p>
+    {{ adminform.form.image.errors }}
+</div>
+<script>
+    document.querySelectorAll(".cf-modal input[type=file]").forEach(function (input) {
+        input.addEventListener("change", function () {
+            var frame = input.parentElement.querySelector(".cf-image-preview");
+            var file = input.files && input.files[0];
+            if (!frame || !file) return;
+            frame.hidden = false;
+            frame.src = URL.createObjectURL(file);
+        });
+    });
+</script>

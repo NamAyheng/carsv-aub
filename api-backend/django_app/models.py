@@ -1,8 +1,15 @@
+from decimal import Decimal
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
-from django.db import models
+from django.core.exceptions import ValidationError
+from django.db import models, transaction
+from django.db.models import F, Q, Sum
+from django.utils import timezone
 from django.db.models.deletion import ProtectedError
 from django.db.utils import OperationalError, ProgrammingError
+
+from .uploads import validate_uploaded_image
 
 
 DEFAULT_ROLES = (
@@ -118,8 +125,11 @@ class User(AbstractUser):
         ACTIVE = "ACTIVE", "Active"
         INACTIVE = "INACTIVE", "Inactive"
 
+    email = models.EmailField("email address", unique=True)
+    email_verified = models.BooleanField(default=False)
+    email_is_placeholder = models.BooleanField(default=False)
     phone = models.CharField(max_length=40, blank=True)
-    photo = models.ImageField(upload_to="users/%Y/%m/", blank=True)
+    photo = models.ImageField(upload_to="users/%Y/%m/", blank=True, validators=[validate_uploaded_image])
     department = models.CharField(max_length=80, blank=True)
     position = models.CharField(max_length=80, blank=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.CUSTOMER)
@@ -132,6 +142,8 @@ class User(AbstractUser):
         previous_role = None
         if self.pk:
             previous_role = type(self).objects.filter(pk=self.pk).values_list("role", flat=True).first()
+        self.email = (self.email or "").strip()
+        self.is_active = self.status == self.Status.ACTIVE
         super().save(*args, **kwargs)
         apply_role_assignment(self, previous_role=previous_role)
         self._sync_profile_identity()
@@ -184,7 +196,7 @@ class Customer(models.Model):
     phone = models.CharField(max_length=40, blank=True)
     email = models.EmailField()
     address = models.TextField(blank=True)
-    photo = models.ImageField(upload_to="customers/%Y/%m/", blank=True)
+    photo = models.ImageField(upload_to="customers/%Y/%m/", blank=True, validators=[validate_uploaded_image])
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     notes = models.TextField(blank=True)
 
@@ -217,6 +229,12 @@ class Vehicle(models.Model):
     next_service_date = models.DateField(null=True, blank=True)
     next_service_mileage = models.PositiveIntegerField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    image = models.ImageField(
+        upload_to="vehicles/%Y/%m/",
+        blank=True,
+        validators=[validate_uploaded_image],
+        help_text="JPG, PNG, WEBP, or GIF. 5 MB maximum.",
+    )
 
     def __str__(self):
         return f"{self.plate} — {self.brand} {self.model}"
@@ -240,6 +258,12 @@ class Service(models.Model):
     price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     duration_minutes = models.PositiveIntegerField(default=60)
     status = models.CharField(max_length=20, default="ACTIVE")
+    image = models.ImageField(
+        upload_to="services/",
+        blank=True,
+        validators=[validate_uploaded_image],
+        help_text="JPG, PNG, WEBP, or GIF. 5 MB maximum.",
+    )
 
     def __str__(self):
         return self.name
@@ -249,6 +273,12 @@ class Booking(models.Model):
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
         CONFIRMED = "CONFIRMED", "Confirmed"
+        WAITING = "WAITING", "Waiting"
+        DIAGNOSING = "DIAGNOSING", "Inspection"
+        WAITING_APPROVAL = "WAITING_APPROVAL", "Waiting for approval"
+        REPAIRING = "REPAIRING", "Repairing"
+        QUALITY_CHECK = "QUALITY_CHECK", "Quality check"
+        READY_FOR_PICKUP = "READY_FOR_PICKUP", "Ready for pickup"
         CHECKED_IN = "CHECKED_IN", "Checked-in"
         IN_SERVICE = "IN_SERVICE", "In service"
         COMPLETED = "COMPLETED", "Completed"
@@ -280,6 +310,24 @@ class Booking(models.Model):
 
     def __str__(self):
         return f"{self.customer} / {self.vehicle} / {self.status}"
+
+
+class BookingService(models.Model):
+    """A service added onto a visit after the original booking."""
+
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name="added_services")
+    service = models.ForeignKey(Service, on_delete=models.PROTECT, related_name="booking_additions")
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["booking", "service"], name="unique_service_on_visit"),
+        ]
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.booking_id} · {self.service}"
 
 
 class Staff(models.Model):
@@ -323,17 +371,28 @@ class Staff(models.Model):
 
 
 class Inspection(models.Model):
-    booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name="inspection")
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        CHECK_IN = "CHECK_IN", "Check-in"
+        COMPLETED = "COMPLETED", "Completed"
+
+    class Fuel(models.TextChoices):
+        EMPTY = "0", "0%"
+        QUARTER = "25", "25%"
+        HALF = "50", "50%"
+        THREE_QUARTER = "75", "75%"
+        FULL = "100", "100%"
+
+    repair_job = models.OneToOneField("RepairJob", on_delete=models.CASCADE, related_name="inspection")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     mileage = models.PositiveIntegerField(default=0)
-    fuel_level = models.CharField(max_length=40, blank=True)
+    fuel_level = models.CharField(max_length=3, choices=Fuel.choices, blank=True)
     front_brake_mm = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
     rear_brake_mm = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
     tire_tread_mm = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
     condition = models.TextField(blank=True)
     damage = models.TextField(blank=True)
-    complaint = models.TextField(blank=True)
     note = models.TextField(blank=True)
-    photos = models.TextField(blank=True)
     checked_in_at = models.DateTimeField(auto_now_add=True)
     staff = models.ForeignKey(
         Staff,
@@ -344,7 +403,18 @@ class Inspection(models.Model):
     )
 
     def __str__(self):
-        return f"Inspection {self.booking_id}"
+        return f"Inspection for WO-{self.repair_job_id:04d}"
+
+
+class InspectionImage(models.Model):
+    inspection = models.ForeignKey(Inspection, on_delete=models.CASCADE, related_name="images")
+    image = models.ImageField(
+        upload_to="inspections/%Y/%m/",
+        validators=[validate_uploaded_image],
+    )
+
+    def __str__(self):
+        return self.image.name
 
 
 class Mechanic(models.Model):
@@ -492,6 +562,70 @@ def apply_role_assignment(user, previous_role=None):
         Mechanic.objects.filter(user=user).delete()
 
 
+def refresh_invoice_status(invoice):
+    """Set the invoice status from the payments already stored on it."""
+    if invoice is None or invoice.status == Invoice.Status.CANCELLED:
+        return
+    paid = invoice.payments.exclude(
+        status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+    if paid <= 0:
+        new_status = Invoice.Status.DRAFT if invoice.status == Invoice.Status.DRAFT else Invoice.Status.UNPAID
+    elif paid >= invoice.grand_total:
+        new_status = Invoice.Status.PAID
+    else:
+        new_status = Invoice.Status.PARTIAL
+    if invoice.status != new_status:
+        Invoice.objects.filter(pk=invoice.pk).update(status=new_status)
+        invoice.status = new_status
+
+
+def next_invoice_status(status):
+    """Issue a draft invoice. Paid / partial status comes from recorded payments."""
+    if status == Invoice.Status.DRAFT:
+        return Invoice.Status.UNPAID
+    return None
+
+
+def visit_open_part_requests(job):
+    """Part requests still on this visit that have not been issued from stock."""
+    if job is None or not getattr(job, "pk", None):
+        return PartRequest.objects.none()
+    lookup = Q(repair_job=job)
+    if job.booking_id:
+        lookup |= Q(booking_id=job.booking_id)
+    return (
+        PartRequest.objects.filter(lookup, parts_usage__isnull=True)
+        .exclude(status="CANCELLED")
+        .select_related("spare_part")
+        .distinct()
+        .order_by("id")
+    )
+
+
+def sync_invoice_costs(job):
+    """Keep the visit invoice in sync with booked services, issued parts, and open part requests."""
+    if job is None or not getattr(job, "pk", None):
+        return None
+    invoice = Invoice.objects.filter(repair_job_id=job.pk).first()
+    if invoice is None:
+        invoice = ensure_visit_invoice(job)
+        invoice = Invoice.objects.filter(repair_job_id=job.pk).first()
+    if invoice is None or invoice.status == Invoice.Status.CANCELLED:
+        return invoice
+    issued = job.parts_used.aggregate(total=Sum("total"))["total"] or Decimal("0")
+    pending = Decimal("0")
+    for request_row in visit_open_part_requests(job):
+        pending += Decimal(request_row.spare_part.unit_price or 0)
+    invoice.parts_cost = issued + pending
+    booking = job.booking if job.booking_id else None
+    if booking is not None and not (booking.note or "").startswith("Opened from"):
+        invoice.service_cost = visit_service_total(booking)
+    invoice.save()
+    refresh_invoice_status(invoice)
+    return invoice
+
+
 def ensure_default_roles():
     for item in DEFAULT_ROLES:
         if not Role.objects.filter(code=item["code"]).exists():
@@ -501,13 +635,13 @@ def ensure_default_roles():
 class RepairJob(models.Model):
     class Status(models.TextChoices):
         WAITING = "WAITING", "Waiting"
-        DIAGNOSING = "DIAGNOSING", "Diagnosing"
+        DIAGNOSING = "DIAGNOSING", "Inspection"
         WAITING_APPROVAL = "WAITING_APPROVAL", "Waiting for approval"
         REPAIRING = "REPAIRING", "Repairing"
-        WAITING_PARTS = "WAITING_PARTS", "Waiting for parts"
         QUALITY_CHECK = "QUALITY_CHECK", "Quality check"
         READY_FOR_PICKUP = "READY_FOR_PICKUP", "Ready for pickup"
         COMPLETED = "COMPLETED", "Completed"
+        CANCELLED = "CANCELLED", "Cancelled"
 
     booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name="repair_job")
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="repair_jobs")
@@ -516,7 +650,6 @@ class RepairJob(models.Model):
         Mechanic, null=True, blank=True, on_delete=models.SET_NULL, related_name="repair_jobs"
     )
     problem = models.TextField(blank=True)
-    diagnosis = models.TextField(blank=True)
     start_date = models.DateField(null=True, blank=True)
     estimated_end = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=30, choices=Status.choices, default=Status.WAITING)
@@ -528,6 +661,18 @@ class RepairJob(models.Model):
 
     def __str__(self):
         return f"Job {self.id} — {self.vehicle}"
+
+    def save(self, *args, **kwargs):
+        self.progress = progress_for_job_status(self.status)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"progress"}
+        super().save(*args, **kwargs)
+        if self.status == RepairJob.Status.DIAGNOSING:
+            ensure_job_inspection(self)
+        if self.status == RepairJob.Status.WAITING_APPROVAL:
+            ensure_visit_invoice(self)
+        sync_booking_from_job(self)
 
 
 class SparePartCategory(models.Model):
@@ -550,7 +695,7 @@ class SparePart(models.Model):
     name = models.CharField(max_length=120)
     category = models.ForeignKey(SparePartCategory, on_delete=models.PROTECT, related_name="parts")
     brand = models.CharField(max_length=80, blank=True)
-    image = models.ImageField(upload_to="parts/%Y/%m/", blank=True)
+    image = models.ImageField(upload_to="parts/%Y/%m/", blank=True, validators=[validate_uploaded_image])
     unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     quantity = models.PositiveIntegerField(default=0)
     min_stock = models.PositiveIntegerField(default=0)
@@ -574,13 +719,241 @@ class PartsUsage(models.Model):
         on_delete=models.SET_NULL,
         related_name="parts_recorded",
     )
+    stock_applied = models.BooleanField(default=False)
+
+    def clean(self):
+        super().clean()
+        if not self.spare_part_id or not self.quantity:
+            return
+        available = SparePart.objects.filter(pk=self.spare_part_id).values_list("quantity", flat=True).first() or 0
+        needed = self.quantity
+        if self.pk:
+            previous = PartsUsage.objects.filter(pk=self.pk).values("quantity", "spare_part_id", "stock_applied").first()
+            if previous and previous["spare_part_id"] == self.spare_part_id:
+                if previous["stock_applied"]:
+                    available += previous["quantity"]
+                else:
+                    needed = max(self.quantity - previous["quantity"], 0)
+        if needed > available:
+            raise ValidationError({"quantity": "That quantity is more than the stock on hand."})
 
     def save(self, *args, **kwargs):
-        self.total = self.unit_price * self.quantity
-        super().save(*args, **kwargs)
+        self.total = Decimal(self.unit_price or 0) * self.quantity
+        with transaction.atomic():
+            part = SparePart.objects.select_for_update().get(pk=self.spare_part_id)
+            if self._state.adding:
+                if self.quantity > part.quantity:
+                    raise ValidationError({"quantity": "That quantity is more than the stock on hand."})
+                SparePart.objects.filter(pk=part.pk).update(quantity=F("quantity") - self.quantity)
+                self.stock_applied = True
+            else:
+                previous = (
+                    PartsUsage.objects.select_for_update()
+                    .filter(pk=self.pk)
+                    .values("quantity", "spare_part_id", "stock_applied")
+                    .first()
+                )
+                if previous and previous["stock_applied"]:
+                    if previous["spare_part_id"] != part.pk:
+                        SparePart.objects.filter(pk=previous["spare_part_id"]).update(quantity=F("quantity") + previous["quantity"])
+                        if self.quantity > part.quantity:
+                            raise ValidationError({"quantity": "That quantity is more than the stock on hand."})
+                        SparePart.objects.filter(pk=part.pk).update(quantity=F("quantity") - self.quantity)
+                    else:
+                        delta = self.quantity - previous["quantity"]
+                        if delta > part.quantity:
+                            raise ValidationError({"quantity": "That quantity is more than the stock on hand."})
+                        if delta:
+                            SparePart.objects.filter(pk=part.pk).update(quantity=F("quantity") - delta)
+                elif previous:
+                    extra = self.quantity - previous["quantity"]
+                    if extra > 0:
+                        if extra > part.quantity:
+                            raise ValidationError({"quantity": "That quantity is more than the stock on hand."})
+                        SparePart.objects.filter(pk=part.pk).update(quantity=F("quantity") - extra)
+            super().save(*args, **kwargs)
+            if not getattr(self, "_skip_invoice_sync", False):
+                sync_invoice_costs(self.repair_job)
+
+    def delete(self, *args, **kwargs):
+        job = self.repair_job
+        with transaction.atomic():
+            if self.stock_applied and self.spare_part_id:
+                SparePart.objects.filter(pk=self.spare_part_id).update(quantity=F("quantity") + self.quantity)
+            result = super().delete(*args, **kwargs)
+        if not getattr(self, "_skip_invoice_sync", False):
+            sync_invoice_costs(job)
+        return result
 
     def __str__(self):
         return f"{self.spare_part} x{self.quantity}"
+
+
+class PartRequest(models.Model):
+    """A customer asking the garage for a part that is already on the shelf."""
+
+    class Fulfillment(models.TextChoices):
+        INSTALL = "INSTALL_IN_WORKSHOP", "Workshop install"
+        PICKUP = "PICKUP_AT_COUNTER", "Counter pickup"
+        DELIVERY = "DELIVERY", "Delivery"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        NOTED = "NOTED", "Noted by the garage"
+        CONFIRMED = "CONFIRMED", "Confirmed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    number = models.CharField(max_length=40, unique=True, null=True, blank=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="part_requests")
+    vehicle = models.ForeignKey(
+        Vehicle, null=True, blank=True, on_delete=models.SET_NULL, related_name="part_requests"
+    )
+    spare_part = models.ForeignKey(SparePart, on_delete=models.PROTECT, related_name="requests")
+    booking = models.ForeignKey(
+        Booking, null=True, blank=True, on_delete=models.SET_NULL, related_name="part_requests"
+    )
+    repair_job = models.ForeignKey(
+        "RepairJob", null=True, blank=True, on_delete=models.SET_NULL, related_name="part_requests"
+    )
+    parts_usage = models.OneToOneField(
+        "PartsUsage", null=True, blank=True, on_delete=models.SET_NULL, related_name="part_request"
+    )
+    fulfillment = models.CharField(max_length=32, choices=Fulfillment.choices, default=Fulfillment.INSTALL)
+    notes = models.TextField(blank=True)
+    cancel_reason = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if not self.number:
+            assigned = f"PR-{self.pk:04d}"
+            type(self).objects.filter(pk=self.pk).update(number=assigned)
+            self.number = assigned
+
+    def __str__(self):
+        return self.number or f"Part request {self.pk}"
+
+
+PART_REQUEST_STAGES = (
+    PartRequest.Status.PENDING,
+    PartRequest.Status.NOTED,
+    PartRequest.Status.CONFIRMED,
+)
+
+BOOKING_STATUS_ORDER = {
+    Booking.Status.PENDING: 0,
+    Booking.Status.CONFIRMED: 1,
+    Booking.Status.WAITING: 2,
+    Booking.Status.CHECKED_IN: 2,
+    Booking.Status.DIAGNOSING: 3,
+    Booking.Status.WAITING_APPROVAL: 4,
+    Booking.Status.REPAIRING: 5,
+    Booking.Status.IN_SERVICE: 5,
+    Booking.Status.QUALITY_CHECK: 6,
+    Booking.Status.READY_FOR_PICKUP: 7,
+    Booking.Status.COMPLETED: 8,
+    Booking.Status.CANCELLED: 9,
+}
+
+
+def next_part_request_status(status):
+    """Next garage action on a part request (same style as work-order advance)."""
+    try:
+        index = PART_REQUEST_STAGES.index(status)
+    except ValueError:
+        return None
+    if index + 1 >= len(PART_REQUEST_STAGES):
+        return None
+    return PART_REQUEST_STAGES[index + 1]
+
+
+def booking_blocking_part_requests(booking):
+    """Pending or noted part requests must be confirmed or cancelled before the booking is accepted."""
+    if booking is None or not getattr(booking, "pk", None):
+        return PartRequest.objects.none()
+    return booking.part_requests.filter(
+        status__in=(PartRequest.Status.PENDING, PartRequest.Status.NOTED)
+    ).select_related("spare_part")
+
+
+def job_blocking_part_requests(job):
+    """Pending or noted parts on this visit (booking or quote) block finishing the repair."""
+    if job is None or not getattr(job, "pk", None):
+        return PartRequest.objects.none()
+    lookup = Q(repair_job=job)
+    if job.booking_id:
+        lookup |= Q(booking_id=job.booking_id)
+    return (
+        PartRequest.objects.filter(
+            lookup,
+            status__in=(PartRequest.Status.PENDING, PartRequest.Status.NOTED),
+        )
+        .select_related("spare_part")
+        .distinct()
+    )
+
+
+def booking_can_confirm(booking):
+    """Accept a pending booking only when every part request is confirmed or cancelled."""
+    if booking is None or booking.status != Booking.Status.PENDING:
+        return False
+    if linked_job(booking) is not None:
+        return False
+    return not booking_blocking_part_requests(booking).exists()
+
+
+def cancel_part_request(part_request, reason="", user=None):
+    """Cancel a part request that cannot be issued (for example out of stock)."""
+    if part_request is None:
+        raise ValidationError("That part request was not found.")
+    if part_request.parts_usage_id:
+        raise ValidationError("This part is already issued, so it cannot be cancelled here.")
+    if part_request.status == PartRequest.Status.CANCELLED:
+        return part_request
+    text = (reason or "").strip()
+    if not text:
+        raise ValidationError({"cancel_reason": "Say why this part request was cancelled."})
+    part_request.status = PartRequest.Status.CANCELLED
+    part_request.cancel_reason = text
+    part_request.save(update_fields=["status", "cancel_reason"])
+    job = part_request.repair_job
+    if job is None and part_request.booking_id:
+        try:
+            job = part_request.booking.repair_job
+        except RepairJob.DoesNotExist:
+            job = None
+    if job is not None:
+        sync_invoice_costs(job)
+    Notification.objects.create(
+        customer_id=part_request.customer_id,
+        kind=Notification.Kind.INVOICE,
+        title=f"{part_request.number} cancelled",
+        message=(
+            f"{part_request.spare_part.name} was cancelled on your visit. "
+            f"Reason: {text}"
+        ),
+    )
+    return part_request
+
+
+def advance_part_request(part_request, user=None):
+    """Move a part request one step: Pending → Noted → Confirmed (issues stock when possible)."""
+    if part_request is None:
+        raise ValidationError("That part request was not found.")
+    if part_request.status == PartRequest.Status.CANCELLED:
+        raise ValidationError("This part request was cancelled.")
+    nxt = next_part_request_status(part_request.status)
+    if not nxt:
+        raise ValidationError("This part request is already complete.")
+    if nxt == PartRequest.Status.NOTED:
+        part_request.status = PartRequest.Status.NOTED
+        part_request.save(update_fields=["status"])
+        return part_request
+    return confirm_part_request(part_request, user=user)
 
 
 class Invoice(models.Model):
@@ -606,8 +979,13 @@ class Invoice(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.UNPAID)
 
     def save(self, *args, **kwargs):
-        self.subtotal = self.labor_cost + self.service_cost + self.parts_cost
-        self.grand_total = self.subtotal - self.discount + self.tax
+        labor = Decimal(self.labor_cost or 0)
+        service = Decimal(self.service_cost or 0)
+        parts = Decimal(self.parts_cost or 0)
+        discount = Decimal(self.discount or 0)
+        tax = Decimal(self.tax or 0)
+        self.subtotal = labor + service + parts
+        self.grand_total = self.subtotal - discount + tax
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -645,5 +1023,954 @@ class Payment(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PAID)
     receipt_number = models.CharField(max_length=40, blank=True)
 
+    def clean(self):
+        super().clean()
+        if not self.invoice_id or self.amount is None:
+            return
+        if self.status in (self.Status.FAILED, self.Status.REFUNDED):
+            return
+        others = self.invoice.payments.exclude(status__in=(self.Status.FAILED, self.Status.REFUNDED))
+        if self.pk:
+            others = others.exclude(pk=self.pk)
+        already = others.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        if already + self.amount > self.invoice.grand_total:
+            raise ValidationError({"amount": "That amount is more than the balance due."})
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        refresh_invoice_status(self.invoice)
+
+    def delete(self, *args, **kwargs):
+        invoice = self.invoice
+        result = super().delete(*args, **kwargs)
+        refresh_invoice_status(invoice)
+        return result
+
     def __str__(self):
         return self.number
+
+
+class Estimate(models.Model):
+    """Customer quotation. Staff create it; the customer can approve or reject it."""
+
+    class Status(models.TextChoices):
+        SENT = "SENT", "Sent"
+        APPROVED = "APPROVED", "Approved"
+        REJECTED = "REJECTED", "Rejected"
+
+    number = models.CharField(max_length=40, unique=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="estimates")
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="estimates")
+    repair_job = models.ForeignKey(
+        RepairJob, null=True, blank=True, on_delete=models.SET_NULL, related_name="estimates"
+    )
+    description = models.TextField(blank=True)
+    labor_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    service_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    parts_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tax = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SENT)
+    decision_note = models.TextField(blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return self.number
+
+
+class Notification(models.Model):
+    class Kind(models.TextChoices):
+        BOOKING = "BOOKING", "Booking"
+        REPAIR = "REPAIR", "Repair"
+        INVOICE = "INVOICE", "Invoice"
+        PAYMENT = "PAYMENT", "Payment"
+        QUOTE = "QUOTE", "Quotation"
+        MAINTENANCE = "MAINTENANCE", "Maintenance"
+
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="notifications")
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.BOOKING)
+    title = models.CharField(max_length=160)
+    message = models.TextField()
+    read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return self.title
+
+
+class BlogPost(models.Model):
+    """Public workshop article. Drafts stay off the website until published."""
+
+    title = models.CharField(max_length=180)
+    slug = models.SlugField(max_length=180, unique=True)
+    category = models.CharField(max_length=80)
+    excerpt = models.TextField()
+    body = models.TextField(help_text="Separate paragraphs with a blank line.")
+    tips = models.TextField(blank=True, help_text="One tip per line.")
+    author_name = models.CharField(max_length=120, default="CarSV Workshop")
+    image = models.ImageField(
+        upload_to="blog/",
+        blank=True,
+        validators=[validate_uploaded_image],
+        help_text="JPG, PNG, WEBP, or GIF. 5 MB maximum.",
+    )
+    featured = models.BooleanField(default=False)
+    read_minutes = models.PositiveIntegerField(default=4)
+    published = models.BooleanField(default=False)
+    published_at = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-featured", "-published_at", "-id"]
+
+    def __str__(self):
+        return self.title
+
+    def save(self, *args, **kwargs):
+        if self.published and not self.published_at:
+            self.published_at = timezone.localdate()
+        super().save(*args, **kwargs)
+
+
+class AuthProvider(models.Model):
+    """Google or Telegram identity linked to one local user. Not merged by email."""
+
+    class Provider(models.TextChoices):
+        GOOGLE = "google", "Google"
+        TELEGRAM = "telegram", "Telegram"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="auth_providers",
+    )
+    provider = models.CharField(max_length=20, choices=Provider.choices)
+    provider_user_id = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["provider", "provider_user_id"], name="unique_provider_identity"),
+            models.UniqueConstraint(fields=["user", "provider"], name="unique_user_provider"),
+        ]
+
+    def __str__(self):
+        return f"{self.provider}:{self.provider_user_id}"
+
+
+JOB_STAGES = (
+    RepairJob.Status.WAITING,
+    RepairJob.Status.DIAGNOSING,
+    RepairJob.Status.WAITING_APPROVAL,
+    RepairJob.Status.REPAIRING,
+    RepairJob.Status.QUALITY_CHECK,
+    RepairJob.Status.READY_FOR_PICKUP,
+    RepairJob.Status.COMPLETED,
+)
+
+
+def next_job_status(status):
+    """The next workshop stage."""
+    try:
+        index = JOB_STAGES.index(status)
+    except ValueError:
+        return None
+    if index + 1 >= len(JOB_STAGES):
+        return None
+    return JOB_STAGES[index + 1]
+
+
+def progress_for_job_status(status):
+    """The tracking steps, from a waiting visit at 0% to a finished visit at 100%."""
+    return {
+        RepairJob.Status.WAITING: 0,
+        RepairJob.Status.DIAGNOSING: 20,
+        RepairJob.Status.WAITING_APPROVAL: 40,
+        RepairJob.Status.REPAIRING: 60,
+        RepairJob.Status.QUALITY_CHECK: 80,
+        RepairJob.Status.READY_FOR_PICKUP: 90,
+        RepairJob.Status.COMPLETED: 100,
+        RepairJob.Status.CANCELLED: 40,
+    }.get(status, 0)
+
+
+LATER_THAN_INSPECTION = (
+    RepairJob.Status.WAITING_APPROVAL,
+    RepairJob.Status.REPAIRING,
+    RepairJob.Status.QUALITY_CHECK,
+    RepairJob.Status.READY_FOR_PICKUP,
+    RepairJob.Status.COMPLETED,
+)
+
+CUSTOMER_CONFIRMS = (
+    RepairJob.Status.REPAIRING,
+    RepairJob.Status.QUALITY_CHECK,
+    RepairJob.Status.READY_FOR_PICKUP,
+    RepairJob.Status.COMPLETED,
+)
+
+
+def job_inspection(job):
+    if job is None or not getattr(job, "pk", None):
+        return None
+    try:
+        return job.inspection
+    except Inspection.DoesNotExist:
+        return None
+
+
+def inspection_fields_filled(inspection):
+    """Every inspection input is present: measures, text, inspector, and at least one photo."""
+    if inspection is None:
+        return False
+    if not inspection.staff_id:
+        return False
+    if not (inspection.fuel_level or "").strip():
+        return False
+    if inspection.mileage is None:
+        return False
+    if inspection.front_brake_mm is None:
+        return False
+    if inspection.rear_brake_mm is None:
+        return False
+    if inspection.tire_tread_mm is None:
+        return False
+    if not (inspection.condition or "").strip():
+        return False
+    if not (inspection.damage or "").strip():
+        return False
+    if not (inspection.note or "").strip():
+        return False
+    if not inspection.images.exists():
+        return False
+    return True
+
+
+def inspection_missing_fields(inspection):
+    """Short labels for empty inspection inputs (for admin messages)."""
+    if inspection is None:
+        return ["inspection"]
+    missing = []
+    if inspection.mileage is None:
+        missing.append("mileage")
+    if not (inspection.fuel_level or "").strip():
+        missing.append("fuel level")
+    if inspection.front_brake_mm is None:
+        missing.append("front brake")
+    if inspection.rear_brake_mm is None:
+        missing.append("rear brake")
+    if inspection.tire_tread_mm is None:
+        missing.append("tire tread")
+    if not inspection.staff_id:
+        missing.append("inspector")
+    if not (inspection.condition or "").strip():
+        missing.append("condition")
+    if not (inspection.damage or "").strip():
+        missing.append("damage")
+    if not (inspection.note or "").strip():
+        missing.append("note")
+    if not inspection.images.exists():
+        missing.append("photos")
+    return missing
+
+
+def inspection_is_complete(job):
+    """Inspection finished, inspector assigned, and every field filled."""
+    inspection = job_inspection(job)
+    return (
+        inspection is not None
+        and inspection.status == Inspection.Status.COMPLETED
+        and inspection_fields_filled(inspection)
+    )
+
+
+def inspection_has_staff(job):
+    inspection = job_inspection(job)
+    return inspection is not None and bool(inspection.staff_id)
+
+
+INSPECTION_STAGES = (
+    Inspection.Status.PENDING,
+    Inspection.Status.CHECK_IN,
+    Inspection.Status.COMPLETED,
+)
+
+
+def next_inspection_status(status):
+    """The next inspection stage on the admin advance button."""
+    try:
+        index = INSPECTION_STAGES.index(status)
+    except ValueError:
+        return None
+    if index + 1 >= len(INSPECTION_STAGES):
+        return None
+    return INSPECTION_STAGES[index + 1]
+
+
+def customer_must_confirm(job, new_status):
+    """Repairing and every later stage wait for the customer quote, not the work-order button."""
+    previous = job.status if getattr(job, "pk", None) else ""
+    return previous == RepairJob.Status.WAITING_APPROVAL and new_status in CUSTOMER_CONFIRMS
+
+
+def job_advance_block_reason(job, new_status):
+    """Why the work order cannot move to new_status, or empty when allowed."""
+    if job is None:
+        return "That work order was not found."
+    previous = job.status if getattr(job, "pk", None) else ""
+    if previous == RepairJob.Status.CANCELLED:
+        return "This work order is cancelled." if new_status != RepairJob.Status.CANCELLED else ""
+    if new_status == RepairJob.Status.CANCELLED:
+        return "Cancel the booking instead of skipping the work order to Cancelled."
+    if customer_must_confirm(job, new_status):
+        return "The customer confirms this repair on the quote page. This work order cannot skip that."
+    # Waiting → Inspection still needs a technician on the job.
+    if new_status == RepairJob.Status.DIAGNOSING and not job.mechanic_id:
+        return "Assign a technician before starting inspection."
+    # Finish repairing → Quality check only when every part request is confirmed or cancelled.
+    if new_status == RepairJob.Status.QUALITY_CHECK and job_blocking_part_requests(job).exists():
+        return "Confirm or cancel every part request before Quality check."
+    if new_status not in LATER_THAN_INSPECTION:
+        return ""
+    if previous in LATER_THAN_INSPECTION:
+        return ""
+    if not job.mechanic_id:
+        return "Assign a technician before moving past inspection."
+    inspection = job_inspection(job)
+    if inspection is None:
+        return "Start the inspection and assign an inspector before Waiting for approval."
+    if not inspection.staff_id:
+        return "Select the inspector on the inspection before Waiting for approval."
+    if not inspection_fields_filled(inspection):
+        return "Fill every inspection field (including photos) before Waiting for approval."
+    if inspection.status != Inspection.Status.COMPLETED:
+        return "Complete the inspection before moving this work order to Waiting for approval."
+    return ""
+
+
+def job_can_reach(job, new_status):
+    """Waiting for approval needs a technician, an inspector, and a completed inspection."""
+    return not job_advance_block_reason(job, new_status)
+
+
+def ensure_job_inspection(job, user=None):
+    """An inspection belongs to one work order. Starts Pending until an inspector is assigned."""
+    if job is None or not job.pk:
+        return None
+    existing = job_inspection(job)
+    if existing is not None:
+        return existing
+    return Inspection.objects.create(
+        repair_job=job,
+        mileage=(job.vehicle.mileage if job.vehicle_id else 0) or 0,
+        status=Inspection.Status.PENDING,
+        staff=None,
+    )
+
+
+OPEN_VISIT = (
+    Booking.Status.PENDING,
+    Booking.Status.CONFIRMED,
+    Booking.Status.WAITING,
+    Booking.Status.DIAGNOSING,
+    Booking.Status.WAITING_APPROVAL,
+    Booking.Status.REPAIRING,
+    Booking.Status.QUALITY_CHECK,
+    Booking.Status.READY_FOR_PICKUP,
+    Booking.Status.CHECKED_IN,
+    Booking.Status.IN_SERVICE,
+)
+
+SHOP_BOOKING = (
+    Booking.Status.DIAGNOSING,
+    Booking.Status.WAITING_APPROVAL,
+    Booking.Status.REPAIRING,
+    Booking.Status.QUALITY_CHECK,
+    Booking.Status.READY_FOR_PICKUP,
+    Booking.Status.CHECKED_IN,
+    Booking.Status.IN_SERVICE,
+)
+
+
+def booking_slot_taken(vehicle, booking_date, booking_time, ignore_pk=None):
+    """The same car cannot hold two open visits at the same date and time."""
+    if vehicle is None or booking_date is None:
+        return False
+    matches = Booking.objects.filter(vehicle=vehicle, booking_date=booking_date).exclude(
+        status=Booking.Status.CANCELLED
+    )
+    if booking_time:
+        matches = matches.filter(booking_time=booking_time)
+    else:
+        matches = matches.filter(booking_time__isnull=True)
+    if ignore_pk:
+        matches = matches.exclude(pk=ignore_pk)
+    return matches.exists()
+
+
+def sync_vehicle_shop_status(vehicle):
+    """A car is in the shop while it has an open job or a checked-in visit."""
+    if vehicle is None or vehicle.status == Vehicle.Status.INACTIVE:
+        return
+    in_shop = vehicle.repair_jobs.exclude(
+        status__in=(RepairJob.Status.COMPLETED, RepairJob.Status.WAITING, RepairJob.Status.CANCELLED)
+    ).exists() or vehicle.bookings.filter(status__in=SHOP_BOOKING).exists()
+    new_status = Vehicle.Status.IN_SHOP if in_shop else Vehicle.Status.ACTIVE
+    if vehicle.status != new_status:
+        Vehicle.objects.filter(pk=vehicle.pk).update(status=new_status)
+        vehicle.status = new_status
+
+
+def open_visit_for(customer, vehicle):
+    """The visit this car is already booked on, if it is still open."""
+    if customer is None or vehicle is None:
+        return None
+    return (
+        Booking.objects.filter(customer=customer, vehicle=vehicle, status__in=OPEN_VISIT)
+        .order_by("-booking_date", "-id")
+        .first()
+    )
+
+
+def visit_service_total(booking):
+    total = Decimal(booking.service.price or 0) if booking.service_id else Decimal("0")
+    extra = booking.added_services.aggregate(total=Sum("price"))["total"] or Decimal("0")
+    return total + Decimal(extra)
+
+
+def add_booking_service(booking, service):
+    """Keep an extra service on the same visit. A closed visit is left unchanged."""
+    if booking.status in (Booking.Status.COMPLETED, Booking.Status.CANCELLED):
+        raise ValidationError({"service": "This visit is already closed."})
+    if service.status != "ACTIVE":
+        raise ValidationError({"service": "This service is not available."})
+    if booking.service_id == service.id or booking.added_services.filter(service=service).exists():
+        raise ValidationError({"service": "That service is already on this visit."})
+    row = BookingService.objects.create(booking=booking, service=service, price=service.price)
+    try:
+        invoice = booking.repair_job.invoice
+    except (RepairJob.DoesNotExist, Invoice.DoesNotExist):
+        invoice = None
+    if invoice is not None and invoice.status != Invoice.Status.CANCELLED:
+        invoice.service_cost = Decimal(invoice.service_cost or 0) + row.price
+        invoice.save()
+        refresh_invoice_status(invoice)
+    Notification.objects.create(
+        customer_id=booking.customer_id,
+        kind=Notification.Kind.BOOKING,
+        title="Service added to your visit",
+        message=f"{service.name} was added to the {booking.service.name} visit for {booking.vehicle.plate}.",
+    )
+    return row
+
+
+def visit_quote_is_open(booking):
+    """Customer may still change extras and pending parts on the quote."""
+    return booking is not None and booking.status == Booking.Status.WAITING_APPROVAL
+
+
+def remove_booking_extra_service(booking, booking_service_id):
+    """Drop an extra service while the visit is waiting on the quote. Primary service stays."""
+    if not visit_quote_is_open(booking):
+        raise ValidationError({"service": "Extras can only be removed while the quote is waiting for approval."})
+    row = booking.added_services.filter(pk=booking_service_id).select_related("service").first()
+    if row is None:
+        raise ValidationError({"service": "That extra service is not on this visit."})
+    price = Decimal(row.price or 0)
+    name = row.service.name
+    row.delete()
+    try:
+        invoice = booking.repair_job.invoice
+    except (RepairJob.DoesNotExist, Invoice.DoesNotExist):
+        invoice = None
+    if invoice is not None and invoice.status != Invoice.Status.CANCELLED:
+        invoice.service_cost = max(Decimal("0"), Decimal(invoice.service_cost or 0) - price)
+        invoice.save()
+        refresh_invoice_status(invoice)
+    Notification.objects.create(
+        customer_id=booking.customer_id,
+        kind=Notification.Kind.BOOKING,
+        title="Service removed from quote",
+        message=f"{name} was removed from the quote for {booking.vehicle.plate}.",
+    )
+    return booking
+
+
+def part_request_can_withdraw(part_request):
+    """Customer may drop a part while the visit quote is open, or cancel a parts-only request before issue."""
+    if part_request is None:
+        return False
+    if part_request.parts_usage_id:
+        return False
+    if part_request.status in (PartRequest.Status.CONFIRMED, PartRequest.Status.CANCELLED):
+        return False
+    booking = part_request.booking
+    if booking is not None:
+        return visit_quote_is_open(booking)
+    return part_request.fulfillment in (
+        PartRequest.Fulfillment.PICKUP,
+        PartRequest.Fulfillment.DELIVERY,
+    )
+
+
+def withdraw_part_request(part_request):
+    """Customer removes a pending part from the quote or cancels a parts-only request."""
+    if not part_request_can_withdraw(part_request):
+        raise ValidationError("This part request can no longer be removed.")
+    job = part_request.repair_job
+    if job is None and part_request.booking_id:
+        try:
+            job = part_request.booking.repair_job
+        except RepairJob.DoesNotExist:
+            job = None
+    part_request.delete()
+    if job is not None:
+        sync_invoice_costs(job)
+    return None
+
+
+def confirm_customer_part_purchase(part_request):
+    """Customer accepts a pickup/delivery part request. Stock and payment stay with the garage."""
+    if part_request is None:
+        raise ValidationError("That part request was not found.")
+    if part_request.fulfillment not in (PartRequest.Fulfillment.PICKUP, PartRequest.Fulfillment.DELIVERY):
+        raise ValidationError("Workshop install parts are approved on the visit quote.")
+    if part_request.status == PartRequest.Status.CONFIRMED or part_request.parts_usage_id:
+        raise ValidationError("This part request is already confirmed.")
+    part_request.status = PartRequest.Status.NOTED
+    part_request.save(update_fields=["status"])
+    Notification.objects.create(
+        customer_id=part_request.customer_id,
+        kind=Notification.Kind.INVOICE,
+        title=f"{part_request.number} purchase confirmed",
+        message=(
+            f"{part_request.spare_part.name} is confirmed for "
+            f"{part_request.get_fulfillment_display().lower()}. "
+            "The garage prepares the invoice and handoff. Stock stays on the shelf until then."
+        ),
+    )
+    return part_request
+
+
+def sync_booking_from_job(job):
+    """The booking stores the same status as its work order."""
+    if not job.booking_id:
+        sync_vehicle_shop_status(getattr(job, "vehicle", None))
+        return
+    booking = Booking.objects.select_related("customer", "vehicle", "service").filter(pk=job.booking_id).first()
+    if booking is None or booking.status == Booking.Status.CANCELLED:
+        sync_vehicle_shop_status(getattr(job, "vehicle", None))
+        return
+    new_status = job.status
+    if booking.status != new_status:
+        previous = booking.status
+        Booking.objects.filter(pk=booking.pk).update(status=new_status)
+        booking.status = new_status
+        _notify_booking_stage(booking, job, previous)
+    sync_vehicle_shop_status(booking.vehicle)
+
+
+def _notify_booking_stage(booking, job, previous):
+    service_name = booking.service.name if booking.service_id else "The visit"
+    plate = booking.vehicle.plate
+    if job.status == RepairJob.Status.COMPLETED:
+        title = "Visit completed"
+        message = f"{service_name} for {plate} is completed. The bill is at the garage."
+    elif job.status == RepairJob.Status.DIAGNOSING and previous in (
+        Booking.Status.PENDING,
+        Booking.Status.CONFIRMED,
+        Booking.Status.WAITING,
+        Booking.Status.CHECKED_IN,
+    ):
+        title = "Car checked in"
+        message = f"{service_name} for {plate} is checked in. The work order and invoice are open."
+    elif job.status == RepairJob.Status.WAITING and previous in (Booking.Status.PENDING, Booking.Status.CONFIRMED):
+        title = "Booking confirmed"
+        message = f"{service_name} for {plate} is confirmed. A work order is open for this visit."
+    elif job.status == RepairJob.Status.READY_FOR_PICKUP:
+        title = "Ready for pickup"
+        message = f"{service_name} for {plate} is ready for pickup."
+    elif job.status == RepairJob.Status.REPAIRING and previous == Booking.Status.WAITING_APPROVAL:
+        title = "Repair confirmed"
+        message = f"{service_name} for {plate} is confirmed. The workshop can continue the repair."
+    elif job.status == RepairJob.Status.CANCELLED:
+        title = "Visit cancelled"
+        message = f"{service_name} for {plate} was cancelled from the quote. Repair will not continue."
+    else:
+        title = "Visit updated"
+        message = f"{service_name} for {plate} is now {job.get_status_display()}."
+    Notification.objects.create(
+        customer_id=booking.customer_id,
+        kind=Notification.Kind.BOOKING,
+        title=title,
+        message=message,
+    )
+
+
+def linked_job(booking):
+    if booking is None or not getattr(booking, "pk", None):
+        return None
+    try:
+        return booking.repair_job
+    except RepairJob.DoesNotExist:
+        return None
+
+
+def booking_status_locked(booking):
+    """Pending and confirmed visits can still change status. A work order takes over after that."""
+    if not getattr(booking, "pk", None):
+        return False
+    if linked_job(booking) is not None:
+        return True
+    return booking.status not in (Booking.Status.PENDING, Booking.Status.CONFIRMED)
+
+
+def booking_can_check_in(booking):
+    if booking.status in (Booking.Status.CANCELLED, Booking.Status.COMPLETED):
+        return False
+    job = linked_job(booking)
+    if job is None:
+        return booking.status in (Booking.Status.PENDING, Booking.Status.CONFIRMED)
+    return job.status == RepairJob.Status.WAITING
+
+
+def booking_can_finish(booking):
+    if booking.status in (
+        Booking.Status.PENDING,
+        Booking.Status.CONFIRMED,
+        Booking.Status.WAITING,
+        Booking.Status.CANCELLED,
+        Booking.Status.COMPLETED,
+    ):
+        return False
+    job = linked_job(booking)
+    if job is None:
+        return False
+    return job.status not in (RepairJob.Status.COMPLETED, RepairJob.Status.WAITING)
+
+
+def booking_can_cancel(booking):
+    if booking.status in (Booking.Status.COMPLETED, Booking.Status.CANCELLED):
+        return False
+    job = linked_job(booking)
+    if job is None:
+        return booking.status in (Booking.Status.PENDING, Booking.Status.CONFIRMED)
+    return job.status == RepairJob.Status.WAITING and not job.parts_used.exists() and not Invoice.objects.filter(repair_job=job).exists()
+
+
+def _staff_for(user):
+    if user is None or not getattr(user, "is_authenticated", False):
+        return None
+    return Staff.objects.filter(user=user).first()
+
+
+def _issue_part_on_job(part_request, job, part, user=None):
+    staff = _staff_for(user)
+    usage = PartsUsage(
+        repair_job=job,
+        spare_part=part,
+        quantity=1,
+        unit_price=part.unit_price,
+        recorded_by=staff,
+    )
+    usage._skip_invoice_sync = True
+    usage.save()
+    part_request.booking_id = part_request.booking_id or job.booking_id
+    part_request.repair_job = job
+    part_request.parts_usage = usage
+    part_request.status = PartRequest.Status.CONFIRMED
+    part_request.save(update_fields=["booking", "repair_job", "parts_usage", "status"])
+    invoice = sync_invoice_costs(job)
+    if invoice is None:
+        number = f"INV-{part_request.number}"
+        if Invoice.objects.filter(number=number).exists():
+            number = f"INV-{part_request.number}-{part_request.pk}"
+        holder = job.booking if job.booking_id else None
+        service_cost = Decimal("0")
+        if holder is not None and not (holder.note or "").startswith("Opened from"):
+            service_cost = visit_service_total(holder)
+        if not Invoice.objects.filter(repair_job_id=job.pk).exists():
+            Invoice.objects.create(
+                number=number,
+                customer_id=part_request.customer_id,
+                vehicle_id=part_request.vehicle_id,
+                repair_job=job,
+                labor_cost=Decimal("0"),
+                service_cost=service_cost,
+                parts_cost=Decimal("0"),
+                status=Invoice.Status.UNPAID,
+            )
+        invoice = sync_invoice_costs(job)
+    Notification.objects.create(
+        customer_id=part_request.customer_id,
+        kind=Notification.Kind.INVOICE,
+        title=f"{part_request.number} confirmed",
+        message=(
+            f"{part.name} is on WO-{job.id:04d} and billed on {invoice.number}. "
+            "The balance is due at the garage."
+        ),
+    )
+    return part_request
+
+
+def ensure_visit_invoice(job):
+    invoice = Invoice.objects.filter(repair_job_id=job.pk).first()
+    if invoice is not None:
+        return sync_invoice_costs(job)
+    if not job.booking_id:
+        return None
+    number = f"INV-BK-{job.booking_id:04d}"
+    if Invoice.objects.filter(number=number).exists():
+        number = f"INV-BK-{job.booking_id:04d}-{job.id}"
+    Invoice.objects.create(
+        number=number,
+        customer_id=job.customer_id,
+        vehicle_id=job.vehicle_id,
+        repair_job=job,
+        labor_cost=Decimal("0"),
+        service_cost=visit_service_total(job.booking),
+        parts_cost=Decimal("0"),
+        status=Invoice.Status.UNPAID,
+    )
+    return sync_invoice_costs(job)
+
+
+def ensure_confirmed_job(booking):
+    """A confirmed visit opens one waiting work order. The booking then uses that job's status."""
+    if booking is None or booking.status != Booking.Status.CONFIRMED:
+        return linked_job(booking)
+    job = linked_job(booking)
+    if job is not None:
+        return job
+    return RepairJob.objects.create(
+        booking=booking,
+        customer_id=booking.customer_id,
+        vehicle_id=booking.vehicle_id,
+        problem=booking.problem or (booking.service.name if booking.service_id else ""),
+        start_date=booking.booking_date or timezone.localdate(),
+        status=RepairJob.Status.WAITING,
+        progress=0,
+    )
+
+
+def check_in_booking(booking, user=None):
+    """Receive the car. Open the inspection, the work order, and the invoice for this visit."""
+    with transaction.atomic():
+        booking = Booking.objects.select_for_update().select_related("service", "vehicle", "customer").get(pk=booking.pk)
+        if booking.status in (Booking.Status.CANCELLED, Booking.Status.COMPLETED):
+            raise ValidationError("This visit is already closed.")
+        try:
+            job = booking.repair_job
+        except RepairJob.DoesNotExist:
+            job = RepairJob.objects.create(
+                booking=booking,
+                customer_id=booking.customer_id,
+                vehicle_id=booking.vehicle_id,
+                problem=booking.problem or (booking.service.name if booking.service_id else ""),
+                start_date=timezone.localdate(),
+                status=RepairJob.Status.DIAGNOSING,
+                progress=10,
+            )
+        else:
+            if job.status == RepairJob.Status.COMPLETED:
+                raise ValidationError("This visit is already finished.")
+            if job.status == RepairJob.Status.WAITING:
+                job.status = RepairJob.Status.DIAGNOSING
+                job.progress = max(job.progress or 0, 10)
+                job.save(update_fields=["status", "progress"])
+            else:
+                sync_booking_from_job(job)
+        ensure_job_inspection(job, user)
+        ensure_visit_invoice(job)
+        sync_vehicle_shop_status(booking.vehicle)
+        booking.refresh_from_db()
+        waiting = list(
+            PartRequest.objects.select_for_update()
+            .filter(booking=booking, status=PartRequest.Status.CONFIRMED, parts_usage__isnull=True)
+            .select_related("spare_part")
+        )
+        for request_row in waiting:
+            part = SparePart.objects.select_for_update().get(pk=request_row.spare_part_id)
+            if part.quantity < 1:
+                continue
+            _issue_part_on_job(request_row, job, part, user)
+        return booking
+
+
+def confirm_part_request(part_request, user=None):
+    """Accept a part onto the customer's open visit. Stock drops when the work order can take it.
+
+    Payment is not created here. The cashier records it against the invoice.
+    """
+    with transaction.atomic():
+        part_request = PartRequest.objects.select_for_update().get(pk=part_request.pk)
+        if part_request.parts_usage_id:
+            return part_request
+        if part_request.status == PartRequest.Status.CANCELLED:
+            raise ValidationError("This part request was cancelled.")
+        if not part_request.vehicle_id:
+            raise ValidationError({"vehicle": "Choose the vehicle. The work order and the invoice both need a car."})
+
+        part = SparePart.objects.select_for_update().get(pk=part_request.spare_part_id)
+        if part.status != SparePart.Status.ACTIVE:
+            raise ValidationError({"spare_part": "That part is not available."})
+        if part.quantity < 1:
+            raise ValidationError({"spare_part": "That part is out of stock, so it cannot be issued. Cancel the request and say why."})
+
+        visit = part_request.booking
+        if visit is not None and visit.status == Booking.Status.CANCELLED:
+            raise ValidationError("This visit was cancelled, so this part stays off the job.")
+        if visit is None or visit.status not in OPEN_VISIT:
+            visit = open_visit_for(part_request.customer, part_request.vehicle)
+        job = None
+        if visit is not None:
+            try:
+                job = visit.repair_job
+            except RepairJob.DoesNotExist:
+                job = None
+            if job is None:
+                if part_request.status == PartRequest.Status.CONFIRMED and part_request.booking_id == visit.id:
+                    return part_request
+                part_request.booking = visit
+                part_request.status = PartRequest.Status.CONFIRMED
+                part_request.save(update_fields=["booking", "status"])
+                Notification.objects.create(
+                    customer_id=part_request.customer_id,
+                    kind=Notification.Kind.BOOKING,
+                    title=f"{part_request.number} added to your visit",
+                    message=(
+                        f"{part.name} was added to the {visit.service.name} visit for {visit.vehicle.plate}. "
+                        "The garage issues it when the car is checked in."
+                    ),
+                )
+                return part_request
+
+        open_statuses = (
+            RepairJob.Status.WAITING,
+            RepairJob.Status.DIAGNOSING,
+            RepairJob.Status.WAITING_APPROVAL,
+            RepairJob.Status.REPAIRING,
+            RepairJob.Status.QUALITY_CHECK,
+            RepairJob.Status.READY_FOR_PICKUP,
+        )
+        billable = (Invoice.Status.DRAFT, Invoice.Status.UNPAID, Invoice.Status.PARTIAL)
+        job = (
+            RepairJob.objects.select_for_update()
+            .filter(
+                customer_id=part_request.customer_id,
+                vehicle_id=part_request.vehicle_id,
+                status__in=open_statuses,
+            )
+            .filter(models.Q(invoice__isnull=True) | models.Q(invoice__status__in=billable))
+            .order_by("-id")
+            .first()
+        )
+        if job is None:
+            service = Service.objects.filter(status="ACTIVE").order_by("id").first()
+            if service is None:
+                raise ValidationError("Add an active service in the catalog before confirming a part onto a new work order.")
+            install = part_request.fulfillment == PartRequest.Fulfillment.INSTALL
+            problem = f"{part_request.number}: {part.name} ({part_request.get_fulfillment_display()})"
+            if part_request.notes:
+                problem = f"{problem}. {part_request.notes}"
+            booking = Booking.objects.create(
+                customer_id=part_request.customer_id,
+                vehicle_id=part_request.vehicle_id,
+                service=service,
+                booking_date=timezone.localdate(),
+                problem=problem,
+                note=f"Opened from {part_request.number}",
+                status=Booking.Status.IN_SERVICE if install else Booking.Status.CONFIRMED,
+            )
+            job = RepairJob.objects.create(
+                booking=booking,
+                customer_id=part_request.customer_id,
+                vehicle_id=part_request.vehicle_id,
+                problem=problem,
+                start_date=timezone.localdate(),
+                status=RepairJob.Status.REPAIRING if install else RepairJob.Status.READY_FOR_PICKUP,
+                progress=30 if install else 80,
+            )
+
+        return _issue_part_on_job(part_request, job, part, user)
+
+
+def confirm_customer_repair(job):
+    """The customer quote is the only way out of waiting for approval."""
+    if job is None or job.status != RepairJob.Status.WAITING_APPROVAL:
+        raise ValidationError("This visit is not waiting for approval.")
+    if not inspection_is_complete(job):
+        raise ValidationError("The inspection is not finished.")
+    job.status = RepairJob.Status.REPAIRING
+    job.save(update_fields=["status"])
+    sync_invoice_costs(job)
+    return job
+
+
+def decline_repair(job, user=None, reason=""):
+    """Cancel the visit from the quote. Keep the inspection. Do not touch stock or payments."""
+    if job is None or job.status != RepairJob.Status.WAITING_APPROVAL:
+        raise ValidationError("This visit is not waiting for approval.")
+    if job.parts_used.exists():
+        raise ValidationError("Parts are already on this work order. Ask the garage to close the visit.")
+    try:
+        invoice = job.invoice
+    except Invoice.DoesNotExist:
+        invoice = None
+    if invoice is not None and invoice.payments.exclude(
+        status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
+    ).exists():
+        raise ValidationError("A payment is already recorded. Ask the garage to close the visit.")
+    booking = job.booking
+    booking.cancel_reason = (reason or "")[:2000]
+    booking.cancelled_at = timezone.now()
+    if user is not None and getattr(user, "is_authenticated", False):
+        booking.cancelled_by = user
+    booking.save(update_fields=["cancel_reason", "cancelled_at", "cancelled_by"])
+    job.status = RepairJob.Status.CANCELLED
+    job.save(update_fields=["status"])
+    if invoice is not None and invoice.status != Invoice.Status.CANCELLED:
+        Invoice.objects.filter(pk=invoice.pk).update(status=Invoice.Status.CANCELLED)
+        invoice.status = Invoice.Status.CANCELLED
+    return job
+
+
+def cancel_booking(booking, user=None, reason=""):
+    """Cancel a visit that has not entered the workshop. A waiting work order is removed with it."""
+    if not booking_can_cancel(booking):
+        raise ValidationError("This visit is already in the workshop. Finish the work order instead of cancelling the booking.")
+    job = linked_job(booking)
+    if job is not None:
+        job.delete()
+    booking.status = Booking.Status.CANCELLED
+    booking.cancel_reason = (reason or "")[:2000]
+    booking.cancelled_at = timezone.now()
+    if user is not None and getattr(user, "is_authenticated", False):
+        booking.cancelled_by = user
+    booking.save()
+    sync_vehicle_shop_status(booking.vehicle)
+    return booking
+
+
+def complete_booking(booking):
+    """Finish the visit by finishing its work order. The booking status follows that job."""
+    if not booking_can_finish(booking):
+        raise ValidationError("This visit is not in the workshop.")
+    job = linked_job(booking)
+    if job is None:
+        raise ValidationError("This visit has no work order yet.")
+    if job.status != RepairJob.Status.COMPLETED:
+        job.status = RepairJob.Status.COMPLETED
+        job.progress = 100
+        job.save(update_fields=["status", "progress"])
+    else:
+        sync_booking_from_job(job)
+    booking.refresh_from_db()
+    return booking

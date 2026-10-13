@@ -1,448 +1,177 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
-import { LoginView } from './components/auth/LoginView';
-import { Sidebar } from './components/layout/Sidebar';
-import { Navbar } from './components/layout/Navbar';
-import { GlobalSearchModal } from './components/layout/GlobalSearchModal';
 import { ToastContainer } from './components/common/ToastContainer';
 import { ConfirmModal } from './components/common/ConfirmModal';
-
-// Dashboards
-import { AdminDashboard } from './components/dashboards/AdminDashboard';
-import { ManagerDashboard } from './components/dashboards/ManagerDashboard';
-import { StaffDashboard } from './components/dashboards/StaffDashboard';
-import { TechnicianDashboard } from './components/dashboards/TechnicianDashboard';
-import { CustomerPortal } from './components/dashboards/CustomerPortal';
+import { CustomerPortalApp, CustomerTab } from './components/customer/CustomerPortalApp';
 import { CustomerPublicLanding } from './components/customer/CustomerPublicLanding';
 import { CustomerPublicBlog } from './components/customer/CustomerPublicBlog';
 import { CustomerAuthModal } from './components/customer/CustomerAuthModal';
+import { CustomerBookAppointmentModal } from './components/customer/CustomerBookAppointmentModal';
+import { portalPaths, sectionForPath } from './routes';
 
-// Customer Components
-import { CustomerList } from './components/customers/CustomerList';
-import { CustomerDetailView } from './components/customers/CustomerDetailView';
-import { CustomerFormModal } from './components/customers/CustomerFormModal';
+function ThemeFrame({ children }: { children: React.ReactNode }) {
+  const { theme } = useApp();
+  return (
+    <div className={`min-h-screen customer-theme-root transition-colors duration-200 ${theme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} selection:bg-blue-600 selection:text-white`}>
+      {children}
+      <ToastContainer />
+      <ConfirmModal />
+    </div>
+  );
+}
 
-// Vehicle Components
-import { VehicleList } from './components/vehicles/VehicleList';
-import { VehicleDetailView } from './components/vehicles/VehicleDetailView';
-import { VehicleFormModal } from './components/vehicles/VehicleFormModal';
+function RequireCustomer({ children }: { children: React.ReactNode }) {
+  const { authReady, isAuthenticated, currentRole } = useApp();
+  const location = useLocation();
+  if (!authReady) return null;
+  if (!isAuthenticated || currentRole !== 'CUSTOMER') {
+    const next = encodeURIComponent(location.pathname);
+    return <Navigate to={`/?signin=1&next=${next}`} replace />;
+  }
+  return children;
+}
 
-// Appointment Components
-import { AppointmentManager } from './components/appointments/AppointmentManager';
-import { AppointmentFormModal } from './components/appointments/AppointmentFormModal';
-
-// Service Components
-import { ServiceCatalog } from './components/services/ServiceCatalog';
-import { ServiceFormModal } from './components/services/ServiceFormModal';
-
-// Work Order Components
-import { WorkOrderList } from './components/workorders/WorkOrderList';
-import { WorkOrderDetailView } from './components/workorders/WorkOrderDetailView';
-import { WorkOrderFormModal } from './components/workorders/WorkOrderFormModal';
-
-// Inventory Components
-import { InventoryList } from './components/inventory/InventoryList';
-import { InventoryFormModal } from './components/inventory/InventoryFormModal';
-
-// Technician Components
-import { TechnicianList } from './components/technicians/TechnicianList';
-import { TechnicianDetailModal } from './components/technicians/TechnicianDetailModal';
-
-// Invoice Components
-import { InvoiceList } from './components/invoices/InvoiceList';
-import { InvoiceDetailModal } from './components/invoices/InvoiceDetailModal';
-
-// Analytics & Reports
-import { ReportsView } from './components/reports/ReportsView';
-
-// CCTV & Security
-import { CCTVMonitoringView } from './components/security/CCTVMonitoringView';
-
-// Feedback & Settings
-import { FeedbackList } from './components/feedback/FeedbackList';
-import { SettingsView } from './components/settings/SettingsView';
-import {
-  UsersView,
-  PermissionsView,
-  ActivityLogsView,
-  StaffNotificationsView,
-  DocumentsView,
-  PaymentsView,
-  TaskBoardView,
-  SuppliersView
-} from './components/settings/ErpSystemPages';
-import { isErpViewAllowed } from './utils/roles';
-
-// Types
-import { Customer, Vehicle, ServiceItem, InventoryItem, Technician, Invoice } from './types';
-
-const MainLayout: React.FC = () => {
-  const {
-    isAuthenticated,
-    currentRole,
-    currentView,
-    setCurrentView,
-    theme
-  } = useApp();
+function PublicSite() {
+  const { isAuthenticated, currentRole } = useApp();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const section = sectionForPath(location.pathname);
+  const [params] = useSearchParams();
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
+  const [bookingOpen, setBookingOpen] = useState(false);
+  const [serviceId, setServiceId] = useState<string | undefined>(undefined);
+  const signedIn = isAuthenticated && currentRole === 'CUSTOMER';
 
   useEffect(() => {
-    if (isAuthenticated && currentRole !== 'CUSTOMER' && !isErpViewAllowed(currentRole, currentView)) {
-      setCurrentView('Dashboard');
+    if (params.get('signin') === '1') setAuthOpen(true);
+  }, [params]);
+
+  useEffect(() => {
+    if (section === 'blog') {
+      window.scrollTo(0, 0);
+      return;
     }
-  }, [isAuthenticated, currentRole, currentView, setCurrentView]);
+    const id = section === 'live-bay' ? 'transparency' : section;
+    const scroll = () => {
+      if (id === 'home') window.scrollTo(0, 0);
+      else document.getElementById(id)?.scrollIntoView({ block: 'start' });
+    };
+    scroll();
+    const timer = window.setTimeout(scroll, 500);
+    return () => window.clearTimeout(timer);
+  }, [section]);
 
-  // Modal State Handlers
-  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
-
-  const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
-  const [vehicleToEdit, setVehicleToEdit] = useState<Vehicle | null>(null);
-
-  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
-  const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
-  const [serviceToEdit, setServiceToEdit] = useState<ServiceItem | null>(null);
-
-  const [isWorkOrderModalOpen, setIsWorkOrderModalOpen] = useState(false);
-
-  const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
-  const [inventoryToEdit, setInventoryToEdit] = useState<InventoryItem | null>(null);
-
-  const [selectedTechForModal, setSelectedTechForModal] = useState<Technician | null>(null);
-  const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
-
-  const [showStaffLogin, setShowStaffLogin] = useState(false);
-  const [isCustomerAuthOpen, setIsCustomerAuthOpen] = useState(false);
-  const [publicPage, setPublicPage] = useState<'HOME' | 'BLOG'>('HOME');
-
-  // If not authenticated, render Customer Public Landing ("What are we?") or Staff Login
-  if (!isAuthenticated) {
-    if (showStaffLogin) {
-      return (
-        <div className={`min-h-screen flex flex-col justify-center transition-colors duration-200 ${theme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
-          <LoginView onBackToPublicSite={() => setShowStaffLogin(false)} />
-          <ToastContainer />
-        </div>
-      );
-    }
-
-    return (
-      <div className={`min-h-screen customer-theme-root transition-colors duration-200 ${theme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} selection:bg-blue-600 selection:text-white`}>
-        {publicPage === 'BLOG' ? (
-          <CustomerPublicBlog
-            onBackHome={() => setPublicPage('HOME')}
-            onOpenCustomerPortal={() => setIsCustomerAuthOpen(true)}
-            onOpenAuth={() => setIsCustomerAuthOpen(true)}
-            onOpenBooking={() => setIsCustomerAuthOpen(true)}
-            onOpenStaffLogin={() => setShowStaffLogin(true)}
-            onOpenBlog={() => setPublicPage('BLOG')}
-          />
-        ) : (
-          <CustomerPublicLanding
-            onOpenCustomerPortal={() => setIsCustomerAuthOpen(true)}
-            onOpenStaffLogin={() => setShowStaffLogin(true)}
-            onOpenBlog={() => setPublicPage('BLOG')}
-          />
-        )}
-        <CustomerAuthModal
-          isOpen={isCustomerAuthOpen}
-          onClose={() => setIsCustomerAuthOpen(false)}
-          onSuccessRedirect={() => setIsCustomerAuthOpen(false)}
-        />
-        <ToastContainer />
-      </div>
-    );
-  }
-
-  // If authenticated as Customer, render full-screen dedicated Customer Portal
-  if (currentRole === 'CUSTOMER') {
-    return (
-      <div className={`min-h-screen customer-theme-root transition-colors duration-200 ${theme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} selection:bg-blue-600 selection:text-white`}>
-        <CustomerPortal />
-        <ToastContainer />
-        <ConfirmModal />
-      </div>
-    );
-  }
-
-  // Render Role-specific Dashboard for Staff/Admin ERP
-  const renderDashboard = () => {
-    switch (currentRole) {
-      case 'ADMIN':
-        return <AdminDashboard />;
-      case 'MANAGER':
-        return <ManagerDashboard />;
-      case 'STAFF':
-        return <StaffDashboard />;
-      case 'TECHNICIAN':
-        return <TechnicianDashboard />;
-      default:
-        return <AdminDashboard />;
-    }
+  const openAuth = (mode: 'LOGIN' | 'REGISTER' = 'LOGIN') => {
+    setAuthMode(mode);
+    setAuthOpen(true);
   };
 
-  // Main Dynamic View Router
-  const renderMainContent = () => {
-    switch (currentView) {
-      case 'Dashboard':
-        return renderDashboard();
-
-      case 'Customers':
-        return (
-          <CustomerList
-            onOpenAddModal={() => {
-              setCustomerToEdit(null);
-              setIsCustomerModalOpen(true);
-            }}
-            onOpenEditModal={(cust) => {
-              setCustomerToEdit(cust);
-              setIsCustomerModalOpen(true);
-            }}
-          />
-        );
-
-      case 'CustomerDetail':
-        return (
-          <CustomerDetailView
-            onBack={() => setCurrentView('Customers')}
-            onEditCustomer={(cust) => {
-              setCustomerToEdit(cust);
-              setIsCustomerModalOpen(true);
-            }}
-            onAddVehicle={() => {
-              setVehicleToEdit(null);
-              setIsVehicleModalOpen(true);
-            }}
-            onAddAppointment={() => setIsAppointmentModalOpen(true)}
-            onAddWorkOrder={() => setIsWorkOrderModalOpen(true)}
-          />
-        );
-
-      case 'Vehicles':
-        return (
-          <VehicleList
-            onOpenAddModal={() => {
-              setVehicleToEdit(null);
-              setIsVehicleModalOpen(true);
-            }}
-            onOpenEditModal={(veh) => {
-              setVehicleToEdit(veh);
-              setIsVehicleModalOpen(true);
-            }}
-          />
-        );
-
-      case 'VehicleDetail':
-        return (
-          <VehicleDetailView
-            onBack={() => setCurrentView('Vehicles')}
-            onEditVehicle={(veh) => {
-              setVehicleToEdit(veh);
-              setIsVehicleModalOpen(true);
-            }}
-            onAddWorkOrder={() => setIsWorkOrderModalOpen(true)}
-            onAddAppointment={() => setIsAppointmentModalOpen(true)}
-          />
-        );
-
-      case 'Appointments':
-        return (
-          <AppointmentManager
-            onOpenAddModal={() => setIsAppointmentModalOpen(true)}
-          />
-        );
-
-      case 'Services':
-        return (
-          <ServiceCatalog
-            onOpenAddModal={() => {
-              setServiceToEdit(null);
-              setIsServiceModalOpen(true);
-            }}
-            onOpenEditModal={(serv) => {
-              setServiceToEdit(serv);
-              setIsServiceModalOpen(true);
-            }}
-          />
-        );
-
-      case 'WorkOrders':
-        return (
-          <WorkOrderList
-            onOpenAddModal={() => setIsWorkOrderModalOpen(true)}
-          />
-        );
-
-      case 'Tasks':
-        return <TaskBoardView />;
-
-      case 'WorkOrderDetail':
-        return (
-          <WorkOrderDetailView
-            onBack={() => setCurrentView('WorkOrders')}
-            onOpenInvoice={(invId) => {
-              // open invoice modal
-            }}
-          />
-        );
-
-      case 'Inventory':
-        return (
-          <InventoryList
-            onOpenAddModal={() => {
-              setInventoryToEdit(null);
-              setIsInventoryModalOpen(true);
-            }}
-            onOpenEditModal={(item) => {
-              setInventoryToEdit(item);
-              setIsInventoryModalOpen(true);
-            }}
-          />
-        );
-
-      case 'Suppliers':
-        return <SuppliersView />;
-
-      case 'Technicians':
-      case 'TechnicianDetail':
-        return (
-          <TechnicianList
-            onOpenDetailModal={(tech) => setSelectedTechForModal(tech)}
-          />
-        );
-
-      case 'Invoices':
-      case 'InvoiceDetail':
-        return (
-          <InvoiceList
-            onOpenInvoiceDetail={(inv) => setSelectedInvoiceForModal(inv)}
-          />
-        );
-
-      case 'Payments':
-        return <PaymentsView />;
-
-      case 'Reports':
-        return <ReportsView />;
-
-      case 'CCTV':
-        return <CCTVMonitoringView />;
-
-      case 'Feedback':
-        return <FeedbackList />;
-
-      case 'Documents':
-        return <DocumentsView />;
-
-      case 'Notifications':
-        return <StaffNotificationsView />;
-
-      case 'ActivityLogs':
-        return <ActivityLogsView />;
-
-      case 'Users':
-        return <UsersView />;
-
-      case 'Permissions':
-        return <PermissionsView />;
-
-      case 'Settings':
-        return <SettingsView />;
-
-      default:
-        return renderDashboard();
+  const openBooking = (id?: string) => {
+    if (!signedIn) {
+      openAuth('LOGIN');
+      return;
     }
+    setServiceId(id);
+    setBookingOpen(true);
+  };
+
+  const openPortal = () => {
+    if (signedIn) navigate(portalPaths.DASHBOARD);
+    else openAuth('LOGIN');
   };
 
   return (
-    <div className={`flex h-screen overflow-hidden font-sans antialiased transition-colors duration-200 ${theme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>
-      {/* Sidebar Navigation */}
-      <Sidebar />
-
-      {/* Main App Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Navbar */}
-        <Navbar />
-
-        {/* Dynamic Page Workspace */}
-        <main className={`flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6 ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>
-          <div className="max-w-7xl mx-auto">
-            {renderMainContent()}
-          </div>
-        </main>
-      </div>
-
-      {/* Global Modals & Dialogs */}
-      <GlobalSearchModal />
-      <ToastContainer />
-
-      <ConfirmModal />
-
-      {/* Entity Modals */}
-      <CustomerFormModal
-        isOpen={isCustomerModalOpen}
+    <>
+      {section === 'blog' ? (
+        <CustomerPublicBlog
+          onBackHome={() => navigate('/')}
+          onOpenCustomerPortal={openPortal}
+          onOpenAuth={() => openAuth('LOGIN')}
+          onOpenBooking={() => openBooking()}
+          onOpenBlog={() => navigate('/blog')}
+        />
+      ) : (
+        <CustomerPublicLanding
+          onOpenAuth={openAuth}
+          onOpenBooking={openBooking}
+          onOpenCustomerPortal={openPortal}
+          onEnterCustomerPortal={openPortal}
+          onOpenBlog={() => navigate('/blog')}
+        />
+      )}
+      <CustomerAuthModal
+        key={authMode}
+        isOpen={authOpen}
+        initialMode={authMode}
         onClose={() => {
-          setIsCustomerModalOpen(false);
-          setCustomerToEdit(null);
+          setAuthOpen(false);
+          if (params.get('signin')) navigate(location.pathname, { replace: true });
         }}
-        customerToEdit={customerToEdit}
-      />
-
-      <VehicleFormModal
-        isOpen={isVehicleModalOpen}
-        onClose={() => {
-          setIsVehicleModalOpen(false);
-          setVehicleToEdit(null);
+        onSuccessRedirect={() => {
+          setAuthOpen(false);
+          navigate(params.get('next') || portalPaths.DASHBOARD);
         }}
-        vehicleToEdit={vehicleToEdit}
       />
-
-      <AppointmentFormModal
-        isOpen={isAppointmentModalOpen}
-        onClose={() => setIsAppointmentModalOpen(false)}
-      />
-
-      <ServiceFormModal
-        isOpen={isServiceModalOpen}
-        onClose={() => {
-          setIsServiceModalOpen(false);
-          setServiceToEdit(null);
-        }}
-        serviceToEdit={serviceToEdit}
-      />
-
-      <WorkOrderFormModal
-        isOpen={isWorkOrderModalOpen}
-        onClose={() => setIsWorkOrderModalOpen(false)}
-      />
-
-      <InventoryFormModal
-        isOpen={isInventoryModalOpen}
-        onClose={() => {
-          setIsInventoryModalOpen(false);
-          setInventoryToEdit(null);
-        }}
-        itemToEdit={inventoryToEdit}
-      />
-
-      <TechnicianDetailModal
-        isOpen={!!selectedTechForModal}
-        onClose={() => setSelectedTechForModal(null)}
-        technician={selectedTechForModal}
-      />
-
-      <InvoiceDetailModal
-        isOpen={!!selectedInvoiceForModal}
-        onClose={() => setSelectedInvoiceForModal(null)}
-        invoice={selectedInvoiceForModal}
-      />
-    </div>
+      {signedIn && (
+        <CustomerBookAppointmentModal
+          isOpen={bookingOpen}
+          onClose={() => setBookingOpen(false)}
+          preselectedServiceId={serviceId}
+          onSuccessViewAppointments={() => {
+            setBookingOpen(false);
+            navigate(portalPaths.APPOINTMENTS);
+          }}
+        />
+      )}
+    </>
   );
-};
+}
+
+function CustomerPage({ tab }: { tab: CustomerTab }) {
+  const navigate = useNavigate();
+  return (
+    <CustomerPortalApp
+      key={tab}
+      onBackToPublicSite={() => navigate('/')}
+    />
+  );
+}
+
+function AppRoutes() {
+  return (
+    <ThemeFrame>
+      <Routes>
+        <Route path="/" element={<PublicSite />} />
+        <Route path="/about" element={<PublicSite />} />
+        <Route path="/services" element={<PublicSite />} />
+        <Route path="/how-it-works" element={<PublicSite />} />
+        <Route path="/live-bay" element={<PublicSite />} />
+        <Route path="/blog" element={<PublicSite />} />
+        <Route path="/contact" element={<PublicSite />} />
+        <Route path="/dashboard" element={<RequireCustomer><CustomerPage tab="DASHBOARD" /></RequireCustomer>} />
+        <Route path="/vehicles" element={<RequireCustomer><CustomerPage tab="VEHICLES" /></RequireCustomer>} />
+        <Route path="/appointments" element={<RequireCustomer><CustomerPage tab="APPOINTMENTS" /></RequireCustomer>} />
+        <Route path="/tracking" element={<RequireCustomer><CustomerPage tab="TRACKING" /></RequireCustomer>} />
+        <Route path="/quotes" element={<RequireCustomer><CustomerPage tab="QUOTES" /></RequireCustomer>} />
+        <Route path="/parts" element={<RequireCustomer><CustomerPage tab="PARTS_PRODUCTS" /></RequireCustomer>} />
+        <Route path="/invoices" element={<RequireCustomer><CustomerPage tab="INVOICES" /></RequireCustomer>} />
+        <Route path="/documents" element={<RequireCustomer><CustomerPage tab="DOCUMENTS" /></RequireCustomer>} />
+        <Route path="/reviews" element={<RequireCustomer><CustomerPage tab="FEEDBACK" /></RequireCustomer>} />
+        <Route path="/profile" element={<RequireCustomer><CustomerPage tab="PROFILE" /></RequireCustomer>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ThemeFrame>
+  );
+}
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainLayout />
-    </AppProvider>
+    <BrowserRouter>
+      <AppProvider>
+        <AppRoutes />
+      </AppProvider>
+    </BrowserRouter>
   );
 }

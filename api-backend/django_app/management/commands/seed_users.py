@@ -96,12 +96,12 @@ class Command(BaseCommand):
         )
         ayheng_user = self._user(
             "Ayheng",
-            email="ayheng@carsv.com",
+            email="namayheng12345@gmail.com",
             first="Ayheng",
             last="Nam",
             role=User.Role.CUSTOMER,
             phone="+855 10 778 221",
-            password="AyhengCarSV!23",
+            password="Ayheng123!@#",
             photo=self._img("people/young-man-beard-dark-sweater.jpg"),
         )
         tharo_user = self._user(
@@ -120,7 +120,7 @@ class Command(BaseCommand):
             name="Ayheng Nam",
             gender=Customer.Gender.MALE,
             phone="+855 10 778 221",
-            email="ayheng@carsv.com",
+            email="namayheng12345@gmail.com",
             address="No. 88, Street 310, Sangkat Boeung Keng Kang I, Khan Chamkarmon, Phnom Penh",
             photo=self._img("people/young-man-beard-dark-sweater.jpg"),
         )
@@ -371,19 +371,6 @@ class Command(BaseCommand):
         inspect_booking.status = Booking.Status.COMPLETED
         inspect_booking.save()
 
-        inspection, _ = Inspection.objects.get_or_create(booking=done_booking)
-        inspection.mileage = 42800
-        inspection.fuel_level = "75%"
-        inspection.front_brake_mm = Decimal("2.5")
-        inspection.rear_brake_mm = Decimal("6.8")
-        inspection.tire_tread_mm = Decimal("5.2")
-        inspection.condition = "Good body, noisy front brakes."
-        inspection.damage = "Small scratch on rear bumper."
-        inspection.complaint = "Squeak from front wheels."
-        inspection.note = "Checked in at reception."
-        inspection.staff = sokha_staff
-        inspection.save()
-
         job, _ = RepairJob.objects.get_or_create(
             booking=done_booking,
             defaults={"customer": ayheng, "vehicle": civic},
@@ -398,6 +385,19 @@ class Command(BaseCommand):
         job.status = RepairJob.Status.COMPLETED
         job.progress = 100
         job.save()
+        inspection, _ = Inspection.objects.get_or_create(repair_job=job)
+        inspection.mileage = 42800
+        inspection.fuel_level = "75"
+        inspection.status = Inspection.Status.COMPLETED
+        inspection.front_brake_mm = Decimal("2.5")
+        inspection.rear_brake_mm = Decimal("6.8")
+        inspection.tire_tread_mm = Decimal("5.2")
+        inspection.condition = "Good body, noisy front brakes."
+        inspection.damage = "Small scratch on rear bumper."
+        inspection.note = "Checked in at reception."
+        inspection.staff = sokha_staff
+        inspection.save()
+
 
         oil_job, _ = RepairJob.objects.get_or_create(
             booking=oil_booking,
@@ -406,7 +406,6 @@ class Command(BaseCommand):
         oil_job.customer = tharo
         oil_job.vehicle = ranger
         oil_job.mechanic = hour_mech
-        oil_job.problem = oil_booking.problem
         oil_job.diagnosis = "Oil overdue. Filter clogged. Replaced oil and filter."
         oil_job.start_date = date(2026, 9, 20)
         oil_job.estimated_end = date(2026, 9, 20)
@@ -421,7 +420,6 @@ class Command(BaseCommand):
         inspect_job.customer = ayheng
         inspect_job.vehicle = civic
         inspect_job.mechanic = mechanic
-        inspect_job.problem = inspect_booking.problem
         inspect_job.diagnosis = "No critical issues. Fluids and tires within range."
         inspect_job.start_date = date(2026, 9, 24)
         inspect_job.estimated_end = date(2026, 9, 24)
@@ -599,6 +597,8 @@ class Command(BaseCommand):
         user.department = kwargs.get("department", "")
         user.is_staff = kwargs.get("staff", False)
         user.is_superuser = kwargs.get("superuser", False)
+        user.email_verified = True
+        user.email_is_placeholder = False
         user.set_password(kwargs["password"])
         self._attach_image(user, "photo", kwargs.get("photo", ""))
         user.save()

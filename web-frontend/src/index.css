@@ -12,6 +12,15 @@ html {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+#about,
+#services,
+#how-it-works,
+#transparency,
+#blog,
+#contact {
+  scroll-margin-top: 7.5rem;
+}
+
 html.dark {
   color-scheme: dark;
 }
@@ -337,10 +346,9 @@ html:not(.dark) .customer-theme-root .hover\:bg-slate-700:hover {
   background-color: #cbd5e1;
 }
 
-/* Grey secondary buttons (Login, Explore, Create Account) */
+/* Compact secondary action buttons only — not full-width list cards */
 html:not(.dark) .customer-theme-root button.bg-slate-800,
-html:not(.dark) .customer-theme-root button.bg-slate-800\/80,
-html:not(.dark) .customer-theme-root button.bg-slate-900 {
+html:not(.dark) .customer-theme-root button.bg-slate-800\/80 {
   background-color: #e2e8f0 !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
@@ -348,16 +356,54 @@ html:not(.dark) .customer-theme-root button.bg-slate-900 {
 
 html:not(.dark) .customer-theme-root button.bg-slate-800:hover,
 html:not(.dark) .customer-theme-root button.bg-slate-800\/80:hover,
-html:not(.dark) .customer-theme-root button.bg-slate-900:hover,
 html:not(.dark) .customer-theme-root button.hover\:bg-slate-700:hover,
 html:not(.dark) .customer-theme-root button.hover\:bg-slate-800:hover {
   background-color: #cbd5e1 !important;
   color: #0f172a !important;
 }
 
-html:not(.dark) .customer-theme-root button.bg-slate-800 *,
-html:not(.dark) .customer-theme-root button.bg-slate-900 * {
+html:not(.dark) .customer-theme-root button.bg-slate-800 * {
   color: inherit;
+}
+
+/* Dark-theme accent tokens stay readable on remapped white cards */
+html:not(.dark) .customer-theme-root .text-blue-400,
+html:not(.dark) .customer-theme-root .text-blue-300 {
+  color: #1d4ed8;
+}
+
+html:not(.dark) .customer-theme-root .text-amber-400,
+html:not(.dark) .customer-theme-root .text-amber-300 {
+  color: #b45309;
+}
+
+html:not(.dark) .customer-theme-root .text-emerald-400,
+html:not(.dark) .customer-theme-root .text-emerald-300 {
+  color: #047857;
+}
+
+html:not(.dark) .customer-theme-root .text-rose-300,
+html:not(.dark) .customer-theme-root .text-rose-400 {
+  color: #e11d48;
+}
+
+html:not(.dark) .customer-theme-root .bg-emerald-950\/20,
+html:not(.dark) .customer-theme-root .bg-emerald-950\/30 {
+  background-color: #ecfdf5;
+}
+
+html:not(.dark) .customer-theme-root .bg-amber-950\/20,
+html:not(.dark) .customer-theme-root .bg-amber-950\/30 {
+  background-color: #fffbeb;
+}
+
+html:not(.dark) .customer-theme-root .border-emerald-500\/20,
+html:not(.dark) .customer-theme-root .border-emerald-500\/30 {
+  border-color: #a7f3d0;
+}
+
+html:not(.dark) .customer-theme-root .border-amber-500\/30 {
+  border-color: #fde68a;
 }
 
 /* Modal dimmer must stay a real overlay, not a solid light-grey sheet */
@@ -463,4 +509,57 @@ html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-800,
 html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-800\/80,
 html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-700 {
   border-color: #1e293b !important;
+}
+
+/* Workshop sheets stay the light admin invoice, in either site theme. */
+.invoice-sheet,
+.dark .invoice-sheet,
+.dark .invoice-sheet .bg-white {
+  background-color: #ffffff !important;
+  color: #0f172a;
+}
+
+.dark .invoice-sheet .bg-slate-50,
+.invoice-sheet .bg-slate-50,
+.dark .invoice-sheet .bg-slate-100 {
+  background-color: #f8fafc !important;
+}
+
+.dark .invoice-sheet .text-slate-900,
+.dark .invoice-sheet .text-slate-800 {
+  color: #0f172a !important;
+}
+
+.dark .invoice-sheet .text-slate-500,
+.dark .invoice-sheet .text-slate-600,
+.dark .invoice-sheet .text-slate-400 {
+  color: #64748b !important;
+}
+
+.dark .invoice-sheet .border-slate-200,
+.dark .invoice-sheet .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #garage-sheet,
+  #garage-sheet *,
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible;
+  }
+
+  #garage-sheet,
+  .print-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
 }

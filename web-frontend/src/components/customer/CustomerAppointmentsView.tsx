@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Calendar,
   Clock,
@@ -13,6 +13,12 @@ import {
   X
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import {
+  addBookingService,
+  createCustomerPartRequest,
+  CustomerPartRequestRow,
+  listCustomerPartRequests,
+} from '../../api/garage';
 import { belongsToCurrentCustomer } from '../../utils/customerScope';
 import { Appointment } from '../../types';
 
@@ -25,10 +31,39 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
   onOpenBookAppointment,
   onTrackWorkOrder
 }) => {
-  const { appointments, currentUser, updateAppointment, cancelAppointment, addToast } = useApp();
+  const {
+    appointments,
+    services,
+    inventory,
+    currentUser,
+    updateAppointment,
+    cancelAppointment,
+    addToast,
+    liveCustomer,
+    refreshCustomerPortal,
+  } = useApp();
+  const [extraServiceId, setExtraServiceId] = useState('');
+  const [addingService, setAddingService] = useState(false);
+  const [extraPartId, setExtraPartId] = useState('');
+  const [addingPart, setAddingPart] = useState(false);
+  const [partRequests, setPartRequests] = useState<CustomerPartRequestRow[]>([]);
 
-  const [activeTab, setActiveTab] = useState<'UPCOMING' | 'TODAY' | 'COMPLETED' | 'CANCELLED'>('UPCOMING');
+  const [activeTab, setActiveTab] = useState<'UPCOMING' | 'TODAY' | 'COMPLETED' | 'CANCELLED' | 'ALL'>('UPCOMING');
   const [selectedAppointmentDetails, setSelectedAppointmentDetails] = useState<Appointment | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listCustomerPartRequests()
+      .then((rows) => {
+        if (!cancelled) setPartRequests(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setPartRequests([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appointments?.length]);
   const [rescheduleAppointment, setRescheduleAppointment] = useState<Appointment | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -60,9 +95,31 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
     setCancelReason('');
   };
 
+  const slotTaken = (vehicleId: string, date: string, time: string, ignoreId?: string) =>
+    (appointments || []).some(
+      (item) =>
+        item.id !== ignoreId &&
+        item.vehicleId === vehicleId &&
+        item.date === date &&
+        (item.time || '').slice(0, 5) === time &&
+        item.status !== 'CANCELLED'
+    );
+
+  const canReschedule = (apt: Appointment) => apt.status === 'SCHEDULED' || apt.status === 'CONFIRMED';
+  const canCancel = (apt: Appointment) => canReschedule(apt);
+  const canTrack = (apt: Appointment) => Boolean(apt.workOrderNumber);
+
   const handleConfirmReschedule = (e: React.FormEvent) => {
     e.preventDefault();
     if (!rescheduleAppointment || !newDate) return;
+    if (slotTaken(rescheduleAppointment.vehicleId, newDate, newTime, rescheduleAppointment.id)) {
+      addToast({
+        type: 'error',
+        title: 'Time already booked',
+        message: 'That vehicle already has a booking at this time.',
+      });
+      return;
+    }
 
     updateAppointment(rescheduleAppointment.id, {
       date: newDate,
@@ -70,27 +127,40 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
       status: 'SCHEDULED'
     });
 
-    addToast({
-      type: 'success',
-      title: 'Appointment Rescheduled',
-      message: `Your booking is now moved to ${newDate} at ${newTime}.`
-    });
+    if (!liveCustomer) {
+      addToast({
+        type: 'success',
+        title: 'Appointment Rescheduled',
+        message: `Your booking is now moved to ${newDate} at ${newTime}.`
+      });
+    }
 
     setRescheduleAppointment(null);
   };
 
-  const getStatusBadge = (status: Appointment['status']) => {
+  const getStatusBadge = (status: Appointment['status'], label?: string) => {
+    const text =
+      label ||
+      (status === 'CONFIRMED'
+        ? 'Confirmed'
+        : status === 'IN_PROGRESS'
+          ? 'In progress'
+          : status === 'COMPLETED'
+            ? 'Completed'
+            : status === 'CANCELLED'
+              ? 'Cancelled'
+              : 'Scheduled');
     switch (status) {
       case 'CONFIRMED':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Confirmed</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">{text}</span>;
       case 'IN_PROGRESS':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">In Progress</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">{text}</span>;
       case 'COMPLETED':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30">Completed</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30">{text}</span>;
       case 'CANCELLED':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-red-500/15 text-red-400 border border-red-500/30">Cancelled</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-red-500/15 text-red-400 border border-red-500/30">{text}</span>;
       default:
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">Scheduled</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">{text}</span>;
     }
   };
 
@@ -118,18 +188,26 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
       </div>
 
       {/* Tabs Filter */}
-      <div className="flex border-b border-slate-800 bg-slate-900/60 p-1.5 rounded-2xl gap-2">
-        {(['UPCOMING', 'TODAY', 'COMPLETED', 'CANCELLED'] as const).map((tab) => (
+      <div className="flex flex-wrap border-b border-slate-800 bg-slate-900/60 p-1.5 rounded-2xl gap-2">
+        {(
+          [
+            { id: 'UPCOMING', label: 'Upcoming' },
+            { id: 'TODAY', label: 'Today' },
+            { id: 'COMPLETED', label: 'Completed' },
+            { id: 'CANCELLED', label: 'Cancelled' },
+            { id: 'ALL', label: 'All' },
+          ] as const
+        ).map((tab) => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              activeTab === tab
+              activeTab === tab.id
                 ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            {tab.charAt(0) + tab.slice(1).toLowerCase()}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -138,7 +216,9 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
       {filteredAppointments.length === 0 ? (
         <div className="bg-slate-900/40 rounded-3xl border border-slate-800 p-12 text-center space-y-3">
           <Calendar className="w-12 h-12 text-slate-400 mx-auto" />
-          <h4 className="text-base font-bold text-white">No {activeTab.toLowerCase()} appointments found</h4>
+          <h4 className="text-base font-bold text-white">
+            No {activeTab === 'ALL' ? '' : `${activeTab.toLowerCase()} `}appointments found
+          </h4>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
             Need to schedule an oil service, brake check, or vehicle diagnostic?
           </p>
@@ -165,12 +245,15 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                     <Clock className="w-4 h-4 text-slate-400" />
                     <span>{apt.time}</span>
                   </div>
-                  {getStatusBadge(apt.status)}
+                  {getStatusBadge(apt.status, apt.statusLabel)}
                 </div>
 
                 <h3 className="text-base font-bold text-white mb-1">{apt.serviceName}</h3>
                 <div className="text-xs text-slate-300 font-medium flex items-center gap-1.5 mb-2">
                   <Car className="w-3.5 h-3.5 text-slate-400" />
+                {apt.workOrderNumber && (
+                  <p className="text-[11px] text-slate-400 mb-1">{apt.workOrderNumber}{apt.assignedStaffName ? ` · ${apt.assignedStaffName}` : ''}</p>
+                )}
                   <span>{apt.vehicleInfo}</span>
                 </div>
 
@@ -188,8 +271,18 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                 </button>
 
                 <div className="flex items-center gap-2">
-                  {apt.status !== 'CANCELLED' && apt.status !== 'COMPLETED' && (
+                  {canTrack(apt) && onTrackWorkOrder && (
+                    <button
+                      type="button"
+                      onClick={() => onTrackWorkOrder(apt.workOrderNumber || apt.id)}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 font-bold py-1.5 px-3 rounded-lg bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-500/20 transition-all"
+                    >
+                      Track
+                    </button>
+                  )}
+                  {(canReschedule(apt) || canCancel(apt)) && (
                     <>
+                      {canReschedule(apt) && (
                       <button
                         onClick={() => {
                           setRescheduleAppointment(apt);
@@ -200,6 +293,8 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                       >
                         Reschedule
                       </button>
+                      )}
+                      {canCancel(apt) && (
                       <button
                         onClick={() => {
                           setCancelTarget(apt);
@@ -209,6 +304,7 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                       >
                         Cancel
                       </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -319,25 +415,182 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
       {/* MODAL 2: APPOINTMENT DETAILS */}
       {selectedAppointmentDetails && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-6 space-y-4">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+          <div className="relative w-full max-w-lg max-h-[min(90vh,720px)] bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 pt-6 pb-3 border-b border-slate-800 shrink-0">
               <div>
                 <h3 className="text-base font-bold text-white">Appointment Details</h3>
                 <span className="text-xs text-slate-400 font-mono">ID: {selectedAppointmentDetails.id}</span>
               </div>
               <button
-                onClick={() => setSelectedAppointmentDetails(null)}
+                onClick={() => {
+                  setSelectedAppointmentDetails(null);
+                  setExtraPartId('');
+                  setExtraServiceId('');
+                }}
                 className="p-1 text-slate-400 hover:text-white rounded-full bg-slate-800"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between py-1.5 border-b border-slate-800/80">
-                <span className="text-slate-400">Service:</span>
-                <span className="text-white font-bold">{selectedAppointmentDetails.serviceName}</span>
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-4 space-y-3 text-xs">
+              <div className="py-1.5 border-b border-slate-800/80 space-y-1">
+                <span className="text-slate-400">Services on this visit:</span>
+                {(selectedAppointmentDetails.services && selectedAppointmentDetails.services.length > 0
+                  ? selectedAppointmentDetails.services
+                  : [{ name: selectedAppointmentDetails.serviceName, price: 0, primary: true }]
+                ).map((item) => (
+                  <div key={item.name} className="flex justify-between text-white font-bold">
+                    <span>{item.name}</span>
+                    {item.price > 0 && <span>${item.price.toFixed(2)}</span>}
+                  </div>
+                ))}
+                {selectedAppointmentDetails.status !== 'CANCELLED' && selectedAppointmentDetails.status !== 'COMPLETED' && (
+                  <form
+                    className="pt-2 space-y-2"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      if (!extraServiceId || addingService) return;
+                      setAddingService(true);
+                      try {
+                        await addBookingService(selectedAppointmentDetails.id, extraServiceId);
+                        await refreshCustomerPortal();
+                        const added = (services || []).find((item) => item.id === extraServiceId);
+                        setSelectedAppointmentDetails((current) => current && ({
+                          ...current,
+                          serviceName: added ? `${current.serviceName}, ${added.name}` : current.serviceName,
+                          services: [
+                            ...(current.services || []),
+                            { name: added?.name || 'Service', price: added?.basePrice || 0, primary: false },
+                          ],
+                        }));
+                        setExtraServiceId('');
+                        addToast({
+                          type: 'success',
+                          title: 'Service added to this visit',
+                          message: 'It stays on the same appointment. The garage sees it on that booking.',
+                        });
+                      } catch (error) {
+                        addToast({
+                          type: 'error',
+                          title: 'Service was not added',
+                          message: error instanceof Error ? error.message : 'Try again.',
+                        });
+                      } finally {
+                        setAddingService(false);
+                      }
+                    }}
+                  >
+                    <label className="block text-[11px] font-semibold text-slate-400">Add another service</label>
+                    <div className="flex gap-2">
+                      <select
+                        value={extraServiceId}
+                        onChange={(event) => setExtraServiceId(event.target.value)}
+                        className="flex-1 p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                      >
+                        <option value="">Choose a service</option>
+                        {(services || [])
+                          .filter((item) => item.status === 'ACTIVE')
+                          .filter((item) => item.id !== selectedAppointmentDetails.serviceId)
+                          .filter((item) => !(selectedAppointmentDetails.services || []).some((row) => row.name === item.name))
+                          .map((item) => (
+                            <option key={item.id} value={item.id}>{item.name} · ${item.basePrice.toFixed(2)}</option>
+                          ))}
+                      </select>
+                      <button type="submit" disabled={addingService} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold">
+                        {addingService ? 'Adding…' : 'Add'}
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
+              {(() => {
+                const visitParts = partRequests.filter((row) => row.bookingId === selectedAppointmentDetails.id);
+                return (
+                  <div className="py-1.5 border-b border-slate-800/80 space-y-1">
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-400">Workshop parts on this booking:</span>
+                      {visitParts.length === 0 && <span className="font-mono text-slate-500">$0.00</span>}
+                    </div>
+                    {visitParts.map((row) => (
+                      <div key={row.id} className="flex justify-between text-white font-bold gap-3">
+                        <span>
+                          {row.productName}
+                          <span className="block text-[10px] font-mono font-normal text-slate-500">
+                            {row.number} · {row.status}
+                          </span>
+                        </span>
+                        <span>${row.price.toFixed(2)}</span>
+                      </div>
+                    ))}
+                    {selectedAppointmentDetails.status !== 'CANCELLED' && selectedAppointmentDetails.status !== 'COMPLETED' && (
+                      <form
+                        className="pt-2 space-y-2"
+                        onSubmit={async (event) => {
+                          event.preventDefault();
+                          if (!extraPartId || addingPart) return;
+                          setAddingPart(true);
+                          try {
+                            const saved = await createCustomerPartRequest({
+                              sparePartId: extraPartId,
+                              vehicleId: selectedAppointmentDetails.vehicleId,
+                              bookingId: selectedAppointmentDetails.id,
+                              fulfillment: 'INSTALL_IN_WORKSHOP',
+                            });
+                            const rows = await listCustomerPartRequests();
+                            setPartRequests(rows);
+                            setExtraPartId('');
+                            await refreshCustomerPortal();
+                            addToast({
+                              type: 'success',
+                              title: 'Part added to this visit',
+                              message: `${saved.productName} is on the booking. Stock stays on the shelf until the garage issues it.`,
+                            });
+                          } catch (error) {
+                            addToast({
+                              type: 'error',
+                              title: 'Part was not added',
+                              message: error instanceof Error ? error.message : 'Try again.',
+                            });
+                          } finally {
+                            setAddingPart(false);
+                          }
+                        }}
+                      >
+                        <label className="block text-[11px] font-semibold text-slate-400">Add more parts</label>
+                        <div className="flex gap-2">
+                          <select
+                            value={extraPartId}
+                            onChange={(event) => setExtraPartId(event.target.value)}
+                            className="flex-1 p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                          >
+                            <option value="">Choose a part</option>
+                            {(inventory || [])
+                              .filter((part) => part.stockQuantity > 0)
+                              .filter(
+                                (part) =>
+                                  !partRequests.some(
+                                    (row) =>
+                                      row.bookingId === selectedAppointmentDetails.id &&
+                                      row.sku === part.sku &&
+                                      !row.issued
+                                  )
+                              )
+                              .map((part) => (
+                                <option key={part.id} value={part.id}>
+                                  {part.name} · ${part.unitPrice.toFixed(2)}
+                                </option>
+                              ))}
+                          </select>
+                          <button type="submit" disabled={addingPart} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold">
+                            {addingPart ? 'Adding…' : 'Add'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="flex justify-between py-1.5 border-b border-slate-800/80">
                 <span className="text-slate-400">Vehicle:</span>
                 <span className="text-white font-bold">{selectedAppointmentDetails.vehicleInfo}</span>
@@ -348,11 +601,11 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-800/80">
                 <span className="text-slate-400">Assigned Technician:</span>
-                <span className="text-blue-400 font-bold">{selectedAppointmentDetails.assignedStaffName || 'Dara Kim'}</span>
+                <span className="text-blue-400 font-bold">{selectedAppointmentDetails.assignedStaffName || 'Unassigned'}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-800/80">
                 <span className="text-slate-400">Status:</span>
-                <div>{getStatusBadge(selectedAppointmentDetails.status)}</div>
+                <div>{getStatusBadge(selectedAppointmentDetails.status, selectedAppointmentDetails.statusLabel)}</div>
               </div>
               <div className="py-2">
                 <span className="text-slate-400 block mb-1">Reported Symptoms:</span>
@@ -372,9 +625,14 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
               )}
             </div>
 
-            <div className="pt-2 flex justify-end">
+            <div className="shrink-0 border-t border-slate-800 px-6 py-4 flex justify-end bg-slate-900">
               <button
-                onClick={() => setSelectedAppointmentDetails(null)}
+                type="button"
+                onClick={() => {
+                  setSelectedAppointmentDetails(null);
+                  setExtraPartId('');
+                  setExtraServiceId('');
+                }}
                 className="px-5 py-2 rounded-xl bg-slate-800 text-white text-xs font-bold"
               >
                 Close

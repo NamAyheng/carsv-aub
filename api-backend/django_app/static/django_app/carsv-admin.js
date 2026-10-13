@@ -147,3 +147,150 @@
     bind();
   }
 })();
+
+(function () {
+  function stash(select) {
+    if (select._visitOptions) return;
+    select._visitOptions = Array.from(select.options).map(function (option) {
+      return option.cloneNode(true);
+    });
+  }
+
+  function rebuild(select, keep) {
+    stash(select);
+    const current = select.value;
+    select.innerHTML = "";
+    select._visitOptions.forEach(function (option) {
+      if (!option.value || keep(option)) select.appendChild(option.cloneNode(true));
+    });
+    select.value = current;
+    if (select.value !== current) select.value = "";
+  }
+
+  function lock(form, name, locked) {
+    const input = form.querySelector('[name="' + name + '"]');
+    if (!input || input.dataset.serverLocked === "1") return;
+    input.disabled = locked;
+    const field = input.closest(".cf-field");
+    if (field) field.classList.toggle("is-locked", locked);
+  }
+
+  function bindWorkOrder(form) {
+    const customer = form.querySelector('[name="customer"]');
+    const vehicle = form.querySelector('[name="vehicle"]');
+    const booking = form.querySelector('[name="booking"][data-visit-source]');
+    if (!customer || !vehicle || !booking || form.dataset.visitReady === "1") return;
+    form.dataset.visitReady = "1";
+    ["customer", "vehicle", "booking", "problem", "start_date"].forEach(function (name) {
+      const input = form.querySelector('[name="' + name + '"]');
+      if (input && input.hasAttribute("data-server-locked")) input.dataset.serverLocked = "1";
+    });
+
+    const jobFields = ["mechanic", "estimated_end", "status"];
+
+    function sync() {
+      const customerId = customer.value;
+      rebuild(vehicle, function (option) {
+        return option.getAttribute("data-customer") === customerId;
+      });
+      const vehicleId = vehicle.value;
+      rebuild(booking, function (option) {
+        return option.getAttribute("data-customer") === customerId && option.getAttribute("data-vehicle") === vehicleId;
+      });
+      const chosen = booking.options[booking.selectedIndex];
+      const hasBooking = Boolean(chosen && chosen.value);
+      lock(form, "vehicle", !customerId);
+      lock(form, "booking", !vehicleId);
+      lock(form, "problem", true);
+      lock(form, "start_date", true);
+      const problem = form.querySelector('[name="problem"]');
+      const start = form.querySelector('[name="start_date"]');
+      if (problem && !problem.dataset.serverLocked) {
+        problem.value = hasBooking ? (chosen.getAttribute("data-problem") || "").replace(/\\n/g, "\n") : "";
+      }
+      if (start && !start.dataset.serverLocked) {
+        start.value = hasBooking ? chosen.getAttribute("data-start") || "" : "";
+      }
+      jobFields.forEach(function (name) {
+        lock(form, name, !hasBooking);
+      });
+      lock(form, "progress", true);
+      paintProgress(form);
+    }
+
+    customer.addEventListener("change", function () {
+      vehicle.value = "";
+      booking.value = "";
+      sync();
+    });
+    vehicle.addEventListener("change", function () {
+      booking.value = "";
+      sync();
+    });
+    booking.addEventListener("change", sync);
+    sync();
+  }
+
+  const PROGRESS_FOR_STATUS = {
+    WAITING: 0,
+    DIAGNOSING: 20,
+    WAITING_APPROVAL: 40,
+    REPAIRING: 60,
+    QUALITY_CHECK: 80,
+    READY_FOR_PICKUP: 90,
+    COMPLETED: 100,
+  };
+
+  function paintProgress(form) {
+    if (!form) return;
+    const status = form.querySelector('select[name="status"]');
+    const progress = form.querySelector('[name="progress"]');
+    if (!status || !progress) return;
+    const value = Object.prototype.hasOwnProperty.call(PROGRESS_FOR_STATUS, status.value)
+      ? PROGRESS_FOR_STATUS[status.value]
+      : 0;
+    progress.value = String(value);
+    const fill = form.querySelector(".cf-progress-fill");
+    if (fill) fill.style.width = value + "%";
+  }
+
+  function paintStatus(select) {
+    if (!select || select.name !== "status") return;
+    const option = select.options[select.selectedIndex];
+    select.setAttribute("data-tone", option ? option.getAttribute("data-tone") || "" : "");
+  }
+
+  function bindInspection(form) {
+    const job = form.querySelector('[name="repair_job"][data-inspection-job]');
+    const complaint = form.querySelector('[name="complaint"]');
+    if (!job || !complaint || form.dataset.inspectionReady === "1") return;
+    form.dataset.inspectionReady = "1";
+    function sync() {
+      const chosen = job.options[job.selectedIndex];
+      complaint.value = chosen ? (chosen.getAttribute("data-problem") || "").replace(/\\n/g, "\n") : "";
+    }
+    job.addEventListener("change", sync);
+    sync();
+  }
+
+  function bindVisits() {
+    document.querySelectorAll(".cf-modal form").forEach(function (form) {
+      bindWorkOrder(form);
+      bindInspection(form);
+    });
+    document.querySelectorAll('select[name="status"]').forEach(function (select) {
+      paintStatus(select);
+      select.addEventListener("change", function () {
+        paintStatus(select);
+        paintProgress(select.closest("form"));
+      });
+      paintProgress(select.closest("form"));
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bindVisits);
+  } else {
+    bindVisits();
+  }
+})();

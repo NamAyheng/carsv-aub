@@ -19,36 +19,39 @@ interface CustomerProfileViewProps {
 }
 
 export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogout }) => {
-  const { currentUser, updateUser, addToast } = useApp();
+  const { currentUser, updateUser, addToast, liveCustomer, saveCustomerProfile, changeCustomerPassword } = useApp();
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   // Edit fields
-  const [name, setName] = useState(currentUser?.name || 'John Doe');
+  const [name, setName] = useState(currentUser?.name || '');
   const [phone, setPhone] = useState(currentUser?.phone || '+855 12 345 678');
-  const [address, setAddress] = useState('St. 2004, Sen Sok, Phnom Penh');
+  const [address, setAddress] = useState(currentUser?.address || '');
+  const [photo, setPhoto] = useState<File | null>(null);
 
   // Password fields
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateUser(currentUser.id, {
-      name,
-      phone
-    });
-    setShowEditModal(false);
+    if (liveCustomer) {
+      const saved = await saveCustomerProfile({ name, phone, address, photo });
+      if (saved) setShowEditModal(false);
+      return;
+    }
+    updateUser(currentUser.id, { name, phone });
     addToast({
       type: 'success',
       title: 'Profile Updated',
       message: 'Your personal information has been updated successfully.'
     });
+    setShowEditModal(false);
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPass !== confirmPass) {
       addToast({
@@ -58,15 +61,20 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
       });
       return;
     }
+    if (liveCustomer) {
+      const changed = await changeCustomerPassword(currentPass, newPass);
+      if (!changed) return;
+    } else {
+      addToast({
+        type: 'success',
+        title: 'Password Changed',
+        message: 'Your account password has been safely updated.'
+      });
+    }
     setShowPasswordModal(false);
     setCurrentPass('');
     setNewPass('');
     setConfirmPass('');
-    addToast({
-      type: 'success',
-      title: 'Password Changed',
-      message: 'Your account password has been safely updated.'
-    });
   };
 
   return (
@@ -83,7 +91,13 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
         </div>
 
         <button
-          onClick={() => setShowEditModal(true)}
+          onClick={() => {
+            setName(currentUser?.name || '');
+            setPhone(currentUser?.phone || '');
+            setAddress(currentUser?.address || '');
+            setPhoto(null);
+            setShowEditModal(true);
+          }}
           className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-lg shadow-blue-600/25 cursor-pointer"
         >
           <Edit className="w-3.5 h-3.5" />
@@ -94,22 +108,25 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
       {/* Main Profile Details Card */}
       <div className="bg-slate-900 rounded-3xl border border-slate-800 p-8 space-y-8 shadow-xl">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 pb-6 border-b border-slate-800">
-          <img
-            src={
-              currentUser?.avatar ||
-              '/images/people/young-man-mandarin-collar.jpg'
-            }
-            alt={currentUser?.name}
-            className="w-24 h-24 rounded-2xl object-cover border-2 border-blue-500 shadow-xl shadow-blue-500/15"
-          />
+          {currentUser?.avatar ? (
+            <img
+              src={currentUser.avatar}
+              alt={currentUser?.name}
+              className="w-24 h-24 rounded-2xl object-cover border-2 border-blue-500 shadow-xl shadow-blue-500/15"
+            />
+          ) : (
+            <div className="w-24 h-24 rounded-2xl border-2 border-blue-500 bg-slate-800 text-blue-300 text-3xl font-black flex items-center justify-center shadow-xl shadow-blue-500/15">
+              {(currentUser?.name || 'C').slice(0, 1).toUpperCase()}
+            </div>
+          )}
           <div className="space-y-1.5">
             <div className="flex items-center gap-3">
-              <h3 className="text-2xl font-black text-white">{currentUser?.name || 'John Doe'}</h3>
+              <h3 className="text-2xl font-black text-white">{currentUser?.name || 'Customer'}</h3>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                 Verified Account
               </span>
             </div>
-            <p className="text-xs text-slate-400">Customer ID: {currentUser?.id || 'cust-1'}</p>
+            <p className="text-xs text-slate-400">Customer ID: {currentUser?.id || 'Not signed in'}</p>
             <p className="text-xs text-slate-400 flex items-center gap-1.5 pt-1">
               <Calendar className="w-3.5 h-3.5 text-blue-400" />
               <span>Member since: {currentUser?.createdAt || 'January 2026'}</span>
@@ -124,7 +141,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
               <Mail className="w-3 h-3 text-blue-400" />
               <span>Email Address</span>
             </span>
-            <div className="font-bold text-white text-sm">{currentUser?.email || 'john.doe@example.com'}</div>
+            <div className="font-bold text-white text-sm">{currentUser?.email || 'No email on file'}</div>
           </div>
 
           <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
@@ -140,7 +157,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
               <MapPin className="w-3 h-3 text-red-400" />
               <span>Primary Address</span>
             </span>
-            <div className="font-bold text-white text-sm">{address}</div>
+            <div className="font-bold text-white text-sm">{currentUser?.address || address || '—'}</div>
           </div>
 
           <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
@@ -217,6 +234,23 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
                   onChange={(e) => setAddress(e.target.value)}
                   className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Profile photo</label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={(e) => setPhoto(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
+                />
+                {photo && (
+                  <img
+                    src={URL.createObjectURL(photo)}
+                    alt=""
+                    className="mt-3 h-16 w-16 rounded-xl object-cover border border-slate-700"
+                  />
+                )}
               </div>
 
               <div className="pt-2 flex justify-end gap-2">

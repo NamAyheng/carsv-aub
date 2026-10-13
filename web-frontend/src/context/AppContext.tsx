@@ -29,36 +29,69 @@ import {
   PaymentReceipt,
   WarrantyClaim
 } from '../types';
+import { apiLogout, apiMe, refreshAccessToken } from '../api/client';
 import {
-  initialUsers,
-  initialCustomers,
-  initialVehicles,
-  initialServices,
-  initialAppointments,
-  initialWorkOrders,
-  initialTasks,
-  initialTechnicians,
-  initialInventory,
-  initialSuppliers,
-  initialPurchaseOrders,
-  initialInvoices,
-  initialPayments,
-  initialCCTVCameras,
-  initialFeedback,
-  initialActivityLogs,
-  initialNotifications,
-  initialDocuments,
-  initialSettings,
-  defaultRolePermissions
-} from '../data/mockData';
-import {
-  initialEstimates,
-  initialServiceHistory,
-  initialPaymentReceipts,
-  initialWarrantyClaims
-} from '../data/customerGarage';
+  cancelCustomerBooking,
+  changeCustomerPassword,
+  createCustomerBooking,
+  createCustomerVehicle,
+  deleteCustomerVehicle,
+  updateCustomerVehicle,
+  updateCustomerVehicleImage,
+  CustomerPortalData,
+  CustomerProfile,
+  decideCustomerEstimate,
+  loadCustomerPortal,
+  loadPublicServices,
+  markAllCustomerNotificationsRead,
+  markCustomerNotificationRead,
+  requestPasswordReset,
+  rescheduleCustomerBooking,
+  saveCustomerProfile,
+  userFromProfile,
+} from '../api/garage';
+
+const guestUser: User = {
+  id: '',
+  name: '',
+  email: '',
+  phone: '',
+  role: 'CUSTOMER',
+  avatar: '',
+  status: 'ACTIVE',
+  lastLogin: '',
+  createdAt: '',
+};
+
+const emptySettings: GarageSettings = {
+  garageName: 'CarSV',
+  tagline: '',
+  phone: '',
+  email: '',
+  website: '',
+  address: '',
+  taxRegistrationNumber: '',
+  currency: 'USD',
+  defaultLaborRatePerHour: 0,
+  defaultTaxRatePercent: 0,
+  invoiceTerms: '',
+  operatingHours: '',
+  lowStockAlertThreshold: 0,
+  enableCCTVCustomerStream: false,
+  enableEmailAlerts: false,
+  enableSmsAlerts: false,
+  autoAssignTechnicians: false,
+};
+
+const noAccess = { view: false, create: false, edit: false, delete: false };
+const emptyPermissions: Record<UserRole, RolePermissions> = {
+  ADMIN: { Customers: noAccess, Vehicles: noAccess, Appointments: noAccess, WorkOrders: noAccess, Tasks: noAccess, Inventory: noAccess, Reports: noAccess, Users: noAccess, CCTV: noAccess, Settings: noAccess },
+  MANAGER: { Customers: noAccess, Vehicles: noAccess, Appointments: noAccess, WorkOrders: noAccess, Tasks: noAccess, Inventory: noAccess, Reports: noAccess, Users: noAccess, CCTV: noAccess, Settings: noAccess },
+  STAFF: { Customers: noAccess, Vehicles: noAccess, Appointments: noAccess, WorkOrders: noAccess, Tasks: noAccess, Inventory: noAccess, Reports: noAccess, Users: noAccess, CCTV: noAccess, Settings: noAccess },
+  TECHNICIAN: { Customers: noAccess, Vehicles: noAccess, Appointments: noAccess, WorkOrders: noAccess, Tasks: noAccess, Inventory: noAccess, Reports: noAccess, Users: noAccess, CCTV: noAccess, Settings: noAccess },
+  CUSTOMER: { Customers: noAccess, Vehicles: noAccess, Appointments: noAccess, WorkOrders: noAccess, Tasks: noAccess, Inventory: noAccess, Reports: noAccess, Users: noAccess, CCTV: noAccess, Settings: noAccess },
+};
 import { findDuplicateVehicle, invoiceRemaining, nextOilChangeMileage, remainingBalance, validatePaymentAmount } from '../utils/garageLogic';
-import { ROLE_LABEL } from '../utils/roles';
 
 export type NavigationPage =
   | 'Dashboard'
@@ -109,12 +142,21 @@ export interface ConfirmDialogState {
 interface AppContextType {
   // Auth state
   isAuthenticated: boolean;
+  authReady: boolean;
   currentUser: User;
   currentRole: UserRole;
-  login: (email: string, role?: UserRole) => boolean;
   logout: () => void;
-  switchRole: (role: UserRole) => void;
-  switchUser: (userId: string) => void;
+  liveCustomer: boolean;
+  openCustomerSession: () => Promise<boolean>;
+  persistCustomerVehicle: (veh: Omit<Vehicle, 'id' | 'lastServiceDate'> & { imageFile?: File | null }) => Promise<Vehicle | null>;
+  saveCustomerVehicle: (vehicleId: string, veh: Omit<Vehicle, 'id' | 'lastServiceDate'> & { imageFile?: File | null }) => Promise<Vehicle | null>;
+  removeCustomerVehicle: (vehicleId: string) => Promise<boolean>;
+  updateCustomerVehiclePhoto: (vehicleId: string, photo: File) => Promise<Vehicle | null>;
+  persistCustomerBooking: (apt: Omit<Appointment, 'id'>) => Promise<Appointment | null>;
+  refreshCustomerPortal: () => Promise<void>;
+  saveCustomerProfile: (fields: { name: string; phone: string; address: string; photo?: File | null }) => Promise<boolean>;
+  changeCustomerPassword: (currentPassword: string, nextPassword: string) => Promise<boolean>;
+  requestPasswordReset: (email: string) => Promise<boolean>;
 
   // Theme state
   theme: 'light' | 'dark';
@@ -296,8 +338,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [currentUser, setCurrentUser] = useState<User>(initialUsers[0]);
-  const [currentRole, setCurrentRole] = useState<UserRole>('ADMIN');
+  const [authReady, setAuthReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User>(guestUser);
+  const [currentRole, setCurrentRole] = useState<UserRole>('CUSTOMER');
+  const [liveCustomer, setLiveCustomer] = useState(false);
+  const liveCustomerRef = React.useRef(false);
 
   // Navigation
   const [currentView, setCurrentView] = useState<NavigationPage>('Dashboard');
@@ -306,77 +351,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [globalSearchOpen, setGlobalSearchOpen] = useState<boolean>(false);
 
   // Selected details
-  const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<string | null>('wo-1024');
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>('cust-1');
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>('veh-1');
-  const [selectedTechnicianId, setSelectedTechnicianId] = useState<string | null>('user-tech-dara');
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>('inv-2026-089');
+  const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<string | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [selectedTechnicianId, setSelectedTechnicianId] = useState<string | null>(null);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
   // Entities state
-  const [users, setUsers] = useState<User[]>(initialUsers);
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles);
-  const [services, setServices] = useState<ServiceItem[]>(initialServices);
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>(initialWorkOrders);
-  const [tasks, setTasks] = useState<RepairTask[]>(initialTasks);
-  const [technicians, setTechnicians] = useState<Technician[]>(initialTechnicians);
-  const [inventory, setInventory] = useState<InventoryPart[]>(initialInventory);
+  const [users, setUsers] = useState<User[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+  const [tasks, setTasks] = useState<RepairTask[]>([]);
+  const [technicians, setTechnicians] = useState<Technician[]>([]);
+  const [inventory, setInventory] = useState<InventoryPart[]>([]);
   const [stockAdjustments, setStockAdjustments] = useState<StockAdjustment[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(initialPurchaseOrders);
-  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
-  const [payments, setPayments] = useState<PaymentRecord[]>(initialPayments);
-  const [paymentReceipts, setPaymentReceipts] = useState<PaymentReceipt[]>(initialPaymentReceipts);
-  const [estimates, setEstimates] = useState<Estimate[]>(initialEstimates);
-  const [serviceHistory, setServiceHistory] = useState<ServiceHistoryRecord[]>(initialServiceHistory);
-  const [warrantyClaims, setWarrantyClaims] = useState<WarrantyClaim[]>(initialWarrantyClaims);
-  const [cctvCameras, setCctvCameras] = useState<CCTVCamera[]>(initialCCTVCameras);
-  const [feedback, setFeedback] = useState<CustomerFeedback[]>(initialFeedback);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(initialActivityLogs);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(initialNotifications);
-  const [documents, setDocuments] = useState<GarageDocument[]>(initialDocuments);
-  const [settings, setSettings] = useState<GarageSettings>(initialSettings);
-  const [permissions, setPermissions] = useState<Record<UserRole, RolePermissions>>({
-    ADMIN: { ...defaultRolePermissions },
-    MANAGER: {
-      ...defaultRolePermissions,
-      Users: { view: true, create: false, edit: false, delete: false },
-      Settings: { view: true, create: false, edit: true, delete: false }
-    },
-    STAFF: {
-      ...defaultRolePermissions,
-      Reports: { view: false, create: false, edit: false, delete: false },
-      Users: { view: false, create: false, edit: false, delete: false },
-      Settings: { view: false, create: false, edit: false, delete: false },
-      Inventory: { view: true, create: false, edit: false, delete: false },
-      Tasks: { view: true, create: true, edit: true, delete: false }
-    },
-    TECHNICIAN: {
-      Customers: { view: true, create: false, edit: false, delete: false },
-      Vehicles: { view: true, create: false, edit: false, delete: false },
-      Appointments: { view: true, create: false, edit: false, delete: false },
-      WorkOrders: { view: true, create: false, edit: true, delete: false },
-      Tasks: { view: true, create: false, edit: true, delete: false },
-      Inventory: { view: true, create: false, edit: false, delete: false },
-      Reports: { view: false, create: false, edit: false, delete: false },
-      Users: { view: false, create: false, edit: false, delete: false },
-      CCTV: { view: true, create: false, edit: false, delete: false },
-      Settings: { view: false, create: false, edit: false, delete: false }
-    },
-    CUSTOMER: {
-      Customers: { view: false, create: false, edit: false, delete: false },
-      Vehicles: { view: true, create: false, edit: false, delete: false },
-      Appointments: { view: true, create: true, edit: false, delete: false },
-      WorkOrders: { view: true, create: false, edit: false, delete: false },
-      Tasks: { view: false, create: false, edit: false, delete: false },
-      Inventory: { view: false, create: false, edit: false, delete: false },
-      Reports: { view: false, create: false, edit: false, delete: false },
-      Users: { view: false, create: false, edit: false, delete: false },
-      CCTV: { view: true, create: false, edit: false, delete: false },
-      Settings: { view: false, create: false, edit: false, delete: false }
-    }
-  });
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [paymentReceipts, setPaymentReceipts] = useState<PaymentReceipt[]>([]);
+  const [estimates, setEstimates] = useState<Estimate[]>([]);
+  const [serviceHistory, setServiceHistory] = useState<ServiceHistoryRecord[]>([]);
+  const [warrantyClaims, setWarrantyClaims] = useState<WarrantyClaim[]>([]);
+  const [cctvCameras, setCctvCameras] = useState<CCTVCamera[]>([]);
+  const [feedback, setFeedback] = useState<CustomerFeedback[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [documents, setDocuments] = useState<GarageDocument[]>([]);
+  const [settings, setSettings] = useState<GarageSettings>(emptySettings);
+  const [permissions, setPermissions] = useState<Record<UserRole, RolePermissions>>(emptyPermissions);
 
   // UI state
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -432,70 +438,122 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications((prev) => [item, ...prev]);
   };
 
-  // Auth operations
-  const login = (email: string, role?: UserRole) => {
-    const foundUser = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (foundUser) {
-      setCurrentUser(foundUser);
-      setCurrentRole(foundUser.role);
-      setIsAuthenticated(true);
-      setCurrentView('Dashboard');
-      addToast({
-        type: 'success',
-        title: `Welcome back, ${foundUser.name}`,
-        message: `Signed in as ${ROLE_LABEL[foundUser.role]}`
-      });
-      return true;
-    }
-    if (role) {
-      const roleUser = users.find((u) => u.role === role) || users[0];
-      setCurrentUser(roleUser);
-      setCurrentRole(role);
-      setIsAuthenticated(true);
-      setCurrentView('Dashboard');
-      addToast({
-        type: 'success',
-        title: `Logged in as ${roleUser.name}`,
-        message: `Signed in as ${ROLE_LABEL[roleUser.role]}`
-      });
-      return true;
-    }
-    return false;
+  const markLiveCustomer = (active: boolean) => {
+    liveCustomerRef.current = active;
+    setLiveCustomer(active);
   };
 
+  const applyPortal = (portal: CustomerPortalData) => {
+    setVehicles(portal.vehicles);
+    setServices(portal.services);
+    setAppointments(portal.appointments);
+    setWorkOrders(portal.workOrders);
+    setInvoices(portal.invoices);
+    setPayments(portal.payments);
+    setPaymentReceipts(portal.receipts);
+    setEstimates(portal.estimates);
+    setServiceHistory(portal.history);
+    setNotifications(portal.notifications);
+    setInventory(portal.parts);
+    setCctvCameras([]);
+    setFeedback([]);
+    setDocuments([]);
+  };
+
+  const clearCustomerRecords = () => {
+    setVehicles([]);
+    setAppointments([]);
+    setWorkOrders([]);
+    setInvoices([]);
+    setPayments([]);
+    setPaymentReceipts([]);
+    setEstimates([]);
+    setServiceHistory([]);
+    setNotifications([]);
+    setInventory([]);
+    setCurrentUser(guestUser);
+    setCurrentRole('CUSTOMER');
+    void loadPublicServices().then((rows) => {
+      if (!liveCustomerRef.current) setServices(rows);
+    }).catch(() => {
+      if (!liveCustomerRef.current) setServices([]);
+    });
+  };
+
+  const refreshCustomerPortal = async () => {
+    if (!liveCustomerRef.current) return;
+    const portal = await loadCustomerPortal(profileFromUser());
+    applyPortal(portal);
+  };
+
+  const openCustomerSession = async () => {
+    const me = await apiMe();
+    if (!me || me.role !== 'CUSTOMER') return false;
+    const profile = me as unknown as CustomerProfile;
+    const portal = await loadCustomerPortal(profile);
+    markLiveCustomer(true);
+    setCurrentUser(userFromProfile(profile));
+    setCurrentRole('CUSTOMER');
+    applyPortal(portal);
+    setIsAuthenticated(true);
+    setCurrentView('Dashboard');
+    addToast({
+      type: 'success',
+      title: `Welcome back, ${profile.name || profile.username}`,
+      message: 'Signed in as Customer',
+    });
+    return true;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    refreshAccessToken()
+      .then(async (ok) => {
+        if (!ok || cancelled) return;
+        const me = await apiMe();
+        if (!me || cancelled) return;
+        if (me.role === 'CUSTOMER') {
+          const profile = me as unknown as CustomerProfile;
+          const portal = await loadCustomerPortal(profile);
+          if (cancelled) return;
+          markLiveCustomer(true);
+          setCurrentUser(userFromProfile(profile));
+          setCurrentRole('CUSTOMER');
+          applyPortal(portal);
+          setIsAuthenticated(true);
+          return;
+        }
+        await apiLogout();
+      })
+      .finally(() => {
+        if (!cancelled) setAuthReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    void loadPublicServices()
+      .then((rows) => {
+        if (!liveCustomerRef.current) setServices(rows);
+      })
+      .catch(() => undefined);
+  }, []);
+
   const logout = () => {
+    const wasLive = liveCustomerRef.current;
+    void apiLogout();
     setIsAuthenticated(false);
+    if (wasLive) {
+      markLiveCustomer(false);
+      clearCustomerRecords();
+    }
     addToast({
       type: 'info',
       title: 'Signed Out',
       message: 'You have been safely signed out of CarSV.'
     });
-  };
-
-  const switchRole = (role: UserRole) => {
-    const matchingUser = users.find((u) => u.role === role) || users[0];
-    setCurrentUser(matchingUser);
-    setCurrentRole(role);
-    setCurrentView('Dashboard');
-    addToast({
-      type: 'info',
-      title: `Now signed in as ${matchingUser.name}`,
-      message: ROLE_LABEL[role]
-    });
-  };
-
-  const switchUser = (userId: string) => {
-    const found = users.find((u) => u.id === userId);
-    if (found) {
-      setCurrentUser(found);
-      setCurrentRole(found.role);
-      setCurrentView('Dashboard');
-      addToast({
-        type: 'info',
-        title: `Now signed in as ${found.name}`,
-        message: ROLE_LABEL[found.role]
-      });
-    }
   };
 
   // Deep Navigation Helpers
@@ -623,6 +681,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateAppointment = (id: string, updated: Partial<Appointment>) => {
+    if (liveCustomerRef.current && (updated.date || updated.time)) {
+      const current = appointments.find((item) => item.id === id);
+      void rescheduleCustomerBooking(id, updated.date || current?.date || '', updated.time || current?.time || '')
+        .then(() => {
+          setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, date: updated.date || a.date, time: updated.time || a.time } : a)));
+          addToast({ type: 'success', title: 'Appointment Updated', message: 'The booking was rescheduled.' });
+        })
+        .catch((error: unknown) => {
+          addToast({
+            type: 'error',
+            title: 'Could not reschedule',
+            message: error instanceof Error ? error.message : 'Request failed.',
+          });
+        });
+      return;
+    }
     setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...updated } : a)));
     logActivity('APPOINTMENT_UPDATED', 'APPOINTMENTS', `Updated appointment #${id}`);
     if (updated.date || updated.time) {
@@ -641,6 +715,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const cancelAppointment = (id: string, reason: string) => {
     const apt = appointments.find((a) => a.id === id);
     if (!apt) return;
+    if (liveCustomerRef.current) {
+      void cancelCustomerBooking(id, reason)
+        .then(() => {
+          setAppointments((prev) =>
+            prev.map((a) =>
+              a.id === id
+                ? { ...a, status: 'CANCELLED', cancellationReason: reason, cancelledBy: currentUser.name }
+                : a
+            )
+          );
+          addToast({ type: 'success', title: 'Appointment Cancelled', message: 'The booking was cancelled.' });
+        })
+        .catch((error: unknown) => {
+          addToast({
+            type: 'error',
+            title: 'Could not cancel',
+            message: error instanceof Error ? error.message : 'Request failed.',
+          });
+        });
+      return;
+    }
     if (apt.status === 'COMPLETED') {
       addToast({ type: 'error', title: 'Cannot cancel', message: 'Completed bookings cannot be cancelled.' });
       return;
@@ -701,25 +796,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newWO: WorkOrder = {
       id: 'wo-' + count,
       workOrderNumber: woNum,
-      customerId: wo.customerId || 'cust-1',
+      customerId: wo.customerId || '',
       customerName: wo.customerName || 'Customer',
       customerPhone: wo.customerPhone || '',
       customerEmail: wo.customerEmail || '',
-      vehicleId: wo.vehicleId || 'veh-1',
+      vehicleId: wo.vehicleId || '',
       vehicleInfo: wo.vehicleInfo || 'Vehicle',
-      vehiclePlate: wo.vehiclePlate || 'PP-XXXX',
+      vehiclePlate: wo.vehiclePlate || '',
       vehicleMileage: wo.vehicleMileage || 0,
       reportedProblem: wo.reportedProblem || 'Customer reported issue',
       priority: wo.priority || 'MEDIUM',
       status: 'PENDING',
-      assignedTechnicianId: wo.assignedTechnicianId || 'user-tech-dara',
-      assignedTechnicianName: wo.assignedTechnicianName || 'Dara Kim',
-      cctvBayId: wo.cctvBayId || 'cctv-1',
-      estimatedCost: wo.estimatedCost || 150,
+      assignedTechnicianId: wo.assignedTechnicianId || '',
+      assignedTechnicianName: wo.assignedTechnicianName || 'Unassigned',
+      cctvBayId: wo.cctvBayId || '',
+      estimatedCost: wo.estimatedCost || 0,
       laborRatePerHour: 35,
       laborHoursEstimated: wo.laborHoursEstimated || 2,
       laborHoursActual: 0,
-      services: wo.services || ['Comprehensive 60-Point Vehicle Inspection'],
+      services: wo.services || [],
       tasks: wo.tasks || [],
       partsUsed: wo.partsUsed || [],
       beforePhotos: wo.beforePhotos || [],
@@ -1004,6 +1099,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const recordPayment = (payment: Omit<PaymentRecord, 'id'>) => {
+    if (liveCustomerRef.current) {
+      addToast({
+        type: 'error',
+        title: 'Payment not recorded',
+        message: 'Payments are recorded by the garage and appear here after they are saved.',
+      });
+      return null;
+    }
     const invoice = invoices.find((inv) => inv.id === payment.invoiceId || inv.invoiceNumber === payment.invoiceNumber);
     if (!invoice) {
       addToast({ type: 'error', title: 'Payment Error', message: 'Invoice was not found.' });
@@ -1075,6 +1178,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const approveEstimate = (id: string, note?: string) => {
+    if (liveCustomerRef.current) {
+      void decideCustomerEstimate(id, 'approve', note)
+        .then(() => {
+          setEstimates((prev) =>
+            prev.map((item) =>
+              item.id === id
+                ? { ...item, status: 'APPROVED', customerDecisionNote: note || '', decidedAt: new Date().toISOString() }
+                : item
+            )
+          );
+          addToast({ type: 'success', title: 'Quotation approved', message: 'The garage has your approval.' });
+        })
+        .catch((error: unknown) => {
+          addToast({
+            type: 'error',
+            title: 'Could not approve',
+            message: error instanceof Error ? error.message : 'Request failed.',
+          });
+        });
+      return;
+    }
     const est = estimates.find((e) => e.id === id);
     if (!est) return;
     setEstimates((prev) =>
@@ -1111,6 +1235,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const rejectEstimate = (id: string, note?: string) => {
+    if (liveCustomerRef.current) {
+      void decideCustomerEstimate(id, 'reject', note)
+        .then(() => {
+          setEstimates((prev) =>
+            prev.map((item) =>
+              item.id === id
+                ? { ...item, status: 'REJECTED', customerDecisionNote: note || '', decidedAt: new Date().toISOString() }
+                : item
+            )
+          );
+          addToast({ type: 'success', title: 'Quotation rejected', message: 'The garage has your decision.' });
+        })
+        .catch((error: unknown) => {
+          addToast({
+            type: 'error',
+            title: 'Could not reject',
+            message: error instanceof Error ? error.message : 'Request failed.',
+          });
+        });
+      return;
+    }
     const est = estimates.find((e) => e.id === id);
     if (!est) return;
     setEstimates((prev) =>
@@ -1154,6 +1299,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addFeedback = (fb: Omit<CustomerFeedback, 'id' | 'createdAt' | 'status'>) => {
+    if (liveCustomerRef.current) {
+      addToast({
+        type: 'error',
+        title: 'Review not saved',
+        message: 'The garage does not store customer reviews yet.',
+      });
+      return;
+    }
     const id = 'fb-' + (feedback.length + 1);
     const newFb: CustomerFeedback = {
       ...fb,
@@ -1176,15 +1329,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const markNotificationAsRead = (id: string) => {
+    if (liveCustomerRef.current) {
+      void markCustomerNotificationRead(id)
+        .then(() => {
+          setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+        })
+        .catch((error: unknown) => {
+          addToast({
+            type: 'error',
+            title: 'Could not update notification',
+            message: error instanceof Error ? error.message : 'Request failed.',
+          });
+        });
+      return;
+    }
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
   };
 
   const markAllNotificationsAsRead = () => {
-    const hadUnread = notifications.some((n) => !n.read);
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    if (hadUnread) {
-      addToast({ type: 'info', title: 'Notifications cleared', message: 'All items marked as read.' });
+    if (liveCustomerRef.current) {
+      void markAllCustomerNotificationsRead()
+        .then(() => {
+          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+        })
+        .catch((error: unknown) => {
+          addToast({
+            type: 'error',
+            title: 'Could not update notifications',
+            message: error instanceof Error ? error.message : 'Request failed.',
+          });
+        });
+      return;
     }
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
   const addUser = (user: Omit<User, 'id' | 'createdAt' | 'lastLogin'>) => {
@@ -1222,32 +1399,207 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast({ type: 'success', title: 'Review Updated', message: 'Customer feedback updated.' });
   };
 
+  const profileFromUser = (): CustomerProfile => ({
+    id: Number(String(currentUser.id).replace('api-', '')) || 0,
+    username: currentUser.name,
+    email: currentUser.email,
+    first_name: currentUser.name.split(' ')[0] || '',
+    last_name: currentUser.name.split(' ').slice(1).join(' '),
+    name: currentUser.name,
+    phone: currentUser.phone,
+    role: 'CUSTOMER',
+    address: currentUser.address || '',
+  });
+
+  const persistCustomerVehicle = async (veh: Omit<Vehicle, 'id' | 'lastServiceDate'> & { imageFile?: File | null }) => {
+    try {
+      const created = await createCustomerVehicle(profileFromUser(), {
+        brand: veh.brand,
+        model: veh.model,
+        year: veh.year,
+        licensePlate: veh.licensePlate,
+        vin: veh.vin,
+        mileage: veh.mileage,
+        color: veh.color,
+        vehicleType: veh.vehicleType,
+        engineNumber: veh.engineNumber,
+        imageFile: veh.imageFile,
+      });
+      setVehicles((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+      addToast({
+        type: 'success',
+        title: 'Vehicle Registered',
+        message: `${created.brand} ${created.model} (${created.licensePlate}) added.`,
+      });
+      return created;
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Could not save vehicle',
+        message: error instanceof Error ? error.message : 'Request failed.',
+      });
+      return null;
+    }
+  };
+
+  const saveCustomerVehicle = async (vehicleId: string, veh: Omit<Vehicle, 'id' | 'lastServiceDate'> & { imageFile?: File | null }) => {
+    try {
+      const updated = await updateCustomerVehicle(profileFromUser(), vehicleId, {
+        brand: veh.brand,
+        model: veh.model,
+        year: veh.year,
+        licensePlate: veh.licensePlate,
+        vin: veh.vin,
+        mileage: veh.mileage,
+        color: veh.color,
+        vehicleType: veh.vehicleType,
+        engineNumber: veh.engineNumber,
+        imageFile: veh.imageFile,
+      });
+      setVehicles((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      addToast({
+        type: 'success',
+        title: 'Vehicle Updated',
+        message: `${updated.brand} ${updated.model} (${updated.licensePlate}) saved.`,
+      });
+      return updated;
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Could not update vehicle',
+        message: error instanceof Error ? error.message : 'Request failed.',
+      });
+      return null;
+    }
+  };
+
+  const removeCustomerVehicle = async (vehicleId: string) => {
+    try {
+      await deleteCustomerVehicle(vehicleId);
+      setVehicles((prev) => prev.filter((item) => item.id !== vehicleId));
+      addToast({ type: 'success', title: 'Vehicle Removed', message: 'The vehicle was removed from your garage.' });
+      return true;
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Could not remove vehicle',
+        message: error instanceof Error ? error.message : 'Request failed.',
+      });
+      return false;
+    }
+  };
+
+  const updateCustomerVehiclePhoto = async (vehicleId: string, photo: File) => {
+    try {
+      const updated = await updateCustomerVehicleImage(profileFromUser(), vehicleId, photo);
+      setVehicles((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      addToast({
+        type: 'success',
+        title: 'Vehicle photo saved',
+        message: `${updated.brand} ${updated.model} now shows the uploaded photo.`,
+      });
+      return updated;
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Could not save vehicle photo',
+        message: error instanceof Error ? error.message : 'Request failed.',
+      });
+      return null;
+    }
+  };
+
+  const persistCustomerBooking = async (apt: Omit<Appointment, 'id'>) => {
+    try {
+      const created = await createCustomerBooking({
+        vehicleId: apt.vehicleId,
+        serviceId: apt.serviceId,
+        date: apt.date,
+        time: apt.time,
+        problem: apt.problemDescription,
+        notes: apt.notes,
+      });
+      const portal = await loadCustomerPortal(profileFromUser());
+      setAppointments(portal.appointments);
+      setVehicles(portal.vehicles);
+      setNotifications(portal.notifications);
+      const saved = portal.appointments.find((row) => row.id === String(created.id)) || {
+        ...apt,
+        id: String(created.id),
+        status: 'SCHEDULED' as const,
+      };
+      addToast({
+        type: 'success',
+        title: 'Appointment Booked',
+        message: `Booking #${created.id} is pending confirmation.`,
+      });
+      return saved;
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Could not book',
+        message: error instanceof Error ? error.message : 'Request failed.',
+      });
+      return null;
+    }
+  };
+
+  const saveCustomerProfileFields = async (fields: { name: string; phone: string; address: string; photo?: File | null }) => {
+    try {
+      const profile = await saveCustomerProfile(fields);
+      setCurrentUser(userFromProfile(profile));
+      addToast({ type: 'success', title: 'Profile Updated', message: 'Your account details were saved.' });
+      return true;
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Could not save profile',
+        message: error instanceof Error ? error.message : 'Request failed.',
+      });
+      return false;
+    }
+  };
+
+  const changeCustomerPasswordFields = async (currentPassword: string, nextPassword: string) => {
+    try {
+      await changeCustomerPassword(currentPassword, nextPassword);
+      addToast({ type: 'success', title: 'Password Changed', message: 'Your password was updated.' });
+      return true;
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Could not change password',
+        message: error instanceof Error ? error.message : 'Request failed.',
+      });
+      return false;
+    }
+  };
+
+  const requestPasswordResetEmail = async (email: string) => {
+    try {
+      await requestPasswordReset(email);
+      addToast({
+        type: 'info',
+        title: 'Reset requested',
+        message: 'If that email is registered, the reset token is printed by the Django server.',
+      });
+      return true;
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Could not send reset',
+        message: error instanceof Error ? error.message : 'Request failed.',
+      });
+      return false;
+    }
+  };
+
   const resetMockData = () => {
-    setUsers(initialUsers);
-    setCustomers(initialCustomers);
-    setVehicles(initialVehicles);
-    setServices(initialServices);
-    setAppointments(initialAppointments);
-    setWorkOrders(initialWorkOrders);
-    setTasks(initialTasks);
-    setTechnicians(initialTechnicians);
-    setInventory(initialInventory);
-    setStockAdjustments([]);
-    setSuppliers(initialSuppliers);
-    setPurchaseOrders(initialPurchaseOrders);
-    setInvoices(initialInvoices);
-    setPayments(initialPayments);
-    setPaymentReceipts(initialPaymentReceipts);
-    setEstimates(initialEstimates);
-    setServiceHistory(initialServiceHistory);
-    setWarrantyClaims(initialWarrantyClaims);
-    setCctvCameras(initialCCTVCameras);
-    setFeedback(initialFeedback);
-    setActivityLogs(initialActivityLogs);
-    setNotifications(initialNotifications);
-    setDocuments(initialDocuments);
-    setSettings(initialSettings);
-    addToast({ type: 'info', title: 'Data Reset', message: 'Demo garage data has been restored to factory initial state.' });
+    if (liveCustomerRef.current) {
+      void openCustomerSession();
+      return;
+    }
+    clearCustomerRecords();
   };
 
   const updateSettings = (newSettings: Partial<GarageSettings>) => {
@@ -1274,12 +1626,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         isAuthenticated,
+        authReady,
         currentUser,
         currentRole,
-        login,
         logout,
-        switchRole,
-        switchUser,
+        liveCustomer,
+        openCustomerSession,
+        persistCustomerVehicle,
+        saveCustomerVehicle,
+        removeCustomerVehicle,
+        updateCustomerVehiclePhoto,
+        persistCustomerBooking,
+        refreshCustomerPortal,
+        saveCustomerProfile: saveCustomerProfileFields,
+        changeCustomerPassword: changeCustomerPasswordFields,
+        requestPasswordReset: requestPasswordResetEmail,
         theme,
         toggleTheme,
         setTheme,
