@@ -14,7 +14,7 @@ from django.db import IntegrityError, transaction
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from django_app.models import AuthProvider, User
+from django_app.models import AuthProvider, Customer, User
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +27,11 @@ PASSWORD_RESET_MAX_AGE = 60 * 60
 
 
 class AuthError(Exception):
-    def __init__(self, message, status_code=400):
+    def __init__(self, message, status_code=400, **extra):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+        self.extra = extra
 
 
 def public_email(user):
@@ -60,15 +61,60 @@ def issue_tokens(user):
     return auth_payload(user, access), str(refresh)
 
 
+def notify_telegram_signed_in(user):
+    """Push a Telegram alert when a linked customer signs in (not on token refresh)."""
+    if user is None or getattr(user, "role", None) != User.Role.CUSTOMER:
+        return
+    from django_app.models import Customer, Notification, notify_customer
+
+    customer = Customer.objects.filter(user=user).first()
+    if customer is None or not (customer.telegram_chat_id or "").strip():
+        return
+    if customer.telegram_alerts is False:
+        return
+    from django_app.telegram_bot import format_customer_alert
+
+    notify_customer(
+        customer,
+        kind=Notification.Kind.ACCOUNT,
+        title="Signed in to CarSV",
+        message="You signed in to CarSV.",
+        in_app=False,
+        telegram=True,
+        telegram_text=format_customer_alert(
+            emoji="🔐",
+            title="Signed in",
+            customer=customer,
+            body="You signed in to CarSV.",
+        ),
+    )
+
+
 def password_login(identifier, password):
     user = User.objects.filter(email__iexact=identifier).first() or User.objects.filter(username__iexact=identifier).first()
     if user is None or not user.check_password(password):
         raise AuthError(INVALID_CREDENTIALS, 400)
     if user.role == User.Role.CUSTOMER and not user.email_verified:
-        raise AuthError(VERIFY_EMAIL, 400)
+        token = issue_email_verify_token(user)
+        _send_signed_email(
+            user,
+            salt="carsv-email-verify",
+            subject="Verify your CarSV account",
+            intro="Enter this verification token in the app:",
+            token=token,
+        )
+        raise AuthError(
+            VERIFY_EMAIL,
+            400,
+            code="VERIFY_EMAIL",
+            email=public_email(user),
+            verification_token=token,
+        )
     if user.status != User.Status.ACTIVE or not user.is_active:
         raise AuthError(INVALID_CREDENTIALS, 400)
-    return issue_tokens(user)
+    tokens = issue_tokens(user)
+    notify_telegram_signed_in(user)
+    return tokens
 
 
 def _username_from_email(email):
@@ -110,19 +156,26 @@ def register_customer(*, email, password, first_name, last_name="", phone=""):
         user.save()
     except IntegrityError as exc:
         raise AuthError("An account with this email already exists.", 400) from exc
+    token = issue_email_verify_token(user)
     _send_signed_email(
         user,
         salt="carsv-email-verify",
         subject="Verify your CarSV account",
         intro="Enter this verification token in the app:",
+        token=token,
     )
-    return user
+    return user, token
 
 
-def _send_signed_email(user, *, salt, subject, intro):
+def issue_email_verify_token(user):
+    return TimestampSigner(salt="carsv-email-verify").sign(str(user.pk))
+
+
+def _send_signed_email(user, *, salt, subject, intro, token=None):
     if user.email_is_placeholder:
-        return
-    token = TimestampSigner(salt=salt).sign(str(user.pk))
+        return ""
+    if token is None:
+        token = TimestampSigner(salt=salt).sign(str(user.pk))
     try:
         send_mail(
             subject,
@@ -134,6 +187,7 @@ def _send_signed_email(user, *, salt, subject, intro):
     except Exception:
         logger.exception("Could not send auth email")
         raise AuthError("The account was saved, but the email could not be sent.", 503) from None
+    return token
 
 
 def _read_signed(token, salt, max_age):
@@ -153,18 +207,47 @@ def verify_email(token):
     if user.status != User.Status.ACTIVE:
         user.status = User.Status.ACTIVE
     user.save()
+    from django_app.models import Customer, Notification, notify_customer
+
+    customer = Customer.objects.filter(user=user).first()
+    if customer is not None:
+        from django_app.telegram_bot import format_customer_alert
+
+        notify_customer(
+            customer,
+            kind=Notification.Kind.ACCOUNT,
+            title="Welcome to CarSV",
+            message=(
+                "Your account is verified. Add a vehicle and book a visit anytime. "
+                "Connect Telegram in Profile to get garage alerts on your phone."
+            ),
+            telegram_text=format_customer_alert(
+                emoji="👋",
+                title="Welcome",
+                customer=customer,
+                body=[
+                    "Welcome to CarSV.",
+                    "Add a vehicle and book a visit whenever you’re ready.",
+                    "Connect Telegram in Profile to keep getting these alerts.",
+                ],
+            ),
+        )
     return user
 
 
 def resend_verification(email):
     user = User.objects.filter(email__iexact=(email or "").strip(), email_is_placeholder=False).first()
     if user and not user.email_verified:
+        token = issue_email_verify_token(user)
         _send_signed_email(
             user,
             salt="carsv-email-verify",
             subject="Verify your CarSV account",
             intro="Enter this verification token in the app:",
+            token=token,
         )
+        return token
+    return ""
 
 
 def request_password_reset(email):
@@ -241,8 +324,12 @@ def verify_google_id_token(raw_token):
     client_id = getattr(settings, "GOOGLE_CLIENT_ID", "")
     if not client_id:
         raise AuthError("Google sign-in is not configured.", 503)
-    from google.auth.transport import requests as google_requests
-    from google.oauth2 import id_token
+    try:
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token
+    except ImportError as exc:
+        logger.exception("Google auth dependencies missing")
+        raise AuthError("Google sign-in is unavailable on the server.", 503) from exc
 
     try:
         info = id_token.verify_oauth2_token(raw_token, google_requests.Request(), client_id)
@@ -292,6 +379,7 @@ def verify_telegram_login(payload):
         "id": data["id"],
         "first_name": data.get("first_name") or "",
         "last_name": data.get("last_name") or "",
+        "username": data.get("username") or "",
     }
 
 
@@ -302,7 +390,9 @@ def _provider_login(provider, provider_user_id, build_user):
         .first()
     )
     if link:
-        return issue_tokens(link.user)
+        tokens = issue_tokens(link.user)
+        notify_telegram_signed_in(link.user)
+        return tokens
     try:
         with transaction.atomic():
             user = build_user()
@@ -315,17 +405,55 @@ def _provider_login(provider, provider_user_id, build_user):
         )
         if link is None:
             raise AuthError("Could not sign in with this account.", 409)
-        return issue_tokens(link.user)
-    return issue_tokens(user)
+        tokens = issue_tokens(link.user)
+        notify_telegram_signed_in(link.user)
+        return tokens
+    tokens = issue_tokens(user)
+    notify_telegram_signed_in(user)
+    return tokens
+
+
+def _activate_google_customer(user, identity):
+    """Google already verified the email — activate / refresh profile for login."""
+    if user.role != User.Role.CUSTOMER:
+        raise AuthError("This Google account is not linked to a customer profile.", 403)
+    changed = False
+    if user.status != User.Status.ACTIVE:
+        user.status = User.Status.ACTIVE
+        changed = True
+    if not user.email_verified:
+        user.email_verified = True
+        changed = True
+    # Prefer Google's name when the local profile is still empty.
+    if identity.get("first_name") and not (user.first_name or "").strip():
+        user.first_name = identity["first_name"]
+        changed = True
+    if identity.get("last_name") and not (user.last_name or "").strip():
+        user.last_name = identity["last_name"]
+        changed = True
+    if changed:
+        user.save()
+    return user
 
 
 def google_login(identity):
+    # Returning Google user (already linked).
+    link = (
+        AuthProvider.objects.select_related("user")
+        .filter(provider=AuthProvider.Provider.GOOGLE, provider_user_id=identity["sub"])
+        .first()
+    )
+    if link:
+        user = _activate_google_customer(link.user, identity)
+        tokens = issue_tokens(user)
+        notify_telegram_signed_in(user)
+        return tokens
+
     def build():
-        if User.objects.filter(email__iexact=identity["email"]).exists():
-            raise AuthError(
-                "An account with this email already exists. Sign in with your password, then link Google.",
-                409,
-            )
+        existing = User.objects.filter(email__iexact=identity["email"]).first()
+        if existing is not None:
+            # Same email (e.g. registered but never verified) → activate + link Google.
+            return _activate_google_customer(existing, identity)
         user = User(
             username=_username_from_email(identity["email"]),
             email=identity["email"],
@@ -391,3 +519,10 @@ def unlink_provider(user, provider):
     if not has_other and not user.has_usable_password():
         raise AuthError("Add a password or another sign-in method before unlinking this one.", 400)
     link.delete()
+    # Keep alerts in sync: unlinking Telegram sign-in also clears the alert chat.
+    if provider == AuthProvider.Provider.TELEGRAM:
+        customer = Customer.objects.filter(user=user).first()
+        if customer is not None and (customer.telegram_chat_id or "").strip():
+            from django_app.telegram_bot import unbind_customer_chat
+
+            unbind_customer_chat(customer)

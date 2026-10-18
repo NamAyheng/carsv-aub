@@ -2,6 +2,7 @@ from datetime import date, time
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from django_app.models import (
     Booking,
@@ -522,6 +523,7 @@ class Command(BaseCommand):
         payment.received_by = lin_staff
         payment.status = Payment.Status.PAID
         payment.receipt_number = "RCT-2026-0001"
+        payment.verified_at = timezone.now()
         payment.save()
 
         oil_payment, _ = Payment.objects.get_or_create(
@@ -540,8 +542,9 @@ class Command(BaseCommand):
         oil_payment.paid_at = date(2026, 9, 20)
         oil_payment.reference = "QR-0920"
         oil_payment.received_by = lin_staff
-        oil_payment.status = Payment.Status.PARTIAL
+        oil_payment.status = Payment.Status.PAID
         oil_payment.receipt_number = "RCT-2026-0002"
+        oil_payment.verified_at = timezone.now()
         oil_payment.save()
 
         self.stdout.write(self.style.SUCCESS("Sample data loaded for all garage tables"))

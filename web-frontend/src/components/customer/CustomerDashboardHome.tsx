@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { belongsToCurrentCustomer } from '../../utils/customerScope';
+import { softStatusBadge } from '../../utils/customerStatusTone';
 import { invoiceRemaining, remindersFromVehicles } from '../../utils/garageLogic';
 
 const brakePadsImg = '/media/parts/2026/09/part-ceramic-brake-pads.jpg';
@@ -82,17 +83,14 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
 
   return (
     <div className="space-y-8">
-      {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-blue-950/70 via-slate-900 to-indigo-950/70 p-6 sm:p-8 rounded-3xl border border-blue-900/40 shadow-xl flex flex-col md:flex-row justify-between md:items-center gap-6 relative overflow-hidden">
-        <div className="space-y-2 relative z-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/15 text-blue-400 text-xs font-semibold border border-blue-500/30">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Welcome Back to CarSV Care</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-            Hello, {currentUser?.name || 'there'}
+      {/* Welcome header — origin portal card style */}
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-slate-900 p-6 rounded-3xl border border-slate-800">
+        <div>
+          <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
+            <Sparkles className="w-6 h-6 text-blue-500" />
+            <span>Hello, {currentUser?.name || 'there'}</span>
           </h2>
-          <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
+          <p className="text-xs text-slate-400 mt-1 max-w-xl">
             {pickupJobs[0]
               ? `${pickupJobs[0].vehicleInfo} is ready for pickup.`
               : pendingQuotes[0]
@@ -103,35 +101,13 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
           </p>
         </div>
 
-        {/* Quick Top CTAs */}
-        <div className="flex flex-wrap items-center gap-3 relative z-10">
-          <button
-            onClick={onOpenBookAppointment}
-            className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/30 transition-all flex items-center gap-2 cursor-pointer"
-          >
-            <Calendar className="w-4 h-4" />
-            <span>Book Service</span>
-          </button>
-
-          <button
-            onClick={() => onNavigateTab('TRACKING')}
-            className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition-all flex items-center gap-2"
-          >
-            <Video className="w-4 h-4 text-red-400 animate-pulse" />
-            <span>Repair status</span>
-          </button>
-
-          <button
-            onClick={() => onNavigateTab('PARTS_PRODUCTS')}
-            className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition-all flex items-center gap-2 cursor-pointer"
-          >
-            <Package className="w-4 h-4 text-blue-400" />
-            <span>Parts & Products</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300">
-              Brand Fit
-            </span>
-          </button>
-        </div>
+        <button
+          onClick={onOpenBookAppointment}
+          className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-slate-950 text-xs font-bold shadow-lg shadow-blue-600/30 transition-all flex items-center gap-2 self-start sm:self-auto cursor-pointer"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Book Appointment</span>
+        </button>
       </div>
 
       {(pickupJobs.length > 0 || pendingQuotes.length > 0 || reminders.some((r) => r.status === 'DUE' || r.status === 'OVERDUE')) && (
@@ -203,25 +179,25 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
         </div>
       )}
 
-      {/* Parts & Recommendations Callout Banner */}
+      {/* Parts & Recommendations Callout Banner — yellow ground, black accents (stable in light + dark) */}
       <div
         onClick={() => onNavigateTab('PARTS_PRODUCTS')}
-        className="bg-gradient-to-r from-blue-950/60 via-slate-900 to-slate-900 border border-blue-500/30 hover:border-blue-400/60 rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 cursor-pointer transition-all hover:shadow-lg group"
+        className="portal-yellow-panel bg-blue-600 border border-slate-950/15 hover:border-slate-950/35 rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 cursor-pointer transition-all hover:shadow-lg group text-slate-950"
       >
         <div className="flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0 group-hover:scale-110 transition-transform">
-            <Package className="w-5 h-5" />
+          <div className="portal-yellow-icon w-10 h-10 rounded-xl bg-slate-950 border border-slate-950 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+            <Package className="w-5 h-5" strokeWidth={2.25} />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h4 className="text-sm font-bold text-white group-hover:text-blue-300 transition-colors">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="text-sm font-bold text-slate-950 group-hover:text-slate-800 transition-colors">
                 Company Parts & Products Catalog
               </h4>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-950 text-blue-600 border border-slate-950">
                 Car Brand Fitment
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-950/65 mt-0.5">
               Explore workshop stock with genuine studio photography. Filter guaranteed fitment for Toyota, Honda, Lexus, BMW & more.
             </p>
           </div>
@@ -238,7 +214,7 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
             ].map((item, idx) => (
               <div
                 key={idx}
-                className="w-10 h-10 rounded-xl overflow-hidden border-2 border-slate-900 shadow-md bg-slate-950"
+                className="w-10 h-10 rounded-xl overflow-hidden border-2 border-slate-950 shadow-md bg-white"
                 title={item.label}
               >
                 <img
@@ -251,7 +227,7 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
             ))}
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-bold text-blue-400 shrink-0">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-950 shrink-0">
             <span>Browse Catalog</span>
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </div>
@@ -343,11 +319,11 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
           <div className="flex justify-between items-start">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-blue-600/20 text-blue-400 border border-blue-500/30">
+                <span className={`${softStatusBadge('blue')} font-mono`}>
                   {activeWO?.workOrderNumber || 'No job'}
                 </span>
-                <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className={`${softStatusBadge('amber')} flex items-center gap-1.5`}>
+                  <span className="w-2 h-2 rounded-full bg-amber-600 animate-pulse" />
                   <span>{activeWO ? activeWO.status.replace(/_/g, ' ') : 'None open'}</span>
                 </span>
               </div>
@@ -429,9 +405,7 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
                 <Calendar className="w-4 h-4 text-emerald-400" />
                 <span>Upcoming Appointment</span>
               </h3>
-              <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                Confirmed
-              </span>
+              <span className={`${softStatusBadge('green')} text-[10px]`}>Confirmed</span>
             </div>
 
             {nextAppointment ? (

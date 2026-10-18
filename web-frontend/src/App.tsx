@@ -13,7 +13,7 @@ import { portalPaths, sectionForPath } from './routes';
 function ThemeFrame({ children }: { children: React.ReactNode }) {
   const { theme } = useApp();
   return (
-    <div className={`min-h-screen customer-theme-root transition-colors duration-200 ${theme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} selection:bg-blue-600 selection:text-white`}>
+    <div className={`min-h-screen customer-theme-root transition-colors duration-200 ${theme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} selection:bg-blue-600 selection:text-slate-950`}>
       {children}
       <ToastContainer />
       <ConfirmModal />

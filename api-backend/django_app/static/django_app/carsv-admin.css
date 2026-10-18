@@ -1723,11 +1723,17 @@ body.model-vehicle.change-list .object-tools {
   white-space: nowrap;
 }
 
+.cc-status.unpaid {
+  background: #fef2f2;
+  color: #dc2626;
+  white-space: nowrap;
+}
+
 .cc-status.inspection,
 .cc-status.assigned,
 .cc-status.pending {
-  background: #fffbeb;
-  color: #d97706;
+  background: #fff7ed;
+  color: #ea580c;
 }
 
 .cc-card-top {
@@ -3741,6 +3747,8 @@ body.model-vehicle .vp-list-empty {
 .cf-field input[type="file"],
 .cf-modal input[type="file"] {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 0.65rem 0.85rem;
   border: 1px dashed #94a3b8;
   border-radius: 0.75rem;
@@ -3748,6 +3756,16 @@ body.model-vehicle .vp-list-empty {
   background: #f8fafc !important;
   color: #0f172a !important;
   cursor: pointer;
+}
+
+.cf-field.cf-proof-field .cf-image-preview,
+.cf-modal .cf-proof-field .cf-image-preview {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+  display: block;
 }
 
 .cf-file:hover,
@@ -3844,6 +3862,21 @@ html.dark .cf-field select {
   color: #c2410c;
 }
 
+.cf-modal select[name="status"] option[data-tone="unpaid"],
+.cf-field select[name="status"] option[data-tone="unpaid"] {
+  background-color: #fef2f2;
+  color: #dc2626;
+}
+
+.cf-modal select[name="status"] option:disabled,
+.cf-field select[name="status"] option:disabled,
+.cf-modal select[name="status"] option.is-disabled,
+.cf-field select[name="status"] option.is-disabled {
+  color: #94a3b8 !important;
+  background-color: #f8fafc !important;
+  -webkit-text-fill-color: #94a3b8;
+}
+
 .cf-modal select[name="status"] option[data-tone="progress"],
 .cf-field select[name="status"] option[data-tone="progress"] {
   background-color: #dbeafe;
@@ -3860,8 +3893,8 @@ html.dark .cf-field select {
 .cf-field select[name="status"] option[data-tone="pending"],
 .cf-modal select[name="status"] option[data-tone="inspection"],
 .cf-field select[name="status"] option[data-tone="inspection"] {
-  background-color: #fffbeb;
-  color: #d97706;
+  background-color: #fff7ed;
+  color: #ea580c;
 }
 
 .cf-modal select[name="status"] option[data-tone="ready"],
@@ -3894,6 +3927,16 @@ html.dark .cf-field select[name="status"][data-tone="waiting"],
   font-weight: 700;
 }
 
+html.dark .cf-modal select[name="status"][data-tone="unpaid"],
+.cf-modal select[name="status"][data-tone="unpaid"],
+html.dark .cf-field select[name="status"][data-tone="unpaid"],
+.cf-field select[name="status"][data-tone="unpaid"] {
+  background-color: #fef2f2 !important;
+  color: #dc2626 !important;
+  -webkit-text-fill-color: #dc2626;
+  font-weight: 700;
+}
+
 html.dark .cf-modal select[name="status"][data-tone="progress"],
 .cf-modal select[name="status"][data-tone="progress"],
 html.dark .cf-field select[name="status"][data-tone="progress"],
@@ -3922,9 +3965,9 @@ html.dark .cf-modal select[name="status"][data-tone="inspection"],
 .cf-modal select[name="status"][data-tone="inspection"],
 html.dark .cf-field select[name="status"][data-tone="inspection"],
 .cf-field select[name="status"][data-tone="inspection"] {
-  background-color: #fffbeb !important;
-  color: #d97706 !important;
-  -webkit-text-fill-color: #d97706;
+  background-color: #fff7ed !important;
+  color: #ea580c !important;
+  -webkit-text-fill-color: #ea580c;
   font-weight: 700;
 }
 
@@ -4494,6 +4537,26 @@ body.carsv-delete .object-tools {
   background: #3b82f6;
 }
 
+.iv-status.unpaid {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.iv-status.unpaid::before {
+  background: #ef4444;
+}
+
+.iv-status.pending {
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #ea580c;
+}
+
+.iv-status.pending::before {
+  background: #f97316;
+}
+
 .iv-status.inactive {
   background: #f8fafc;
   border-color: #e2e8f0;
@@ -4857,7 +4920,7 @@ body.carsv-delete .object-tools {
 
 .iv-btn-print,
 .iv-btn-close,
-.iv-btn-pay {
+.iv-btn-verify {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4886,13 +4949,41 @@ body.carsv-delete .object-tools {
   font-size: 16px;
 }
 
-.iv-btn-pay {
-  background: #059669;
+.iv-btn-verify {
+  background: #ea580c;
   color: #fff;
 }
 
-.iv-btn-pay:hover {
-  background: #047857;
+.iv-btn-verify:hover {
+  background: #c2410c;
+}
+
+.iv-pay-warn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0 1.25rem 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid #fdba74;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.iv-pay-warn .material-symbols-outlined {
+  font-size: 18px;
+  color: #ea580c;
+  flex-shrink: 0;
+}
+
+.iv-pay-warn a {
+  font-weight: 700;
+  color: #c2410c;
+  text-decoration: underline;
+  margin-left: auto;
 }
 
 @media (max-width: 700px) {
@@ -4945,8 +5036,9 @@ body.carsv-delete .object-tools {
   .iv-kind-row,
   .iv-callout,
   .iv-actions,
+  .iv-pay-warn,
   .iv-btn-print,
-  .iv-btn-pay,
+  .iv-btn-verify,
   .iv-btn-close,
   .carsv-customers,
   #nav-sidebar,

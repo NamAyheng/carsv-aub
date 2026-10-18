@@ -59,8 +59,13 @@ export function validatePaymentAmount(amount: number, balanceDue: number) {
   if (!Number.isFinite(amount) || amount <= 0) {
     return 'Payment amount must be greater than zero.';
   }
-  if (amount > balanceDue + 0.009) {
-    return `Amount exceeds remaining balance of $${balanceDue.toFixed(2)}.`;
+  const due = Math.round(balanceDue * 100) / 100;
+  const paid = Math.round(amount * 100) / 100;
+  if (paid > due) {
+    return `Amount is too much. Pay exactly $${due.toFixed(2)} (you entered $${paid.toFixed(2)}).`;
+  }
+  if (paid < due) {
+    return `Amount is too little. Pay exactly $${due.toFixed(2)} (you entered $${paid.toFixed(2)}).`;
   }
   return null;
 }

@@ -16,6 +16,10 @@ export interface User {
   createdAt: string;
   specialization?: string;
   address?: string;
+  telegramBotConfigured?: boolean;
+  telegramLinked?: boolean;
+  telegramUsername?: string;
+  telegramAlerts?: boolean;
 }
 
 export interface Customer {
@@ -304,8 +308,8 @@ export interface PurchaseOrder {
   notes?: string;
 }
 
-export type InvoiceStatus = 'PAID' | 'PENDING' | 'OVERDUE' | 'PARTIAL' | 'CANCELLED';
-export type InvoiceStatus = 'PAID' | 'PENDING' | 'DRAFT' | 'OVERDUE' | 'PARTIAL' | 'CANCELLED';
+export type InvoiceStatus = 'PAID' | 'PENDING' | 'UNPAID' | 'DRAFT' | 'OVERDUE' | 'PARTIAL' | 'CANCELLED';
+export type InvoicePaymentState = 'UNPAID' | 'PENDING' | 'PAID';
 /** Counter / catalog sale vs workshop booking & repair. Extra parts on a job stay SERVICE_REPAIR. */
 export type InvoiceKind = 'PARTS_SALE' | 'SERVICE_REPAIR';
 
@@ -351,10 +355,13 @@ export interface Invoice {
   discountAmount: number;
   totalAmount: number;
   amountPaid: number;
+  amountPending?: number;
   balanceDue: number;
   issueDate: string;
   dueDate: string;
   status: InvoiceStatus;
+  /** Customer-facing pay state from the API (Unpaid / Pending verify / Paid). */
+  paymentState?: InvoicePaymentState;
   paymentMethod?: string;
   notes?: string;
 }
@@ -374,6 +381,7 @@ export interface PaymentRecord {
   receivedBy: string;
   notes?: string;
   receiptNumber?: string;
+  proofUrl?: string;
 }
 
 export interface CCTVCamera {

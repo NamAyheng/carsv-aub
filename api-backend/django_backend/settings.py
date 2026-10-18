@@ -45,7 +45,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework.authtoken",
     "rest_framework_simplejwt.token_blacklist",
-    "django_app",
+    "django_app.apps.DjangoAppConfig",
 ]
 
 MIDDLEWARE = [
@@ -84,6 +84,10 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        # runserver + Telegram poller both write; wait instead of failing fast.
+        "OPTIONS": {
+            "timeout": 60,
+        },
     }
 }
 
@@ -111,6 +115,8 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "")
+# Optional: set the same value in BotFather setWebhook secret_token header.
+TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 
 _TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 REFRESH_COOKIE_NAME = "carsv_refresh"
@@ -236,7 +242,6 @@ UNFOLD = {
                 "items": [
                     {"title": _("Roles"), "icon": "badge", "link": reverse_lazy("admin:django_app_role_changelist")},
                     {"title": _("Users"), "icon": "person", "link": reverse_lazy("admin:django_app_user_changelist")},
-                    {"title": _("Groups"), "icon": "admin_panel_settings", "link": reverse_lazy("admin:auth_group_changelist")},
                 ],
             },
         ],

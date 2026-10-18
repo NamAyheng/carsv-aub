@@ -18,7 +18,7 @@ import { belongsToCurrentCustomer, demoCustomerId } from '../../utils/customerSc
 import { findDuplicateVehicle, isValidVehiclePlate, normalizeVehiclePlate } from '../../utils/garageLogic';
 import { Appointment } from '../../types';
 import { ThemedDatePicker } from '../common/ThemedDatePicker';
-import { createCustomerPartRequest } from '../../api/garage';
+import { addBookingService, createCustomerPartRequest } from '../../api/garage';
 
 interface CustomerBookAppointmentModalProps {
   isOpen: boolean;
@@ -46,6 +46,7 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
     liveCustomer,
     persistCustomerVehicle,
     persistCustomerBooking,
+    refreshCustomerPortal,
   } = useApp();
   const isDark = theme === 'dark';
 
@@ -62,6 +63,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
   const [problemDescription, setProblemDescription] = useState<string>('');
   const [priority, setPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
   const [additionalNotes, setAdditionalNotes] = useState<string>('');
+  const [draftExtraServiceIds, setDraftExtraServiceIds] = useState<string[]>([]);
+  const [serviceQuery, setServiceQuery] = useState('');
+  const [showServicesPicker, setShowServicesPicker] = useState(false);
   const [draftPartIds, setDraftPartIds] = useState<string[]>([]);
   const [partQuery, setPartQuery] = useState('');
   const [showPartsPicker, setShowPartsPicker] = useState(false);
@@ -158,6 +162,17 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
     setNewPhotoPreview('');
   };
 
+  const draftExtraServices = (services || []).filter(
+    (item) => draftExtraServiceIds.includes(item.id) && item.id !== selectedServiceId
+  );
+  const availableExtraServices = (services || [])
+    .filter((item) => item.status === 'ACTIVE')
+    .filter((item) => item.id !== selectedServiceId && !draftExtraServiceIds.includes(item.id))
+    .filter((item) => {
+      const query = serviceQuery.trim().toLowerCase();
+      if (!query) return true;
+      return item.name.toLowerCase().includes(query);
+    });
   const draftParts = (inventory || []).filter((part) => draftPartIds.includes(part.id));
   const shelfParts = (inventory || [])
     .filter((part) => part.stockQuantity > 0 && !draftPartIds.includes(part.id))
@@ -166,8 +181,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
       if (!query) return true;
       return part.name.toLowerCase().includes(query) || part.sku.toLowerCase().includes(query);
     });
+  const extrasTotal = draftExtraServices.reduce((sum, item) => sum + (item.basePrice || 0), 0);
   const partsTotal = draftParts.reduce((sum, part) => sum + (part.unitPrice || 0), 0);
-  const bookingTotal = (selectedService?.basePrice || 0) + partsTotal;
+  const bookingTotal = (selectedService?.basePrice || 0) + extrasTotal + partsTotal;
 
   const handleConfirmAppointment = async () => {
     if (!selectedVehicleId || !selectedServiceId) {
@@ -206,12 +222,24 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
       try {
         const saved = await persistCustomerBooking(newAppointment);
         if (!saved) return;
+        for (const extra of draftExtraServices) {
+          await addBookingService(saved.id, extra.id);
+        }
         for (const part of draftParts) {
           await createCustomerPartRequest({
             sparePartId: part.id,
             vehicleId: saved.vehicleId,
             bookingId: saved.id,
             fulfillment: 'INSTALL_IN_WORKSHOP',
+          });
+        }
+        // Refresh portal so Appointments view has services + parts immediately.
+        await refreshCustomerPortal();
+        if (draftExtraServices.length > 0) {
+          addToast({
+            type: 'success',
+            title: 'Extra services attached',
+            message: `${draftExtraServices.length} extra service${draftExtraServices.length === 1 ? '' : 's'} added to this visit.`,
           });
         }
         if (draftParts.length > 0) {
@@ -221,6 +249,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
             message: `${draftParts.length} workshop part${draftParts.length === 1 ? '' : 's'} will show on the visit quote. Stock stays on the shelf until the garage issues them.`,
           });
         }
+        setDraftExtraServiceIds([]);
+        setServiceQuery('');
+        setShowServicesPicker(false);
         setDraftPartIds([]);
         setPartQuery('');
         setShowPartsPicker(false);
@@ -228,9 +259,14 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
       } catch (error) {
         addToast({
           type: 'error',
-          title: 'Parts were not attached',
-          message: error instanceof Error ? error.message : 'The booking was created, but a part request failed.',
+          title: 'Extras were not fully attached',
+          message: error instanceof Error ? error.message : 'The booking was created, but a service or part failed.',
         });
+        try {
+          await refreshCustomerPortal();
+        } catch {
+          /* ignore */
+        }
         setStep(6);
       } finally {
         setSubmitting(false);
@@ -244,6 +280,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
 
   const handleResetAndClose = () => {
     setStep(1);
+    setDraftExtraServiceIds([]);
+    setServiceQuery('');
+    setShowServicesPicker(false);
     setDraftPartIds([]);
     setPartQuery('');
     setShowPartsPicker(false);
@@ -591,6 +630,98 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                 </div>
 
                 <div className="space-y-2">
+                  {!showServicesPicker && draftExtraServices.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowServicesPicker(true)}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-dashed border-slate-700 bg-slate-950 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:border-slate-500"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add another service (optional)
+                    </button>
+                  ) : (
+                    <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                          <Wrench className="w-3.5 h-3.5 text-blue-400" />
+                          Extra services for this booking
+                        </div>
+                        {draftExtraServices.length === 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowServicesPicker(false);
+                              setServiceQuery('');
+                            }}
+                            className="text-[10px] font-bold text-slate-500 hover:text-slate-300"
+                          >
+                            Hide
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Optional. Main service stays <strong className="text-slate-300">{selectedService?.name}</strong>.
+                        Add more services to the same visit.
+                      </p>
+                      {draftExtraServices.length > 0 && (
+                        <ul className="space-y-1.5">
+                          {draftExtraServices.map((item) => (
+                            <li
+                              key={item.id}
+                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                            >
+                              <span>{item.name}</span>
+                              <span className="flex items-center gap-2">
+                                <span className="font-mono text-slate-400">${item.basePrice.toFixed(2)}</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDraftExtraServiceIds((ids) => ids.filter((id) => id !== item.id))
+                                  }
+                                  className="text-[10px] font-bold text-rose-300"
+                                >
+                                  Remove
+                                </button>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {(showServicesPicker || draftExtraServices.length > 0) && (
+                        <>
+                          <input
+                            value={serviceQuery}
+                            onChange={(event) => setServiceQuery(event.target.value)}
+                            placeholder="Search service"
+                            className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
+                          />
+                          <ul className="max-h-40 overflow-y-auto space-y-1">
+                            {availableExtraServices.map((item) => (
+                              <li key={item.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDraftExtraServiceIds((ids) => [...ids, item.id]);
+                                    setShowServicesPicker(true);
+                                  }}
+                                  className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 hover:bg-blue-50 hover:text-slate-900"
+                                >
+                                  <span>{item.name}</span>
+                                  <span className="font-mono text-slate-500">${item.basePrice.toFixed(2)}</span>
+                                </button>
+                              </li>
+                            ))}
+                            {availableExtraServices.length === 0 && (
+                              <li className="text-[11px] text-slate-500">No other services available.</li>
+                            )}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
                   {!showPartsPicker && draftParts.length === 0 ? (
                     <button
                       type="button"
@@ -694,8 +825,16 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                     Vehicle: <strong className="text-white">{selectedVehicle?.brand} {selectedVehicle?.model} ({selectedVehicle?.licensePlate})</strong>
                   </div>
                   <div className="text-slate-300">
-                    Service: <strong className="text-white">{selectedService?.name}</strong>
+                    Main service: <strong className="text-white">{selectedService?.name}</strong>
                   </div>
+                  {draftExtraServices.length > 0 && (
+                    <div className="text-slate-300">
+                      Extra services:{' '}
+                      <strong className="text-white">
+                        {draftExtraServices.map((item) => item.name).join(', ')}
+                      </strong>
+                    </div>
+                  )}
                   {draftParts.length > 0 && (
                     <div className="text-slate-300">
                       Parts: <strong className="text-white">{draftParts.length} workshop install</strong>
@@ -732,10 +871,20 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                   <span className="text-slate-400">Vehicle:</span>
                   <span className="text-white font-bold">{selectedVehicle?.brand} {selectedVehicle?.model}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Service:</span>
-                  <span className="text-white font-bold">{selectedService?.name}</span>
+                <div className="flex justify-between gap-3">
+                  <span className="text-slate-400 shrink-0">Services:</span>
+                  <span className="text-white font-bold text-right">
+                    {[selectedService?.name, ...draftExtraServices.map((item) => item.name)]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </span>
                 </div>
+                {draftParts.length > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Parts:</span>
+                    <span className="text-white font-bold">{draftParts.length} attached</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-slate-400">Status:</span>
                   <span className="text-emerald-400 font-bold">Pending confirmation</span>

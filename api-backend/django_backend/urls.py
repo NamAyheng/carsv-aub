@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import include, path
+from django.views.generic import RedirectView
 from rest_framework import routers
 
 from django_app.auth_api import (
@@ -14,6 +15,7 @@ from django_app.auth_api import (
     PasswordLoginView,
     PasswordResetConfirmView,
     PasswordResetView,
+    PublicAuthConfigView,
     RefreshView,
     RegisterView,
     ResendVerificationView,
@@ -21,6 +23,7 @@ from django_app.auth_api import (
     UnlinkProviderView,
     VerifyEmailView,
 )
+from django_app.telegram_api import TelegramConnectView, TelegramWebhookView
 from django_app.customer_api import (
     CustomerBookingViewSet,
     CustomerEstimateViewSet,
@@ -87,16 +90,28 @@ customer_router.register(r"estimates", CustomerEstimateViewSet, basename="custom
 customer_router.register(r"notifications", CustomerNotificationViewSet, basename="customer-notification")
 
 urlpatterns = [
+    # Django auth Groups removed — Roles replace them. Keep old bookmarks working.
+    path(
+        "admin/auth/group/",
+        RedirectView.as_view(pattern_name="admin:django_app_role_changelist", permanent=False),
+    ),
+    path(
+        "admin/auth/group",
+        RedirectView.as_view(pattern_name="admin:django_app_role_changelist", permanent=False),
+    ),
     path("admin/", admin.site.urls),
     path("api/auth/register/", RegisterView.as_view()),
     path("api/auth/login/", PasswordLoginView.as_view()),
     path("api/auth/logout/", LogoutView.as_view()),
     path("api/auth/token/refresh/", RefreshView.as_view()),
     path("api/auth/me/", MeView.as_view()),
+    path("api/auth/public-config/", PublicAuthConfigView.as_view()),
     path("api/auth/google/", GoogleLoginView.as_view()),
     path("api/auth/telegram/", TelegramLoginView.as_view()),
     path("api/auth/link/google/", LinkGoogleView.as_view()),
     path("api/auth/link/telegram/", LinkTelegramView.as_view()),
+    path("api/auth/telegram/connect/", TelegramConnectView.as_view()),
+    path("api/telegram/webhook/", TelegramWebhookView.as_view()),
     path("api/auth/unlink/", UnlinkProviderView.as_view()),
     path("api/auth/verify-email/", VerifyEmailView.as_view()),
     path("api/auth/resend-verification/", ResendVerificationView.as_view()),

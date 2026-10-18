@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.exceptions import ValidationError
 from django.test import Client, TestCase, override_settings
 from rest_framework.test import APITestCase
 
@@ -14,6 +15,8 @@ from django_app.models import (
     AuthProvider,
     BlogPost,
     Booking,
+    BookingService,
+    Customer,
     Inspection,
     check_in_booking,
     sync_booking_from_job,
@@ -29,6 +32,7 @@ from django_app.models import (
     ServiceCategory,
     SparePart,
     SparePartCategory,
+    Staff,
     User as AppUser,
     Vehicle,
 )
@@ -42,6 +46,193 @@ def _telegram_payload(bot_token, **fields):
     secret = hashlib.sha256(bot_token.encode()).digest()
     data["hash"] = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
     return data
+
+
+class TelegramPhoneMatchTests(TestCase):
+    def test_normalize_and_match_cambodia_numbers(self):
+        from django_app.telegram_bot import find_customers_by_phone, normalize_phone_digits, phone_match_keys
+
+        self.assertEqual(normalize_phone_digits("+855 88 583 1366"), "855885831366")
+        self.assertEqual(normalize_phone_digits("0885831366"), "855885831366")
+        self.assertTrue(phone_match_keys("855885831366") & phone_match_keys("0885831366"))
+        hour = find_customers_by_phone("+855885831366")
+        # Seed DB may or may not include Hour; matching itself must not crash.
+        self.assertIsInstance(hour, list)
+
+    def test_format_customer_alert_layout(self):
+        from django_app.telegram_bot import format_customer_alert
+
+        text = format_customer_alert(
+            emoji="📅",
+            title="Booking received",
+            name="Hour",
+            fields=[
+                "🚗 Car: 2JJ-3431",
+                "🔧 Service: Battery replacement",
+                "🕒 When: 31 Oct 2026 · 08:45",
+            ],
+            body=[
+                "We got your booking. It’s waiting for the garage to confirm.",
+                "We’ll message you when it’s set.",
+            ],
+        )
+        self.assertIn("📅 CarSV · Booking received", text)
+        self.assertIn("👤 Hour", text)
+        self.assertIn("🚗 Car: 2JJ-3431", text)
+        self.assertIn("We got your booking", text)
+
+    def test_format_change_lines_and_booking_detail_fields(self):
+        from django_app.telegram_bot import booking_detail_fields, format_change_lines
+
+        lines = format_change_lines(
+            [
+                ("Phone", "+855111", "+855222"),
+                ("Photo", None, "updated"),
+            ]
+        )
+        self.assertEqual(lines[0], "✏️ Phone: +855111 → +855222")
+        self.assertEqual(lines[1], "✏️ Photo: updated")
+
+        user = User.objects.create_user(
+            username="tg_visit",
+            email="tg.visit@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+            first_name="Visit",
+        )
+        customer = user.customer
+        vehicle = Vehicle.objects.create(
+            customer=customer,
+            plate="TST-001",
+            brand="Honda",
+            model="Civic",
+            year=2020,
+        )
+        category = ServiceCategory.objects.create(name="Test cat", status="ACTIVE")
+        main = Service.objects.create(category=category, name="Oil change", price="20.00", status="ACTIVE")
+        extra = Service.objects.create(category=category, name="Battery check", price="10.00", status="ACTIVE")
+        booking = Booking.objects.create(
+            customer=customer,
+            vehicle=vehicle,
+            service=main,
+            booking_date=date.today(),
+            status=Booking.Status.PENDING,
+        )
+        BookingService.objects.create(booking=booking, service=extra, price=extra.price)
+        part = SparePart.objects.create(
+            part_number="P-TG-1",
+            name="Oil filter",
+            category=SparePartCategory.objects.create(name="Filters TG", status="ACTIVE"),
+            quantity=5,
+            unit_price="5.00",
+            status="ACTIVE",
+        )
+        PartRequest.objects.create(
+            customer=customer,
+            vehicle=vehicle,
+            booking=booking,
+            spare_part=part,
+            fulfillment=PartRequest.Fulfillment.INSTALL,
+            status=PartRequest.Status.PENDING,
+        )
+        fields = booking_detail_fields(booking, include_when=True)
+        joined = "\n".join(fields)
+        self.assertIn("🔧 Main service: Oil change", joined)
+        self.assertIn("🛠️ Extra services: Battery check", joined)
+        self.assertIn("📦 Parts: Oil filter", joined)
+
+    def test_bind_refuses_to_steal_existing_telegram_chat(self):
+        from django_app.telegram_bot import TelegramBindError, bind_customer_chat
+
+        owner_user = User.objects.create_user(
+            username="tg_owner",
+            email="tg.owner@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+        )
+        owner = owner_user.customer
+        owner.name = "Owner"
+        owner.phone = "+855111111111"
+        owner.telegram_chat_id = "999001"
+        owner.save(update_fields=["name", "phone", "telegram_chat_id"])
+
+        other_user = User.objects.create_user(
+            username="tg_other",
+            email="tg.other@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+        )
+        other = other_user.customer
+        other.name = "Other"
+        other.phone = "+855222222222"
+        other.save(update_fields=["name", "phone"])
+
+        with self.assertRaises(TelegramBindError):
+            bind_customer_chat(other, "999001", telegram_username="other")
+        owner.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(owner.telegram_chat_id, "999001")
+        self.assertEqual(other.telegram_chat_id, "")
+
+    def test_bind_allows_free_telegram_and_blocks_second_chat_for_same_customer(self):
+        from django_app.telegram_bot import TelegramBindError, bind_customer_chat
+
+        user = User.objects.create_user(
+            username="tg_free",
+            email="tg.free@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+        )
+        customer = user.customer
+        customer.name = "Free"
+        customer.phone = "+855333333333"
+        customer.save(update_fields=["name", "phone"])
+
+        bind_customer_chat(customer, "888001", telegram_username="freeuser")
+        customer.refresh_from_db()
+        self.assertEqual(customer.telegram_chat_id, "888001")
+        with self.assertRaises(TelegramBindError):
+            bind_customer_chat(customer, "888002", telegram_username="freeuser")
+        customer.refresh_from_db()
+        self.assertEqual(customer.telegram_chat_id, "888001")
+
+    @override_settings(TELEGRAM_BOT_TOKEN="123:test-token")
+    @patch("django_app.telegram_bot.send_message", return_value=True)
+    def test_alerts_go_to_each_customers_own_telegram(self, send_message):
+        from django_app.telegram_bot import deliver_telegram
+
+        user_a = User.objects.create_user(
+            username="tg_a",
+            email="tg.a@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+            first_name="AccountA",
+        )
+        a = user_a.customer
+        a.telegram_chat_id = "111"
+        a.save(update_fields=["telegram_chat_id"])
+        a.refresh_from_db()
+
+        user_b = User.objects.create_user(
+            username="tg_b",
+            email="tg.b@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+            first_name="AccountB",
+        )
+        b = user_b.customer
+        b.telegram_chat_id = "222"
+        b.save(update_fields=["telegram_chat_id"])
+        b.refresh_from_db()
+
+        deliver_telegram(a, "Booking", "A booked")
+        deliver_telegram(b, "Payment", "B paid")
+
+        self.assertEqual(send_message.call_count, 2)
+        self.assertEqual(send_message.call_args_list[0].args[0], "111")
+        self.assertIn(f"👤 {a.name}", send_message.call_args_list[0].args[1])
+        self.assertEqual(send_message.call_args_list[1].args[0], "222")
+        self.assertIn(f"👤 {b.name}", send_message.call_args_list[1].args[1])
 
 
 class ApiAuthTests(APITestCase):
@@ -177,12 +368,19 @@ class ApiAuthTests(APITestCase):
         self.assertEqual(invalid.status_code, 400)
 
     def test_verify_email_then_login(self):
-        self.client.post(
+        registered = self.client.post(
             "/api/auth/register/",
             {"email": "verify.me@example.com", "password": "Testpass123!", "first_name": "Verify"},
             format="json",
         )
-        token = mail.outbox[-1].body.strip().splitlines()[-1]
+        self.assertEqual(registered.status_code, 201)
+        self.assertIn("verification_token", registered.data)
+        token = registered.data["verification_token"]
+        self.assertEqual(token, mail.outbox[-1].body.strip().splitlines()[-1])
+        blocked = self._login(email="verify.me@example.com", password="Testpass123!")
+        self.assertEqual(blocked.status_code, 400)
+        self.assertEqual(blocked.data.get("code"), "VERIFY_EMAIL")
+        self.assertTrue(blocked.data.get("verification_token"))
         verified = self.client.post("/api/auth/verify-email/", {"token": token}, format="json")
         self.assertEqual(verified.status_code, 200)
         login = self._login(email="verify.me@example.com", password="Testpass123!")
@@ -236,17 +434,55 @@ class ApiAuthTests(APITestCase):
         self.assertEqual(self.customer.role, AppUser.Role.CUSTOMER)
 
     @patch("django_app.auth_api.verify_google_id_token")
-    def test_google_login_does_not_merge_existing_email(self, verify):
+    def test_google_login_links_existing_customer_email(self, verify):
         verify.return_value = {
             "sub": "google-sub-1",
             "email": "namayheng12345@gmail.com",
             "first_name": "Ayheng",
             "last_name": "Nam",
         }
+        existing = User.objects.get(email="namayheng12345@gmail.com")
         with override_settings(GOOGLE_CLIENT_ID="test-client"):
             response = self.client.post("/api/auth/google/", {"id_token": "fake"}, format="json")
-        self.assertEqual(response.status_code, 409)
-        self.assertFalse(AuthProvider.objects.filter(provider_user_id="google-sub-1").exists())
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            AuthProvider.objects.filter(
+                provider=AuthProvider.Provider.GOOGLE,
+                provider_user_id="google-sub-1",
+                user=existing,
+            ).exists()
+        )
+        self.assertEqual(response.data["username"], existing.username)
+
+    @patch("django_app.auth_api.verify_google_id_token")
+    def test_google_login_activates_inactive_registered_email(self, verify):
+        pending = User.objects.create_user(
+            username="pending_google",
+            email="pending.google@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+            status=AppUser.Status.INACTIVE,
+            email_verified=False,
+        )
+        verify.return_value = {
+            "sub": "google-sub-pending",
+            "email": "pending.google@example.com",
+            "first_name": "Pending",
+            "last_name": "User",
+        }
+        with override_settings(GOOGLE_CLIENT_ID="test-client"):
+            response = self.client.post("/api/auth/google/", {"credential": "fake"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, AppUser.Status.ACTIVE)
+        self.assertTrue(pending.email_verified)
+        self.assertTrue(
+            AuthProvider.objects.filter(
+                provider=AuthProvider.Provider.GOOGLE,
+                provider_user_id="google-sub-pending",
+                user=pending,
+            ).exists()
+        )
 
     @patch("django_app.auth_api.verify_google_id_token")
     def test_google_login_creates_customer_and_can_link(self, verify):
@@ -1342,6 +1578,141 @@ class CustomerApiTests(APITestCase):
         )
         invoice.refresh_from_db()
         self.assertEqual(invoice.status, Invoice.Status.PAID)
+
+    def test_pending_payment_does_not_pay_invoice_until_verified(self):
+        import io
+        import tempfile
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django_app.models import ensure_visit_invoice, job_advance_block_reason, verify_payment
+        from PIL import Image
+
+        booking = Booking.objects.create(
+            customer=self.owner.customer,
+            vehicle=self.own_vehicle,
+            service=self.service,
+            booking_date=date(2026, 11, 1),
+            problem="brakes",
+        )
+        job = RepairJob.objects.create(
+            booking=booking,
+            customer=self.owner.customer,
+            vehicle=self.own_vehicle,
+            problem="brakes",
+            status=RepairJob.Status.QUALITY_CHECK,
+        )
+        invoice = ensure_visit_invoice(job)
+        invoice.labor_cost = Decimal("50.00")
+        invoice.save()
+        invoice.refresh_from_db()
+
+        blocked = job_advance_block_reason(job, RepairJob.Status.READY_FOR_PICKUP)
+        self.assertIn("not paid", blocked.lower())
+
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 40), color=(20, 120, 200)).save(buf, format="JPEG")
+        proof = SimpleUploadedFile("slip.jpg", buf.getvalue(), content_type="image/jpeg")
+        with override_settings(MEDIA_ROOT=tempfile.mkdtemp()):
+            claim = self.client.post(
+                "/api/customer/payments/",
+                {
+                    "invoice": invoice.id,
+                    "amount": str(invoice.grand_total),
+                    "method": "QR",
+                    "reference": "ABA-TEST",
+                    "proof": proof,
+                },
+                format="multipart",
+            )
+            self.assertEqual(claim.status_code, 201, claim.data)
+            self.assertEqual(claim.data["status"], Payment.Status.PENDING)
+            invoice.refresh_from_db()
+            self.assertEqual(invoice.status, Invoice.Status.UNPAID)
+            sheet = self.client.get(f"/api/customer/invoices/{invoice.id}/")
+            self.assertEqual(sheet.data["payment_state"], "PENDING")
+            still = job_advance_block_reason(job, RepairJob.Status.READY_FOR_PICKUP)
+            self.assertIn("verification", still.lower())
+
+            payment = Payment.objects.get(pk=claim.data["id"])
+            self.assertEqual(payment.vehicle_id, invoice.vehicle_id)
+            with self.assertRaises(ValidationError):
+                verify_payment(payment, user=self.owner)
+            staff_user = User.objects.create_user(
+                username="cashier-verify",
+                email="cashier-verify@example.com",
+                password="pass12345",
+                role=AppUser.Role.CASHIER,
+                status=AppUser.Status.ACTIVE,
+                email_verified=True,
+            )
+            staff = Staff.objects.get(user=staff_user)
+            payment.received_by = staff
+            payment.save(update_fields=["received_by"])
+            verify_payment(payment, user=self.owner)
+            invoice.refresh_from_db()
+            self.assertEqual(invoice.status, Invoice.Status.PAID)
+            self.assertEqual(job_advance_block_reason(job, RepairJob.Status.READY_FOR_PICKUP), "")
+
+    def test_customer_repay_deletes_pending_payment_on_backend(self):
+        import io
+        import tempfile
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django_app.models import ensure_visit_invoice
+        from PIL import Image
+
+        booking = Booking.objects.create(
+            customer=self.owner.customer,
+            vehicle=self.own_vehicle,
+            service=self.service,
+            booking_date=date(2026, 11, 2),
+            problem="oil",
+        )
+        job = RepairJob.objects.create(
+            booking=booking,
+            customer=self.owner.customer,
+            vehicle=self.own_vehicle,
+            problem="oil",
+            status=RepairJob.Status.QUALITY_CHECK,
+        )
+        invoice = ensure_visit_invoice(job)
+        invoice.labor_cost = Decimal("40.00")
+        invoice.save()
+        invoice.refresh_from_db()
+
+        buf = io.BytesIO()
+        Image.new("RGB", (32, 32), color=(10, 80, 160)).save(buf, format="JPEG")
+        proof = SimpleUploadedFile("bad-slip.jpg", buf.getvalue(), content_type="image/jpeg")
+        with override_settings(MEDIA_ROOT=tempfile.mkdtemp()):
+            claim = self.client.post(
+                "/api/customer/payments/",
+                {
+                    "invoice": invoice.id,
+                    "amount": str(invoice.grand_total),
+                    "method": "QR",
+                    "proof": proof,
+                },
+                format="multipart",
+            )
+            self.assertEqual(claim.status_code, 201, claim.data)
+            pay_id = claim.data["id"]
+            self.assertTrue(Payment.objects.filter(pk=pay_id, status=Payment.Status.PENDING).exists())
+
+            payment = Payment.objects.get(pk=pay_id)
+            proof_name = payment.proof_image.name
+            self.assertTrue(proof_name)
+            storage = payment.proof_image.storage
+            self.assertTrue(storage.exists(proof_name))
+
+            withdrawn = self.client.post(f"/api/customer/payments/{pay_id}/withdraw/", {}, format="json")
+            self.assertEqual(withdrawn.status_code, 200, withdrawn.data)
+            self.assertTrue(withdrawn.data["ok"])
+            self.assertFalse(Payment.objects.filter(pk=pay_id).exists())
+            self.assertFalse(storage.exists(proof_name))
+            invoice.refresh_from_db()
+            self.assertEqual(invoice.status, Invoice.Status.UNPAID)
+            sheet = self.client.get(f"/api/customer/invoices/{invoice.id}/")
+            self.assertEqual(sheet.data["payment_state"], "UNPAID")
 
     def test_public_blog_image_is_a_media_url(self):
         BlogPost.objects.create(

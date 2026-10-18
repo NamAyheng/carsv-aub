@@ -27,19 +27,18 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({ invoice, theme
   );
 };
 
-function sheetWrap(dark: boolean, kind: 'parts' | 'service') {
-  const accent = kind === 'parts' ? (dark ? 'bg-amber-500' : 'bg-amber-500') : dark ? 'bg-blue-500' : 'bg-blue-600';
+function sheetWrap(dark: boolean) {
   const body = dark
     ? 'bg-slate-900 text-slate-200 border border-slate-700/80'
     : 'bg-white text-slate-700 border border-slate-200';
-  return { accent, body };
+  return { body };
 }
 
 function PartsSaleSheet({ invoice, theme }: InvoiceDocumentProps) {
   const dark = theme === 'dark';
   const extraFitting = (invoice.items || []).filter((i) => i.type !== 'PART');
   const goods = (invoice.items || []).filter((i) => i.type === 'PART');
-  const { accent, body } = sheetWrap(dark, 'parts');
+  const { body } = sheetWrap(dark);
   const muted = dark ? 'text-slate-400' : 'text-slate-500';
   const title = dark ? 'text-white' : 'text-slate-900';
   const card = dark ? 'bg-slate-950/50 border border-slate-800' : 'bg-slate-50 border border-slate-200';
@@ -49,7 +48,6 @@ function PartsSaleSheet({ invoice, theme }: InvoiceDocumentProps) {
 
   return (
     <div className={`overflow-hidden ${body}`}>
-      <div className={`h-1 ${accent}`} />
       <div className="px-6 sm:px-8 py-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div
@@ -160,7 +158,7 @@ function ServiceRepairSheet({ invoice, theme }: InvoiceDocumentProps) {
   const labor = (invoice.items || []).filter((i) => i.type === 'LABOR' || i.type === 'SERVICE');
   const jobParts = (invoice.items || []).filter((i) => i.type === 'PART');
   const extras = extraPartsOnJob(invoice);
-  const { accent, body } = sheetWrap(dark, 'service');
+  const { body } = sheetWrap(dark);
   const muted = dark ? 'text-slate-400' : 'text-slate-500';
   const title = dark ? 'text-white' : 'text-slate-900';
   const card = dark ? 'bg-slate-950/50 border border-slate-800' : 'bg-slate-50 border border-slate-200';
@@ -170,7 +168,6 @@ function ServiceRepairSheet({ invoice, theme }: InvoiceDocumentProps) {
 
   return (
     <div className={`overflow-hidden ${body}`}>
-      <div className={`h-1 ${accent}`} />
       <div className="px-6 sm:px-8 py-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div

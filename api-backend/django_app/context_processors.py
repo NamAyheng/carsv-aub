@@ -21,7 +21,6 @@ PAGE_TITLES = {
     "payment": "Payments",
     "user": "Users",
     "role": "Roles",
-    "group": "Groups",
 }
 
 

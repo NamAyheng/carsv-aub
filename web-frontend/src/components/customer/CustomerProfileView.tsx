@@ -10,9 +10,15 @@ import {
   Edit,
   X,
   CheckCircle2,
-  LogOut
+  LogOut,
+  Send,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import {
+  disconnectTelegram,
+  fetchTelegramConnectLink,
+  setTelegramAlerts,
+} from '../../api/garage';
 
 interface CustomerProfileViewProps {
   onLogout: () => void;
@@ -168,6 +174,115 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
             <div className="font-bold text-emerald-400 text-sm">Active Customer (2FA Enabled)</div>
           </div>
         </div>
+
+        {(liveCustomer || currentUser?.telegramBotConfigured) && (
+          <div className="pt-4 border-t border-slate-800 space-y-3">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="space-y-1 min-w-0">
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <Send className="w-3.5 h-3.5 text-sky-400" />
+                  Telegram alerts
+                </div>
+                <p className="text-[11px] text-slate-400 max-w-md">
+                  One Telegram ↔ one CarSV account. Connect here (opens Telegram), or open the CarSV bot, tap{" "}
+                  <span className="text-slate-200">Share my phone number</span>, then confirm Yes — the number must match
+                  this profile ({currentUser?.phone || 'your phone'}). If that Telegram is already linked to someone else,
+                  connect is blocked and the original link stays.
+                </p>
+                <p className="text-[11px] font-semibold text-slate-300">
+                  {currentUser?.telegramLinked ? 'Linked' : 'Not linked yet'}
+                  {currentUser?.telegramLinked && currentUser?.telegramUsername
+                    ? ` · @${currentUser.telegramUsername}`
+                    : ''}
+                  {currentUser?.telegramLinked
+                    ? currentUser?.telegramAlerts === false
+                      ? ' · alerts paused'
+                      : ' · alerts on'
+                    : ''}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {!currentUser?.telegramLinked ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const link = await fetchTelegramConnectLink();
+                        window.open(link.url, '_blank', 'noopener,noreferrer');
+                        addToast({
+                          type: 'info',
+                          title: 'Open Telegram',
+                          message:
+                            'Use YOUR Telegram account, tap Start, then refresh this page. The bot will confirm your CarSV name.',
+                        });
+                      } catch (err) {
+                        addToast({
+                          type: 'error',
+                          title: 'Telegram',
+                          message: err instanceof Error ? err.message : 'Could not open Telegram.',
+                        });
+                      }
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Connect Telegram
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const next = currentUser?.telegramAlerts === false;
+                          await setTelegramAlerts(next);
+                          updateUser(currentUser.id, { telegramAlerts: next });
+                          addToast({
+                            type: 'success',
+                            title: 'Telegram',
+                            message: next ? 'Alerts turned on.' : 'Alerts paused.',
+                          });
+                        } catch (err) {
+                          addToast({
+                            type: 'error',
+                            title: 'Telegram',
+                            message: err instanceof Error ? err.message : 'Could not update alerts.',
+                          });
+                        }
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer"
+                    >
+                      {currentUser?.telegramAlerts === false ? 'Resume alerts' : 'Pause alerts'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await disconnectTelegram();
+                          updateUser(currentUser.id, { telegramLinked: false });
+                          addToast({
+                            type: 'success',
+                            title: 'Telegram',
+                            message: 'Telegram was disconnected.',
+                          });
+                        } catch (err) {
+                          addToast({
+                            type: 'error',
+                            title: 'Telegram',
+                            message: err instanceof Error ? err.message : 'Could not disconnect.',
+                          });
+                        }
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer"
+                    >
+                      Disconnect
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Security & Action Buttons */}
         <div className="pt-4 border-t border-slate-800 flex flex-wrap justify-between items-center gap-4">

@@ -199,6 +199,37 @@ class Customer(models.Model):
     photo = models.ImageField(upload_to="customers/%Y/%m/", blank=True, validators=[validate_uploaded_image])
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     notes = models.TextField(blank=True)
+    telegram_chat_id = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Telegram chat id for bot alerts (from Connect Telegram / Start).",
+    )
+    telegram_username = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Telegram @username captured when the customer linked the bot.",
+    )
+    telegram_alerts = models.BooleanField(
+        default=True,
+        help_text="When on, linked Telegram chats receive garage alerts.",
+    )
+    telegram_linked_at = models.DateTimeField(null=True, blank=True)
+    telegram_connect_code = models.CharField(
+        max_length=32,
+        blank=True,
+        db_index=True,
+        help_text="One-time code embedded in t.me/Bot?start=… for linking.",
+    )
+    telegram_connect_expires = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["telegram_chat_id"],
+                condition=~models.Q(telegram_chat_id=""),
+                name="uniq_customer_telegram_chat_id",
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -562,13 +593,39 @@ def apply_role_assignment(user, previous_role=None):
         Mechanic.objects.filter(user=user).delete()
 
 
+def verified_payment_total(invoice):
+    """Sum of staff-verified payments only. Pending claims do not count."""
+    if invoice is None:
+        return Decimal("0")
+    return invoice.payments.filter(status=Payment.Status.PAID).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+
+
+def claimed_payment_total(invoice, exclude_pk=None):
+    """Pending + verified amounts reserved against the invoice balance."""
+    if invoice is None:
+        return Decimal("0")
+    qs = invoice.payments.filter(status__in=(Payment.Status.PENDING, Payment.Status.PAID))
+    if exclude_pk:
+        qs = qs.exclude(pk=exclude_pk)
+    return qs.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+
+
+def invoice_payment_state(invoice):
+    """Customer-facing pay state: UNPAID, PENDING (awaiting verify), or PAID."""
+    if invoice is None or invoice.status == Invoice.Status.CANCELLED:
+        return "UNPAID"
+    if invoice.status == Invoice.Status.PAID or verified_payment_total(invoice) >= invoice.grand_total:
+        return "PAID"
+    if invoice.payments.filter(status=Payment.Status.PENDING).exists():
+        return "PENDING"
+    return "UNPAID"
+
+
 def refresh_invoice_status(invoice):
-    """Set the invoice status from the payments already stored on it."""
+    """Set the invoice status from verified payments only."""
     if invoice is None or invoice.status == Invoice.Status.CANCELLED:
         return
-    paid = invoice.payments.exclude(
-        status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
-    ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+    paid = verified_payment_total(invoice)
     if paid <= 0:
         new_status = Invoice.Status.DRAFT if invoice.status == Invoice.Status.DRAFT else Invoice.Status.UNPAID
     elif paid >= invoice.grand_total:
@@ -578,6 +635,181 @@ def refresh_invoice_status(invoice):
     if invoice.status != new_status:
         Invoice.objects.filter(pk=invoice.pk).update(status=new_status)
         invoice.status = new_status
+
+
+def next_payment_number():
+    """PAY-0001 style id for new payment rows."""
+    last = (
+        Payment.objects.filter(number__startswith="PAY-")
+        .order_by("-id")
+        .values_list("number", flat=True)
+        .first()
+    )
+    n = 1
+    if last:
+        try:
+            n = int(str(last).split("-")[-1]) + 1
+        except ValueError:
+            n = Payment.objects.count() + 1
+    while Payment.objects.filter(number=f"PAY-{n:04d}").exists():
+        n += 1
+    return f"PAY-{n:04d}"
+
+
+def receipt_number_for(payment):
+    """Receipt number is the payment id (PAY-0001)."""
+    if payment is None:
+        return ""
+    number = (getattr(payment, "number", None) or "").strip()
+    if number:
+        return number
+    if payment.pk:
+        return f"PAY-{payment.pk:04d}"
+    return ""
+
+
+def next_receipt_number(payment=None):
+    """Alias kept for callers — receipt uses the payment id."""
+    return receipt_number_for(payment)
+
+
+def verify_payment(payment, user=None):
+    """Staff confirms a pending payment. Invoice balance updates from verified rows only."""
+    if payment is None:
+        raise ValidationError("That payment was not found.")
+    if payment.status == Payment.Status.PAID:
+        return payment
+    if payment.status in (Payment.Status.FAILED, Payment.Status.REFUNDED):
+        raise ValidationError("A failed or refunded payment cannot be verified.")
+    if not payment.proof_image:
+        raise ValidationError("Upload the payment proof (bill or transaction) before verifying.")
+    if not payment.received_by_id:
+        raise ValidationError("Select staff (Received by) before verifying this payment.")
+    if payment.invoice_id and payment.customer_id != payment.invoice.customer_id:
+        raise ValidationError("This payment customer does not match the invoice.")
+    if payment.invoice_id and payment.vehicle_id and payment.vehicle_id != payment.invoice.vehicle_id:
+        raise ValidationError("This payment vehicle does not match the invoice.")
+    others = claimed_payment_total(payment.invoice, exclude_pk=payment.pk)
+    remain = (payment.invoice.grand_total - others).quantize(Decimal("0.01"))
+    amount = Decimal(payment.amount).quantize(Decimal("0.01"))
+    if amount > remain:
+        raise ValidationError(f"Amount is too much. Pay exactly ${remain} (you entered ${amount}).")
+    if amount < remain:
+        raise ValidationError(f"Amount is too little. Pay exactly ${remain} (you entered ${amount}).")
+    payment.status = Payment.Status.PAID
+    payment.receipt_number = receipt_number_for(payment)
+    payment.verified_at = timezone.now()
+    if user is not None and getattr(user, "is_authenticated", False):
+        payment.verified_by = user
+    payment.save()
+    from django_app.telegram_bot import format_customer_alert, money_text
+
+    method = payment.get_method_display()
+    notify_customer(
+        payment.customer,
+        kind=Notification.Kind.PAYMENT,
+        title=f"Payment accepted · {payment.number}",
+        message=(
+            f"Your {method.lower()} payment of {money_text(payment.amount)} "
+            f"for {payment.invoice.number} was accepted."
+        ),
+        telegram_text=format_customer_alert(
+            emoji="✅",
+            title="Payment accepted",
+            customer=payment.customer,
+            fields=[
+                f"🧾 Invoice: {payment.invoice.number}",
+                f"🆔 Payment: {payment.number}",
+                f"💵 Amount: {money_text(payment.amount)}",
+                f"💳 Method: {method}",
+            ],
+            body="Your payment was accepted. Thank you!",
+        ),
+    )
+    return payment
+
+
+def reject_payment(payment, user=None, reason=""):
+    """Staff rejects a pending claim. Does not change verified payments."""
+    if payment is None:
+        raise ValidationError("That payment was not found.")
+    if payment.status != Payment.Status.PENDING:
+        raise ValidationError("Only pending payments can be rejected.")
+    payment.status = Payment.Status.FAILED
+    if reason:
+        note = (payment.reference or "").strip()
+        payment.reference = f"{note} | rejected: {reason}".strip(" |")[:80] if note else f"rejected: {reason}"[:80]
+    payment.verified_at = timezone.now()
+    if user is not None and getattr(user, "is_authenticated", False):
+        payment.verified_by = user
+    payment.save()
+    from django_app.telegram_bot import format_customer_alert
+
+    notify_customer(
+        payment.customer,
+        kind=Notification.Kind.PAYMENT,
+        title=f"Payment not accepted · {payment.number}",
+        message=(
+            f"The garage could not accept your payment for {payment.invoice.number}. "
+            f"Please pay again or contact the front desk."
+        ),
+        telegram_text=format_customer_alert(
+            emoji="❌",
+            title="Payment not accepted",
+            customer=payment.customer,
+            fields=[
+                f"🧾 Invoice: {payment.invoice.number}",
+                f"🆔 Payment: {payment.number}",
+            ],
+            body=[
+                "Sorry — the garage could not accept this payment.",
+                "👉 Please try again, or contact the front desk.",
+            ],
+        ),
+    )
+    return payment
+
+
+def withdraw_pending_payment(payment, customer=None):
+    """Customer cancels a pending claim: delete row + proof file so admin no longer shows it."""
+    if payment is None:
+        raise ValidationError("That payment was not found.")
+    if customer is not None and payment.customer_id != getattr(customer, "id", None):
+        raise ValidationError("That payment was not found.")
+    if payment.status != Payment.Status.PENDING:
+        raise ValidationError("Only a pending payment can be withdrawn.")
+    invoice = payment.invoice
+    customer_row = payment.customer
+    number = payment.number
+    amount = payment.amount
+    # Payment.delete() also removes the proof file from media storage.
+    payment.delete()
+    from django_app.telegram_bot import format_customer_alert, money_text
+
+    notify_customer(
+        customer_row,
+        kind=Notification.Kind.PAYMENT,
+        title=f"Payment withdrawn · {number}",
+        message=(
+            f"Your pending payment of {money_text(amount)} for {invoice.number} was cancelled. "
+            f"You can submit a new payment."
+        ),
+        telegram_text=format_customer_alert(
+            emoji="💳",
+            title="Payment withdrawn",
+            customer=customer_row,
+            fields=[
+                f"🧾 Invoice: {invoice.number}",
+                f"🆔 Payment: {number}",
+                f"💵 Amount: {money_text(amount)}",
+            ],
+            body=[
+                "Your pending payment was cancelled.",
+                "You can submit a new payment anytime.",
+            ],
+        ),
+    )
+    return invoice
 
 
 def next_invoice_status(status):
@@ -827,7 +1059,38 @@ class PartRequest(models.Model):
     class Meta:
         ordering = ["-created_at", "-id"]
 
+    def clean(self):
+        super().clean()
+        if self.fulfillment == self.Fulfillment.INSTALL and not self.booking_id:
+            raise ValidationError(
+                {"booking": "Workshop install parts belong on a booking (visit quote)."}
+            )
+        if self.booking_id:
+            if self.customer_id and self.customer_id != self.booking.customer_id:
+                raise ValidationError({"customer": "Customer must match the booking customer."})
+            if self.vehicle_id and self.vehicle_id != self.booking.vehicle_id:
+                raise ValidationError({"vehicle": "Vehicle must match the booking vehicle."})
+            try:
+                job = self.booking.repair_job
+            except RepairJob.DoesNotExist:
+                job = None
+            if self.repair_job_id and job is not None and self.repair_job_id != job.pk:
+                raise ValidationError({"repair_job": "Work order must match the booking’s work order."})
+
     def save(self, *args, **kwargs):
+        if self.fulfillment in (self.Fulfillment.PICKUP, self.Fulfillment.DELIVERY):
+            self.booking_id = None
+        if self.booking_id:
+            if not self.customer_id or self.customer_id != self.booking.customer_id:
+                self.customer_id = self.booking.customer_id
+            if not self.vehicle_id or self.vehicle_id != self.booking.vehicle_id:
+                self.vehicle_id = self.booking.vehicle_id
+            try:
+                job = self.booking.repair_job
+            except RepairJob.DoesNotExist:
+                job = None
+            if job is not None and (not self.repair_job_id or self.repair_job_id != job.pk):
+                self.repair_job_id = job.pk
         super().save(*args, **kwargs)
         if not self.number:
             assigned = f"PR-{self.pk:04d}"
@@ -928,13 +1191,27 @@ def cancel_part_request(part_request, reason="", user=None):
             job = None
     if job is not None:
         sync_invoice_costs(job)
-    Notification.objects.create(
-        customer_id=part_request.customer_id,
+    from django_app.telegram_bot import format_customer_alert
+
+    part_name = part_request.spare_part.name if part_request.spare_part_id else "Part"
+    notify_customer(
+        part_request.customer_id,
         kind=Notification.Kind.INVOICE,
         title=f"{part_request.number} cancelled",
-        message=(
-            f"{part_request.spare_part.name} was cancelled on your visit. "
-            f"Reason: {text}"
+        message=f"{part_name} was cancelled on your visit. Reason: {text}",
+        telegram_text=format_customer_alert(
+            emoji="📦",
+            title="Part cancelled",
+            customer=part_request.customer,
+            fields=[
+                f"📦 Part: {part_name}",
+                f"🆔 Request: {part_request.number}",
+                f"Reason: {text}",
+            ],
+            body=[
+                "This part was cancelled on your visit.",
+                "Message the garage if you still need it.",
+            ],
         ),
     )
     return part_request
@@ -978,7 +1255,22 @@ class Invoice(models.Model):
     invoice_date = models.DateField(auto_now_add=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.UNPAID)
 
+    def clean(self):
+        super().clean()
+        if not self.repair_job_id:
+            return
+        job = self.repair_job
+        if self.customer_id and self.customer_id != job.customer_id:
+            raise ValidationError({"customer": "Customer must match the repair job customer."})
+        if self.vehicle_id and self.vehicle_id != job.vehicle_id:
+            raise ValidationError({"vehicle": "Vehicle must match the repair job vehicle."})
+
     def save(self, *args, **kwargs):
+        if self.repair_job_id:
+            if not self.customer_id or self.customer_id != self.repair_job.customer_id:
+                self.customer_id = self.repair_job.customer_id
+            if not self.vehicle_id or self.vehicle_id != self.repair_job.vehicle_id:
+                self.vehicle_id = self.repair_job.vehicle_id
         labor = Decimal(self.labor_cost or 0)
         service = Decimal(self.service_cost or 0)
         parts = Decimal(self.parts_cost or 0)
@@ -1000,8 +1292,7 @@ class Payment(models.Model):
         QR = "QR", "QR"
 
     class Status(models.TextChoices):
-        UNPAID = "UNPAID", "Unpaid"
-        PARTIAL = "PARTIAL", "Partially paid"
+        PENDING = "PENDING", "Pending"
         PAID = "PAID", "Paid"
         FAILED = "FAILED", "Failed"
         REFUNDED = "REFUNDED", "Refunded"
@@ -1009,40 +1300,95 @@ class Payment(models.Model):
     number = models.CharField(max_length=40, unique=True)
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="payments")
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="payments")
+    vehicle = models.ForeignKey(
+        Vehicle,
+        on_delete=models.CASCADE,
+        related_name="payments",
+        null=True,
+        blank=True,
+        help_text="Taken from the invoice vehicle.",
+    )
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     method = models.CharField(max_length=20, choices=Method.choices, default=Method.CASH)
     paid_at = models.DateField()
     reference = models.CharField(max_length=80, blank=True)
+    proof_image = models.ImageField(
+        upload_to="payments/%Y/%m/",
+        blank=True,
+        validators=[validate_uploaded_image],
+        help_text="Cash bill or digital transaction screenshot. Required before Verify.",
+    )
     received_by = models.ForeignKey(
         Staff,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
         related_name="payments_taken",
+        help_text="Staff who received the payment. Required before Verify.",
     )
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PAID)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     receipt_number = models.CharField(max_length=40, blank=True)
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="payments_verified",
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
 
     def clean(self):
         super().clean()
         if not self.invoice_id or self.amount is None:
             return
+        if self.invoice_id and self.customer_id and self.customer_id != self.invoice.customer_id:
+            raise ValidationError({"customer": "Customer must match the invoice customer."})
+        if self.invoice_id and self.vehicle_id and self.vehicle_id != self.invoice.vehicle_id:
+            raise ValidationError({"vehicle": "Vehicle must match the invoice vehicle."})
         if self.status in (self.Status.FAILED, self.Status.REFUNDED):
             return
-        others = self.invoice.payments.exclude(status__in=(self.Status.FAILED, self.Status.REFUNDED))
-        if self.pk:
-            others = others.exclude(pk=self.pk)
-        already = others.aggregate(total=Sum("amount"))["total"] or Decimal("0")
-        if already + self.amount > self.invoice.grand_total:
-            raise ValidationError({"amount": "That amount is more than the balance due."})
+        already = claimed_payment_total(self.invoice, exclude_pk=self.pk)
+        remain = (self.invoice.grand_total - already).quantize(Decimal("0.01"))
+        amount = Decimal(self.amount).quantize(Decimal("0.01"))
+        if amount > remain:
+            raise ValidationError(
+                {"amount": f"Amount is too much. Pay exactly ${remain} (you entered ${amount})."}
+            )
+        if amount < remain:
+            raise ValidationError(
+                {"amount": f"Amount is too little. Pay exactly ${remain} (you entered ${amount})."}
+            )
+        if self.status == self.Status.PAID and not self.proof_image and not self.pk:
+            raise ValidationError({"proof_image": "Upload payment proof before marking Paid."})
+        if self.status == self.Status.PAID and not self.received_by_id:
+            raise ValidationError({"received_by": "Select staff (Received by) before marking Paid."})
 
     def save(self, *args, **kwargs):
+        if self.invoice_id:
+            if not self.customer_id or self.customer_id != self.invoice.customer_id:
+                self.customer_id = self.invoice.customer_id
+            if not self.vehicle_id or self.vehicle_id != self.invoice.vehicle_id:
+                self.vehicle_id = self.invoice.vehicle_id
         super().save(*args, **kwargs)
         refresh_invoice_status(self.invoice)
 
     def delete(self, *args, **kwargs):
         invoice = self.invoice
+        proof_name = ""
+        storage = None
+        if self.proof_image:
+            try:
+                proof_name = self.proof_image.name
+                storage = self.proof_image.storage
+            except (ValueError, AttributeError):
+                proof_name = ""
+                storage = None
         result = super().delete(*args, **kwargs)
+        if proof_name and storage is not None:
+            try:
+                storage.delete(proof_name)
+            except Exception:
+                pass
         refresh_invoice_status(invoice)
         return result
 
@@ -1081,6 +1427,84 @@ class Estimate(models.Model):
     def __str__(self):
         return self.number
 
+    def save(self, *args, **kwargs):
+        creating = self._state.adding
+        previous = None
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+        super().save(*args, **kwargs)
+        total = (
+            Decimal(self.labor_cost or 0)
+            + Decimal(self.service_cost or 0)
+            + Decimal(self.parts_cost or 0)
+            - Decimal(self.discount or 0)
+            + Decimal(self.tax or 0)
+        )
+        plate = self.vehicle.plate if self.vehicle_id else "your vehicle"
+        from django_app.telegram_bot import format_customer_alert, money_text
+
+        if creating and self.status == self.Status.SENT:
+            notify_customer(
+                self.customer_id,
+                kind=Notification.Kind.QUOTE,
+                title=f"Quote {self.number}",
+                message=(
+                    f"A quotation for {plate} is ready ({money_text(total)}). "
+                    "Open Quotes to approve or decline."
+                ),
+                telegram_text=format_customer_alert(
+                    emoji="📋",
+                    title="Quote ready",
+                    customer=self.customer,
+                    fields=[
+                        f"🚗 Car: {plate}",
+                        f"🧾 Quote: {self.number}",
+                        f"💵 Amount: {money_text(total)}",
+                    ],
+                    body=[
+                        "Please review the price before we continue.",
+                        "👉 Open Quotes to approve or decline.",
+                    ],
+                ),
+            )
+        elif previous == self.Status.SENT and self.status == self.Status.APPROVED:
+            notify_customer(
+                self.customer_id,
+                kind=Notification.Kind.QUOTE,
+                title=f"Quote {self.number} approved",
+                message=f"You approved the quotation for {plate}. The workshop can continue.",
+                telegram_text=format_customer_alert(
+                    emoji="✅",
+                    title="Quote approved",
+                    customer=self.customer,
+                    fields=[
+                        f"🚗 Car: {plate}",
+                        f"🧾 Quote: {self.number}",
+                    ],
+                    body="Thanks — you approved the quote. We’ll continue the work.",
+                ),
+            )
+        elif previous == self.Status.SENT and self.status == self.Status.REJECTED:
+            notify_customer(
+                self.customer_id,
+                kind=Notification.Kind.QUOTE,
+                title=f"Quote {self.number} declined",
+                message=f"You declined the quotation for {plate}. Contact the garage if you need changes.",
+                telegram_text=format_customer_alert(
+                    emoji="📋",
+                    title="Quote declined",
+                    customer=self.customer,
+                    fields=[
+                        f"🚗 Car: {plate}",
+                        f"🧾 Quote: {self.number}",
+                    ],
+                    body=[
+                        "You declined this quote. We won’t continue with that price.",
+                        "Contact the garage if you’d like a different option.",
+                    ],
+                ),
+            )
+
 
 class Notification(models.Model):
     class Kind(models.TextChoices):
@@ -1090,6 +1514,8 @@ class Notification(models.Model):
         PAYMENT = "PAYMENT", "Payment"
         QUOTE = "QUOTE", "Quotation"
         MAINTENANCE = "MAINTENANCE", "Maintenance"
+        ACCOUNT = "ACCOUNT", "Account"
+        VEHICLE = "VEHICLE", "Vehicle"
 
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="notifications")
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.BOOKING)
@@ -1097,12 +1523,66 @@ class Notification(models.Model):
     message = models.TextField()
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    telegram_sent = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-created_at", "-id"]
 
     def __str__(self):
         return self.title
+
+
+def notify_customer(customer, *, kind, title, message, telegram=True, in_app=True, telegram_text=None):
+    """
+    Create an in-app notification and optionally push an alert to Telegram.
+    Prefer this over Notification.objects.create for customer-facing events.
+
+    telegram_text: full customer-facing Telegram body (emoji layout). When set,
+    Telegram uses it; in-app still uses title + message.
+
+    Telegram HTTP runs after DB commit so SQLite is not held locked during the
+    network call (avoids "database is locked" with the Telegram poller).
+    """
+    if isinstance(customer, int):
+        customer = Customer.objects.filter(pk=customer).first()
+    if customer is None or not getattr(customer, "pk", None):
+        return None
+    note = None
+    if in_app:
+        note = Notification.objects.create(
+            customer=customer,
+            kind=kind,
+            title=(title or "")[:160],
+            message=message or "",
+        )
+    if telegram:
+        customer_pk = customer.pk
+        note_pk = note.pk if note is not None else None
+        title_s = title
+        message_s = message
+        telegram_text_s = telegram_text
+
+        def _deliver_after_commit():
+            try:
+                from django_app.telegram_bot import deliver_telegram
+
+                cust = Customer.objects.filter(pk=customer_pk).first()
+                if cust is None:
+                    return
+                sent = deliver_telegram(
+                    cust, title_s, message_s, telegram_text=telegram_text_s
+                )
+                if sent and note_pk:
+                    Notification.objects.filter(pk=note_pk).update(telegram_sent=True)
+            except Exception:
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    "Telegram deliver failed for customer %s", customer_pk
+                )
+
+        transaction.on_commit(_deliver_after_commit)
+    return note
 
 
 class BlogPost(models.Model):
@@ -1163,6 +1643,20 @@ class AuthProvider(models.Model):
 
     def __str__(self):
         return f"{self.provider}:{self.provider_user_id}"
+
+
+class TelegramLinkPending(models.Model):
+    """Temporary Yes/No confirmation after a customer shares their phone in the bot."""
+
+    chat_id = models.CharField(max_length=64, unique=True, db_index=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="telegram_link_pending")
+    telegram_username = models.CharField(max_length=64, blank=True)
+    phone_digits = models.CharField(max_length=32, blank=True)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"pending {self.chat_id} → customer {self.customer_id}"
 
 
 JOB_STAGES = (
@@ -1337,6 +1831,22 @@ def job_advance_block_reason(job, new_status):
     # Finish repairing → Quality check only when every part request is confirmed or cancelled.
     if new_status == RepairJob.Status.QUALITY_CHECK and job_blocking_part_requests(job).exists():
         return "Confirm or cancel every part request before Quality check."
+    # Quality check → Ready for pickup only when the linked invoice is fully paid (verified).
+    if new_status == RepairJob.Status.READY_FOR_PICKUP:
+        try:
+            invoice = job.invoice
+        except Invoice.DoesNotExist:
+            invoice = None
+        if invoice is None or invoice.status == Invoice.Status.CANCELLED:
+            return "Issue and collect payment on the invoice before Ready for pickup."
+        refresh_invoice_status(invoice)
+        state = invoice_payment_state(invoice)
+        if state == "UNPAID":
+            return "Customer has not paid this invoice yet."
+        if state == "PENDING":
+            return "Payment is waiting for verification."
+        if invoice.status != Invoice.Status.PAID:
+            return "Invoice must be fully paid before Ready for pickup."
     if new_status not in LATER_THAN_INSPECTION:
         return ""
     if previous in LATER_THAN_INSPECTION:
@@ -1462,11 +1972,21 @@ def add_booking_service(booking, service):
         invoice.service_cost = Decimal(invoice.service_cost or 0) + row.price
         invoice.save()
         refresh_invoice_status(invoice)
-    Notification.objects.create(
-        customer_id=booking.customer_id,
+    from django_app.telegram_bot import booking_detail_fields, format_customer_alert
+
+    plate = booking.vehicle.plate if booking.vehicle_id else "your car"
+    notify_customer(
+        booking.customer_id,
         kind=Notification.Kind.BOOKING,
         title="Service added to your visit",
-        message=f"{service.name} was added to the {booking.service.name} visit for {booking.vehicle.plate}.",
+        message=f"{service.name} was added to your visit for {plate}.",
+        telegram_text=format_customer_alert(
+            emoji="🔧",
+            title="Service added",
+            customer=booking.customer,
+            fields=booking_detail_fields(booking) + [f"✏️ Added: {service.name}"],
+            body="This service was added to your current visit.",
+        ),
     )
     return row
 
@@ -1494,11 +2014,21 @@ def remove_booking_extra_service(booking, booking_service_id):
         invoice.service_cost = max(Decimal("0"), Decimal(invoice.service_cost or 0) - price)
         invoice.save()
         refresh_invoice_status(invoice)
-    Notification.objects.create(
-        customer_id=booking.customer_id,
+    from django_app.telegram_bot import booking_detail_fields, format_customer_alert
+
+    plate = booking.vehicle.plate if booking.vehicle_id else "your car"
+    notify_customer(
+        booking.customer_id,
         kind=Notification.Kind.BOOKING,
         title="Service removed from quote",
-        message=f"{name} was removed from the quote for {booking.vehicle.plate}.",
+        message=f"{name} was removed from the quote for {plate}.",
+        telegram_text=format_customer_alert(
+            emoji="🔧",
+            title="Service removed",
+            customer=booking.customer,
+            fields=booking_detail_fields(booking) + [f"✏️ Removed: {name}"],
+            body="This service was removed from your quote.",
+        ),
     )
     return booking
 
@@ -1546,14 +2076,27 @@ def confirm_customer_part_purchase(part_request):
         raise ValidationError("This part request is already confirmed.")
     part_request.status = PartRequest.Status.NOTED
     part_request.save(update_fields=["status"])
-    Notification.objects.create(
-        customer_id=part_request.customer_id,
+    from django_app.telegram_bot import format_customer_alert
+
+    part_name = part_request.spare_part.name if part_request.spare_part_id else "Part"
+    notify_customer(
+        part_request.customer_id,
         kind=Notification.Kind.INVOICE,
         title=f"{part_request.number} purchase confirmed",
         message=(
-            f"{part_request.spare_part.name} is confirmed for "
+            f"{part_name} is confirmed for "
             f"{part_request.get_fulfillment_display().lower()}. "
-            "The garage prepares the invoice and handoff. Stock stays on the shelf until then."
+            "The garage prepares the invoice and handoff."
+        ),
+        telegram_text=format_customer_alert(
+            emoji="⚙️",
+            title="Part purchase confirmed",
+            customer=part_request.customer,
+            fields=[
+                f"📦 Part: {part_name}",
+                f"🆔 Request: {part_request.number}",
+            ],
+            body="The garage will prepare the invoice and handoff for you.",
         ),
     )
     return part_request
@@ -1578,11 +2121,19 @@ def sync_booking_from_job(job):
 
 
 def _notify_booking_stage(booking, job, previous):
-    service_name = booking.service.name if booking.service_id else "The visit"
-    plate = booking.vehicle.plate
+    from django_app.telegram_bot import booking_detail_fields, format_customer_alert
+
+    service_name = booking.service.name if booking.service_id else "your visit"
+    plate = booking.vehicle.plate if booking.vehicle_id else "your car"
     if job.status == RepairJob.Status.COMPLETED:
         title = "Visit completed"
-        message = f"{service_name} for {plate} is completed. The bill is at the garage."
+        message = f"{service_name} for {plate} is finished. Collect your bill at the garage."
+        emoji, tg_title = "🏁", "Visit completed"
+        body = [
+            "Your service is finished.",
+            "🧾 Collect your bill at the garage, or pay from Invoices in your account.",
+        ]
+        visit_fields = booking_detail_fields(booking)
     elif job.status == RepairJob.Status.DIAGNOSING and previous in (
         Booking.Status.PENDING,
         Booking.Status.CONFIRMED,
@@ -1590,27 +2141,77 @@ def _notify_booking_stage(booking, job, previous):
         Booking.Status.CHECKED_IN,
     ):
         title = "Car checked in"
-        message = f"{service_name} for {plate} is checked in. The work order and invoice are open."
+        message = f"{service_name} for {plate} is checked in. Follow progress in Tracking."
+        emoji, tg_title = "🚘", "Car checked in"
+        body = [
+            "Your car is checked in. The team has started looking after it.",
+            "Follow progress anytime in Tracking.",
+        ]
+        visit_fields = booking_detail_fields(booking)
     elif job.status == RepairJob.Status.WAITING and previous in (Booking.Status.PENDING, Booking.Status.CONFIRMED):
         title = "Booking confirmed"
-        message = f"{service_name} for {plate} is confirmed. A work order is open for this visit."
+        message = f"{service_name} for {plate} is confirmed. Please bring your car at the scheduled time."
+        emoji, tg_title = "✅", "Booking confirmed"
+        body = [
+            "Your booking is confirmed.",
+            "Please bring your car at the scheduled time.",
+        ]
+        visit_fields = booking_detail_fields(booking, include_when=True)
+    elif job.status == RepairJob.Status.WAITING_APPROVAL:
+        title = "Approval needed"
+        message = f"{service_name} for {plate} needs your approval. Open Quotes or Tracking to review."
+        emoji, tg_title = "📋", "Approval needed"
+        body = [
+            "We need your OK before continuing.",
+            "👉 Open Quotes or Tracking to review and approve or decline.",
+        ]
+        visit_fields = booking_detail_fields(booking)
     elif job.status == RepairJob.Status.READY_FOR_PICKUP:
         title = "Ready for pickup"
         message = f"{service_name} for {plate} is ready for pickup."
+        emoji, tg_title = "🎉", "Ready for pickup"
+        body = [
+            "Good news — your car is ready!",
+            "Please come to the garage when you can.",
+        ]
+        visit_fields = booking_detail_fields(booking)
     elif job.status == RepairJob.Status.REPAIRING and previous == Booking.Status.WAITING_APPROVAL:
-        title = "Repair confirmed"
-        message = f"{service_name} for {plate} is confirmed. The workshop can continue the repair."
+        title = "Repair continuing"
+        message = f"{service_name} for {plate} is confirmed. The workshop will continue the repair."
+        emoji, tg_title = "✅", "Repair continuing"
+        body = "Thanks — you’re all set. The workshop will continue the repair."
+        visit_fields = booking_detail_fields(booking)
     elif job.status == RepairJob.Status.CANCELLED:
         title = "Visit cancelled"
-        message = f"{service_name} for {plate} was cancelled from the quote. Repair will not continue."
+        message = f"{service_name} for {plate} was cancelled. Repair will not continue."
+        emoji, tg_title = "🚫", "Visit cancelled"
+        body = [
+            "This visit was cancelled. The repair will not continue.",
+            "If you still need help, contact the garage or book again.",
+        ]
+        visit_fields = booking_detail_fields(booking)
     else:
-        title = "Visit updated"
-        message = f"{service_name} for {plate} is now {job.get_status_display()}."
-    Notification.objects.create(
-        customer_id=booking.customer_id,
-        kind=Notification.Kind.BOOKING,
+        title = "Tracking update"
+        status_label = job.get_status_display()
+        message = f"{service_name} for {plate} is now {status_label}."
+        emoji, tg_title = "📍", "Tracking update"
+        body = "Your visit status was updated. Open Tracking for details."
+        visit_fields = booking_detail_fields(booking, include_status=status_label)
+    notify_customer(
+        booking.customer_id,
+        kind=Notification.Kind.REPAIR if job.status not in (
+            RepairJob.Status.WAITING,
+            RepairJob.Status.CANCELLED,
+        ) else Notification.Kind.BOOKING,
         title=title,
         message=message,
+        telegram_text=format_customer_alert(
+            emoji=emoji,
+            title=tg_title,
+            customer=booking.customer,
+            fields=visit_fields,
+            body=body,
+        ),
     )
 
 
@@ -1708,13 +2309,28 @@ def _issue_part_on_job(part_request, job, part, user=None):
                 status=Invoice.Status.UNPAID,
             )
         invoice = sync_invoice_costs(job)
-    Notification.objects.create(
-        customer_id=part_request.customer_id,
+    from django_app.telegram_bot import format_customer_alert
+
+    notify_customer(
+        part_request.customer_id,
         kind=Notification.Kind.INVOICE,
         title=f"{part_request.number} confirmed",
         message=(
-            f"{part.name} is on WO-{job.id:04d} and billed on {invoice.number}. "
-            "The balance is due at the garage."
+            f"{part.name} is confirmed on your visit and billed on {invoice.number}. "
+            "Any remaining balance is due at the garage."
+        ),
+        telegram_text=format_customer_alert(
+            emoji="⚙️",
+            title="Part confirmed",
+            customer=part_request.customer,
+            fields=[
+                f"📦 Part: {part.name}",
+                f"🧾 Invoice: {invoice.number}",
+            ],
+            body=[
+                "This part is confirmed on your visit.",
+                "💰 Any remaining balance is due at the garage.",
+            ],
         ),
     )
     return part_request
@@ -1729,7 +2345,7 @@ def ensure_visit_invoice(job):
     number = f"INV-BK-{job.booking_id:04d}"
     if Invoice.objects.filter(number=number).exists():
         number = f"INV-BK-{job.booking_id:04d}-{job.id}"
-    Invoice.objects.create(
+    invoice = Invoice.objects.create(
         number=number,
         customer_id=job.customer_id,
         vehicle_id=job.vehicle_id,
@@ -1738,6 +2354,31 @@ def ensure_visit_invoice(job):
         service_cost=visit_service_total(job.booking),
         parts_cost=Decimal("0"),
         status=Invoice.Status.UNPAID,
+    )
+    from django_app.telegram_bot import format_customer_alert
+
+    plate = job.vehicle.plate if job.vehicle_id else "your car"
+    notify_customer(
+        job.customer_id,
+        kind=Notification.Kind.INVOICE,
+        title=f"Invoice {invoice.number}",
+        message=(
+            f"Your invoice is ready for {plate}. "
+            "Pay at the garage or from Invoices in your account."
+        ),
+        telegram_text=format_customer_alert(
+            emoji="🧾",
+            title="Invoice ready",
+            customer=job.customer,
+            fields=[
+                f"🚗 Car: {plate}",
+                f"🧾 Invoice: {invoice.number}",
+            ],
+            body=[
+                "Your bill is ready.",
+                "👉 Pay at the garage, or from Invoices in your account.",
+            ],
+        ),
     )
     return sync_invoice_costs(job)
 
@@ -1841,13 +2482,32 @@ def confirm_part_request(part_request, user=None):
                 part_request.booking = visit
                 part_request.status = PartRequest.Status.CONFIRMED
                 part_request.save(update_fields=["booking", "status"])
-                Notification.objects.create(
-                    customer_id=part_request.customer_id,
+                from django_app.telegram_bot import booking_detail_fields, format_customer_alert
+
+                plate = visit.vehicle.plate if visit.vehicle_id else "your car"
+                # Refresh visit so part_requests includes this row after save.
+                visit.refresh_from_db()
+                notify_customer(
+                    part_request.customer_id,
                     kind=Notification.Kind.BOOKING,
                     title=f"{part_request.number} added to your visit",
                     message=(
-                        f"{part.name} was added to the {visit.service.name} visit for {visit.vehicle.plate}. "
-                        "The garage issues it when the car is checked in."
+                        f"{part.name} was added to your visit for {plate}. "
+                        "The garage prepares it when the car is checked in."
+                    ),
+                    telegram_text=format_customer_alert(
+                        emoji="📦",
+                        title="Part added",
+                        customer=part_request.customer,
+                        fields=booking_detail_fields(visit)
+                        + [
+                            f"🆔 Request: {part_request.number}",
+                            f"✏️ Added part: {part.name}",
+                        ],
+                        body=[
+                            "This part was added to your visit.",
+                            "The garage will prepare it when your car is in.",
+                        ],
                     ),
                 )
                 return part_request
@@ -1924,8 +2584,8 @@ def decline_repair(job, user=None, reason=""):
         invoice = job.invoice
     except Invoice.DoesNotExist:
         invoice = None
-    if invoice is not None and invoice.payments.exclude(
-        status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
+    if invoice is not None and invoice.payments.filter(
+        status__in=(Payment.Status.PENDING, Payment.Status.PAID)
     ).exists():
         raise ValidationError("A payment is already recorded. Ask the garage to close the visit.")
     booking = job.booking

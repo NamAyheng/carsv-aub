@@ -698,50 +698,6 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
                   ))}
                 </ul>
               )}
-              {showAddService && order.bookingId && (
-                <form
-                  className="flex flex-col sm:flex-row gap-2 pt-1"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void addExtraService(order);
-                  }}
-                >
-                  <select
-                    value={extraServiceId}
-                    onChange={(event) => setExtraServiceId(event.target.value)}
-                    className="flex-1 p-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800"
-                  >
-                    <option value="">Choose a service</option>
-                    {(services || [])
-                      .filter((item) => item.status === 'ACTIVE')
-                      .filter((item) => !serviceLines.some((row) => row.name === item.name))
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · {money(item.basePrice || 0)}
-                        </option>
-                      ))}
-                  </select>
-                  <div className="flex gap-2">
-                    <button
-                      type="submit"
-                      disabled={addingService || !extraServiceId}
-                      className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold disabled:opacity-60"
-                    >
-                      {addingService ? 'Adding…' : 'Add'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddService(false);
-                        setExtraServiceId('');
-                      }}
-                      className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              )}
             </div>
           </section>
 
@@ -893,51 +849,119 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
             </p>
           </section>
 
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button
-              type="button"
-              disabled={busyId === order.id}
-              onClick={() => confirmRepair(order, quoteTotal)}
-              className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 disabled:opacity-60"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              Confirm repair
-            </button>
-            <button
-              type="button"
-              disabled={!order.bookingId}
-              onClick={() => setShowAddService((open) => !open)}
-              className="px-4 py-2.5 rounded-xl bg-white text-slate-700 text-xs font-bold flex items-center gap-1.5 border border-slate-200 disabled:opacity-60"
-            >
-              <Plus className="w-4 h-4" />
-              Add a service
-            </button>
-            <button
-              type="button"
-              onClick={() => goAddPart(order)}
-              className="px-4 py-2.5 rounded-xl bg-white text-slate-700 text-xs font-bold flex items-center gap-1.5 border border-slate-200"
-            >
-              <Package className="w-4 h-4" />
-              Add a part
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCancelFor(order);
-                setCancelReason('');
-              }}
-              className="px-4 py-2.5 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold border border-rose-200 flex items-center gap-1.5"
-            >
-              <Ban className="w-4 h-4" />
-              Cancel booking
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate(`/tracking?job=${encodeURIComponent(order.workOrderNumber)}`)}
-              className="px-4 py-2.5 rounded-xl bg-white text-slate-700 text-xs font-bold border border-slate-200"
-            >
-              View work order
-            </button>
+          <div className="space-y-3 pt-1">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busyId === order.id}
+                onClick={() => confirmRepair(order, quoteTotal)}
+                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 disabled:opacity-60"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Confirm repair
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!order.bookingId) {
+                    addToast({
+                      type: 'error',
+                      title: 'No booking on this quote',
+                      message: 'This work order is not linked to a booking, so a service cannot be added here.',
+                    });
+                    return;
+                  }
+                  const available = (services || []).filter(
+                    (item) =>
+                      item.status === 'ACTIVE' && !serviceLines.some((row) => row.name === item.name)
+                  );
+                  if (available.length === 0) {
+                    addToast({
+                      type: 'info',
+                      title: 'No more services to add',
+                      message: 'Every active service is already on this visit quote.',
+                    });
+                    return;
+                  }
+                  setShowAddService(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-white text-slate-700 text-xs font-bold flex items-center gap-1.5 border border-slate-200"
+              >
+                <Plus className="w-4 h-4" />
+                Add a service
+              </button>
+              <button
+                type="button"
+                onClick={() => goAddPart(order)}
+                className="px-4 py-2.5 rounded-xl bg-white text-slate-700 text-xs font-bold flex items-center gap-1.5 border border-slate-200"
+              >
+                <Package className="w-4 h-4" />
+                Add a part
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelFor(order);
+                  setCancelReason('');
+                }}
+                className="px-4 py-2.5 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold border border-rose-200 flex items-center gap-1.5"
+              >
+                <Ban className="w-4 h-4" />
+                Cancel booking
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/tracking?job=${encodeURIComponent(order.workOrderNumber)}`)}
+                className="px-4 py-2.5 rounded-xl bg-white text-slate-700 text-xs font-bold border border-slate-200"
+              >
+                View work order
+              </button>
+            </div>
+
+            {showAddService && order.bookingId && (
+              <form
+                className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3 flex flex-col sm:flex-row gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void addExtraService(order);
+                }}
+              >
+                <select
+                  value={extraServiceId}
+                  onChange={(event) => setExtraServiceId(event.target.value)}
+                  className="flex-1 p-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800"
+                >
+                  <option value="">Choose a service</option>
+                  {(services || [])
+                    .filter((item) => item.status === 'ACTIVE')
+                    .filter((item) => !serviceLines.some((row) => row.name === item.name))
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} · {money(item.basePrice || 0)}
+                      </option>
+                    ))}
+                </select>
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={addingService || !extraServiceId}
+                    className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold disabled:opacity-60"
+                  >
+                    {addingService ? 'Adding…' : 'Add'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddService(false);
+                      setExtraServiceId('');
+                    }}
+                    className="px-3 py-2 rounded-xl bg-white text-slate-700 text-xs font-bold border border-slate-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       </article>

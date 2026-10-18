@@ -40,7 +40,12 @@ class AuthUserThrottle(UserRateThrottle):
 
 
 def _error(exc):
-    return Response({"ok": False, "error": exc.message}, status=exc.status_code)
+    payload = {"ok": False, "error": exc.message}
+    extra = getattr(exc, "extra", None) or {}
+    for key, value in extra.items():
+        if value not in (None, ""):
+            payload[key] = value
+    return Response(payload, status=exc.status_code)
 
 
 def _with_refresh_cookie(payload, refresh, status_code=status.HTTP_200_OK):
@@ -91,13 +96,15 @@ class RegisterView(AuthView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            register_customer(**serializer.validated_data)
+            _user, verification_token = register_customer(**serializer.validated_data)
         except AuthError as exc:
             return _error(exc)
         return Response(
             {
                 "ok": True,
-                "detail": "Account created. Check your email for a verification token before signing in.",
+                "detail": "Account created. Enter the verification token to activate your account.",
+                "verification_token": verification_token,
+                "email": serializer.validated_data["email"].strip().lower(),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -131,10 +138,16 @@ class VerifyEmailView(AuthView):
 class ResendVerificationView(AuthView):
     def post(self, request):
         try:
-            resend_verification(request.data.get("email"))
+            token = resend_verification(request.data.get("email"))
         except AuthError as exc:
             return _error(exc)
-        return Response({"ok": True, "detail": "If that account is waiting for verification, an email has been sent."})
+        payload = {
+            "ok": True,
+            "detail": "If that account is waiting for verification, an email has been sent.",
+        }
+        if token:
+            payload["verification_token"] = token
+        return Response(payload)
 
 
 class PasswordResetView(AuthView):
@@ -173,6 +186,19 @@ class PasswordChangeView(APIView):
         except AuthError as exc:
             return _error(exc)
         return Response({"ok": True, "detail": "Password updated."})
+
+
+class PublicAuthConfigView(AuthView):
+    """Client IDs safe to expose to the browser (no secrets)."""
+
+    def get(self, request):
+        return Response(
+            {
+                "ok": True,
+                "google_client_id": getattr(settings, "GOOGLE_CLIENT_ID", "") or "",
+                "telegram_bot_username": (getattr(settings, "TELEGRAM_BOT_USERNAME", "") or "").lstrip("@"),
+            }
+        )
 
 
 class GoogleLoginView(AuthView):
@@ -215,7 +241,44 @@ class LinkTelegramView(APIView):
     def post(self, request):
         try:
             identity = verify_telegram_login(request.data)
-            link_provider(request.user, AuthProvider.Provider.TELEGRAM, identity["id"])
+            customer = Customer.objects.filter(user=request.user).first()
+            if customer is not None:
+                from django_app.telegram_bot import (
+                    TelegramBindError,
+                    bind_customer_chat,
+                    send_message,
+                )
+
+                username = identity.get("username") or ""
+                # Bind first (1 Telegram ↔ 1 customer). Refuses steal; keeps original owner.
+                try:
+                    bind_customer_chat(customer, identity["id"], telegram_username=username)
+                except TelegramBindError as exc:
+                    return Response(
+                        {"ok": False, "error": exc.message.replace("\n", " ").strip()},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                from django_app.telegram_bot import customer_display_name, customer_email
+
+                lines = [
+                    "✅ CarSV · Telegram linked",
+                    "",
+                    f"👤 {customer_display_name(customer)}",
+                ]
+                email = customer_email(customer)
+                if email:
+                    lines.append(f"📧 {email}")
+                lines.extend(
+                    [
+                        "",
+                        "🔔 Alerts for this account will arrive here only.",
+                        "",
+                        "Wrong account? Disconnect in CarSV Profile first.",
+                    ]
+                )
+                send_message(identity["id"], "\n".join(lines))
+            else:
+                link_provider(request.user, AuthProvider.Provider.TELEGRAM, identity["id"])
         except AuthError as exc:
             return _error(exc)
         return Response({"ok": True, "linked": ["telegram"]})
@@ -248,6 +311,8 @@ def _photo_url(user, customer, request):
 
 def profile_payload(user, request=None):
     customer = Customer.objects.filter(user=user).first()
+    from django_app.telegram_bot import bot_configured, bot_username
+
     return {
         "id": user.id,
         "username": user.username,
@@ -264,6 +329,10 @@ def profile_payload(user, request=None):
         "email_verified": user.email_verified,
         "linked_providers": list(user.auth_providers.values_list("provider", flat=True)),
         "photo_url": _photo_url(user, customer, request),
+        "telegram_bot_configured": bot_configured() and bool(bot_username()),
+        "telegram_linked": bool(customer and customer.telegram_chat_id),
+        "telegram_username": (customer.telegram_username or "").strip() if customer else "",
+        "telegram_alerts": bool(customer.telegram_alerts) if customer else True,
     }
 
 
@@ -288,7 +357,17 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         user = request.user
+        customer = Customer.objects.filter(user=user).first()
+        before = {
+            "first_name": user.first_name or "",
+            "last_name": user.last_name or "",
+            "phone": user.phone or "",
+            "address": (customer.address if customer else "") or "",
+            "gender": (customer.gender if customer else "") or "",
+            "notes": (customer.notes if customer else "") or "",
+        }
         photo = request.FILES.get("photo")
+        photo_changed = False
         if photo:
             try:
                 validate_uploaded_image(photo)
@@ -296,6 +375,7 @@ class MeView(APIView):
                 message = exc.messages[0] if exc.messages else "Upload a JPG, PNG, WEBP, or GIF image."
                 return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
             user.photo.save(photo.name, photo, save=False)
+            photo_changed = True
         for field in ("first_name", "last_name", "phone"):
             if field in data:
                 setattr(user, field, data[field])
@@ -303,7 +383,6 @@ class MeView(APIView):
         user.is_staff = User.objects.filter(pk=user.pk).values_list("is_staff", flat=True).first()
         user.is_superuser = User.objects.filter(pk=user.pk).values_list("is_superuser", flat=True).first()
         user.save()
-        customer = Customer.objects.filter(user=user).first()
         if customer:
             for field in ("address", "gender", "notes"):
                 if field in data:
@@ -311,6 +390,58 @@ class MeView(APIView):
             if user.photo:
                 customer.photo = user.photo.name
             customer.save()
+            customer.refresh_from_db()
+        user.refresh_from_db()
+
+        changes = []
+        labels = {
+            "first_name": "First name",
+            "last_name": "Last name",
+            "phone": "Phone",
+            "address": "Address",
+            "gender": "Gender",
+            "notes": "Notes",
+        }
+        after = {
+            "first_name": user.first_name or "",
+            "last_name": user.last_name or "",
+            "phone": user.phone or "",
+            "address": (customer.address if customer else "") or "",
+            "gender": (customer.gender if customer else "") or "",
+            "notes": (customer.notes if customer else "") or "",
+        }
+        gender_labels = dict(Customer.Gender.choices)
+        for key, label in labels.items():
+            if key not in data:
+                continue
+            old, new = before[key], after[key]
+            if old == new:
+                continue
+            if key == "gender":
+                old = gender_labels.get(old, old) or old
+                new = gender_labels.get(new, new) or new
+            changes.append((label, old, new))
+        if photo_changed:
+            changes.append(("Photo", None, "updated"))
+
+        if customer and changes:
+            from django_app.models import Notification, notify_customer
+            from django_app.telegram_bot import format_change_lines, format_customer_alert
+
+            change_lines = format_change_lines(changes)
+            notify_customer(
+                customer,
+                kind=Notification.Kind.ACCOUNT,
+                title="Profile updated",
+                message="Updated: " + ", ".join(c[0] for c in changes),
+                telegram_text=format_customer_alert(
+                    emoji="👤",
+                    title="Profile updated",
+                    customer=customer,
+                    fields=change_lines,
+                    body="Your account details were updated.",
+                ),
+            )
         return Response(profile_payload(user, request))
 
 

@@ -3,6 +3,61 @@
 @theme {
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /*
+    CarSV premium automotive palette
+    - Surface:  #141519  — main background, navbar, hero, footer
+    - Card:     #202127  — cards, secondary sections
+    - Accent:   #FFC400  — buttons, highlights, active states
+    - Text:     #FFFFFF / #C4C4C4 / #141519 (on yellow)
+  */
+  --color-brand-deep: #141519;
+  --color-brand-card: #202127;
+  --color-brand: #ffc400;
+  --color-brand-accent: #ffd54f;
+  --color-brand-muted: #c4c4c4;
+  --color-brand-ink: #141519;
+
+  /* Dark surfaces used across landing + portal */
+  --color-slate-950: #141519;
+  --color-slate-900: #202127;
+  --color-slate-800: #2a2c33;
+  --color-slate-700: #3a3c45;
+  --color-slate-600: #52545c;
+  --color-slate-500: #6b6d75;
+  --color-slate-400: #c4c4c4;
+  --color-slate-300: #d4d4d4;
+  --color-slate-200: #e5e5e5;
+  --color-slate-100: #f0f0f0;
+  --color-slate-50: #f7f7f7;
+
+  /* Brand accent (components use blue-* as primary CTA/accent) */
+  --color-blue-50: #fff8e1;
+  --color-blue-100: #ffecb3;
+  --color-blue-200: #ffe082;
+  --color-blue-300: #ffd54f;
+  --color-blue-400: #ffc400;
+  --color-blue-500: #ffd54f;
+  --color-blue-600: #ffc400;
+  --color-blue-700: #e6b000;
+  --color-blue-800: #c99700;
+  --color-blue-900: #a67c00;
+  --color-blue-950: #141519;
+
+  /* Gradients that used indigo / sky — keep in yellow family */
+  --color-indigo-300: #ffe082;
+  --color-indigo-500: #ffd54f;
+  --color-indigo-600: #ffc400;
+  --color-indigo-700: #202127;
+  --color-indigo-800: #141519;
+  --color-indigo-900: #0a0a0c;
+  --color-indigo-950: #141519;
+
+  --color-sky-300: #ffd54f;
+  --color-sky-400: #ffc400;
+  --color-sky-500: #ffc400;
+  --color-sky-600: #e6b000;
+  --color-sky-700: #c99700;
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -43,28 +98,63 @@ html.dark input[type="datetime-local"] {
 
 /* Dark mode overrides for ERP cards & containers */
 html.dark body {
-  background-color: #020617;
-  color: #f8fafc;
+  background-color: #141519;
+  color: #ffffff;
 }
 
 .dark .bg-white {
-  background-color: #0f172a;
+  background-color: #202127;
 }
 
 .dark .bg-blue-600 .bg-white,
 .dark .bg-blue-600 button.bg-white {
-  background-color: #ffffff !important;
-  color: #2563eb !important;
+  background-color: #141519 !important;
+  color: #ffc400 !important;
 }
 
 .dark .bg-gray-50,
 .dark .bg-slate-50 {
-  background-color: #0b1329;
+  background-color: #202127;
 }
 
 .dark .bg-gray-100,
 .dark .bg-slate-100 {
-  background-color: #020617;
+  background-color: #141519;
+}
+
+/* Yellow CTAs: black label/icon (premium automotive) */
+.bg-blue-600,
+.bg-blue-500,
+button.bg-blue-600,
+button.bg-blue-500,
+a.bg-blue-600 {
+  color: #141519 !important;
+}
+
+.bg-blue-600:hover,
+.bg-blue-500:hover,
+button.bg-blue-600:hover,
+button.bg-blue-500:hover {
+  filter: brightness(1.06);
+}
+
+.bg-blue-600 *,
+.bg-blue-500 *,
+button.bg-blue-600 *,
+button.bg-blue-500 *,
+.group:hover .group-hover\:bg-blue-600,
+.hover\:bg-blue-600:hover {
+  color: #141519 !important;
+}
+
+.group:hover .group-hover\:bg-blue-600,
+.group:hover .group-hover\:bg-blue-600 * {
+  color: #141519 !important;
+}
+
+::selection {
+  background-color: #ffc400;
+  color: #141519;
 }
 
 .dark .text-gray-900,
@@ -106,9 +196,9 @@ html.dark body {
 .dark input:not([type="checkbox"]):not([type="radio"]),
 .dark select,
 .dark textarea {
-  background-color: #0f172a;
-  color: #f8fafc;
-  border-color: #334155;
+  background-color: #202127;
+  color: #ffffff;
+  border-color: #3a3c45;
 }
 
 .dark input::placeholder,
@@ -144,7 +234,7 @@ html.dark body {
 
 .dark .hover\:bg-blue-50:hover,
 .dark .hover\:bg-blue-50\/60:hover {
-  background-color: rgb(37 99 235 / 0.18);
+  background-color: rgb(255 196 0 / 0.14);
 }
 
 .dark .bg-gray-50\/50 {
@@ -156,7 +246,7 @@ html.dark body {
 .dark .bg-blue-50\/40,
 .dark .bg-blue-50\/60,
 .dark .bg-blue-100 {
-  background-color: rgb(37 99 235 / 0.18);
+  background-color: rgb(255 196 0 / 0.12);
 }
 
 .dark .bg-amber-50,
@@ -189,7 +279,7 @@ html.dark body {
 .dark .text-blue-800,
 .dark .text-blue-700,
 .dark .text-blue-600 {
-  color: #93c5fd;
+  color: #ffc400;
 }
 
 .dark .text-amber-900,
@@ -221,7 +311,7 @@ html.dark body {
 
 .dark .border-blue-100,
 .dark .border-blue-200 {
-  border-color: rgb(59 130 246 / 0.35);
+  border-color: rgb(255 196 0 / 0.35);
 }
 
 .dark .border-amber-100,
@@ -253,6 +343,7 @@ html:not(.dark) .customer-theme-root {
 }
 
 html:not(.dark) .customer-theme-root .bg-slate-950,
+html:not(.dark) .customer-theme-root .bg-slate-950\/95,
 html:not(.dark) .customer-theme-root .bg-slate-950\/90,
 html:not(.dark) .customer-theme-root .bg-slate-950\/70,
 html:not(.dark) .customer-theme-root .bg-slate-950\/60,
@@ -369,7 +460,7 @@ html:not(.dark) .customer-theme-root button.bg-slate-800 * {
 /* Dark-theme accent tokens stay readable on remapped white cards */
 html:not(.dark) .customer-theme-root .text-blue-400,
 html:not(.dark) .customer-theme-root .text-blue-300 {
-  color: #1d4ed8;
+  color: #b88600;
 }
 
 html:not(.dark) .customer-theme-root .text-amber-400,
@@ -428,37 +519,162 @@ html:not(.dark) .customer-theme-root textarea::placeholder {
   color: #94a3b8;
 }
 
-/* Colored actions keep white labels/icons */
-html:not(.dark) .customer-theme-root .bg-blue-600,
-html:not(.dark) .customer-theme-root .bg-blue-500,
+/* Non-brand colored actions keep white labels/icons */
 html:not(.dark) .customer-theme-root .bg-emerald-600,
 html:not(.dark) .customer-theme-root .bg-red-600,
 html:not(.dark) .customer-theme-root .bg-red-500,
-html:not(.dark) .customer-theme-root .bg-indigo-600,
 html:not(.dark) .customer-theme-root .bg-amber-500,
-html:not(.dark) .customer-theme-root button.bg-blue-600,
-html:not(.dark) .customer-theme-root button.bg-blue-500,
-html:not(.dark) .customer-theme-root .text-white.bg-blue-600 {
+html:not(.dark) .customer-theme-root .bg-orange-500,
+html:not(.dark) .customer-theme-root .bg-orange-600 {
   color: #ffffff !important;
 }
 
+html:not(.dark) .customer-theme-root .bg-orange-500 *,
+html:not(.dark) .customer-theme-root .bg-orange-600 *,
+html:not(.dark) .customer-theme-root .bg-red-600 *,
+html:not(.dark) .customer-theme-root .bg-red-500 *,
+html:not(.dark) .customer-theme-root .bg-emerald-600 * {
+  color: #ffffff !important;
+}
+
+/* Yellow brand CTAs: charcoal text on yellow */
+html:not(.dark) .customer-theme-root .bg-blue-600,
+html:not(.dark) .customer-theme-root .bg-blue-500,
+html:not(.dark) .customer-theme-root button.bg-blue-600,
+html:not(.dark) .customer-theme-root button.bg-blue-500,
+html:not(.dark) .customer-theme-root .text-white.bg-blue-600,
 html:not(.dark) .customer-theme-root .bg-blue-600 *,
 html:not(.dark) .customer-theme-root .bg-blue-500 *,
 html:not(.dark) .customer-theme-root .bg-gradient-to-br.from-blue-600 .text-white,
 html:not(.dark) .customer-theme-root .bg-gradient-to-br.from-blue-600 *,
 html:not(.dark) .customer-theme-root [class*="from-blue-600"] > .text-white,
 html:not(.dark) .customer-theme-root [class*="from-blue-600"] > svg {
-  color: #ffffff !important;
+  color: #141519 !important;
 }
 
 html:not(.dark) .customer-theme-root .bg-gradient-to-r.from-blue-950\/70,
 html:not(.dark) .customer-theme-root .bg-gradient-to-r.from-blue-950\/60 {
-  background-image: linear-gradient(to right, #eff6ff, #f8fafc, #eef2ff);
-  border-color: #bfdbfe;
+  background-image: linear-gradient(to right, #fff8e1, #f8fafc, #ffecb3);
+  border-color: #ffe082;
 }
 
 .customer-theme-root header .bar-action {
   white-space: nowrap;
+}
+
+/* Portal header: charcoal bar + yellow accents */
+.portal-brand-header {
+  background-color: #141519 !important;
+  color: #ffffff;
+  border-color: rgb(255 255 255 / 0.08);
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header {
+  background-color: #141519 !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .text-white,
+html:not(.dark) .customer-theme-root .portal-brand-header .text-white\/90 {
+  color: #ffffff !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .text-white\/80,
+html:not(.dark) .customer-theme-root .portal-brand-header .text-white\/70 {
+  color: #c4c4c4 !important;
+}
+
+/* Yellow CTA / logo mark on portal header */
+.portal-brand-header .portal-brand-logo-mark,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-brand-logo-mark {
+  background-color: #ffc400 !important;
+  color: #141519 !important;
+}
+
+.portal-brand-header .portal-brand-logo-mark svg,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-brand-logo-mark svg,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-brand-logo-mark * {
+  color: #141519 !important;
+  stroke: #141519 !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .bg-blue-600,
+html:not(.dark) .customer-theme-root .portal-brand-header button.bg-blue-600,
+html:not(.dark) .customer-theme-root .portal-brand-header button.bg-blue-600 *,
+html:not(.dark) .customer-theme-root header button.bg-blue-600,
+html:not(.dark) .customer-theme-root header button.bg-blue-600 * {
+  background-color: #ffc400 !important;
+  color: #141519 !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .bg-white\/15,
+html:not(.dark) .customer-theme-root .portal-brand-header .bg-white\/25 {
+  background-color: rgb(255 255 255 / 0.08) !important;
+  color: #ffffff !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .border-white\/25,
+html:not(.dark) .customer-theme-root .portal-brand-header .border-white\/15 {
+  border-color: rgb(255 255 255 / 0.14) !important;
+}
+
+/* Dropdowns under dark header — readable light cards */
+.portal-brand-header .portal-header-menu,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu.bg-white {
+  background-color: #ffffff !important;
+  color: #141519 !important;
+  border-color: #e5e5e5 !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-white,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-slate-900,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-slate-800,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .font-bold {
+  color: #141519 !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-slate-200,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-slate-300,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-slate-600,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-slate-700 {
+  color: #52545c !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-slate-400,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-slate-500 {
+  color: #6b6d75 !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-blue-600,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .text-blue-500 {
+  color: #b88600 !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .hover\:bg-slate-50:hover,
+html:not(.dark) .customer-theme-root .portal-brand-header .portal-header-menu .hover\:bg-slate-100:hover {
+  background-color: #f7f7f7 !important;
+}
+
+html.dark .portal-brand-header .portal-header-menu {
+  background-color: #202127 !important;
+  color: #ffffff !important;
+  border-color: #2a2c33 !important;
+}
+
+html.dark .portal-brand-header .portal-header-menu .text-white,
+html.dark .portal-brand-header .portal-header-menu .text-slate-900,
+html.dark .portal-brand-header .portal-header-menu .font-bold {
+  color: #ffffff !important;
+}
+
+html.dark .portal-brand-header .portal-header-menu .text-slate-200,
+html.dark .portal-brand-header .portal-header-menu .text-slate-300 {
+  color: #c4c4c4 !important;
+}
+
+html.dark .portal-brand-header .portal-header-menu .text-slate-400,
+html.dark .portal-brand-header .portal-header-menu .text-slate-500 {
+  color: #6b6d75 !important;
 }
 
 .customer-theme-root header .notification-panel,
@@ -467,13 +683,11 @@ html:not(.dark) .customer-theme-root .bg-gradient-to-r.from-blue-950\/60 {
   white-space: normal;
 }
 
-html:not(.dark) .customer-theme-root header button.bg-blue-600,
-html:not(.dark) .customer-theme-root header button.bg-blue-600 * {
-  color: #ffffff !important;
-}
-
-/* Dark showcase panels (live bay, hero cards) must keep white copy */
+/* Dark chrome panels (public header, welcome banner, live cards) stay charcoal + yellow */
 html:not(.dark) .customer-theme-root .keep-on-dark .text-white,
+html:not(.dark) .customer-theme-root .keep-on-dark .text-white\/90,
+html:not(.dark) .customer-theme-root .keep-on-dark .text-white\/80,
+html:not(.dark) .customer-theme-root .keep-on-dark .text-white\/70,
 html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-100,
 html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-200,
 html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-300,
@@ -481,34 +695,212 @@ html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-400 {
   color: #ffffff !important;
 }
 
-html:not(.dark) .customer-theme-root .keep-on-dark .hover\:text-white:hover {
-  color: #ffffff !important;
+html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-300 {
+  color: #c4c4c4 !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark .text-slate-400 {
+  color: #c4c4c4 !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark .text-blue-400,
+html:not(.dark) .customer-theme-root .keep-on-dark .text-blue-300,
+html:not(.dark) .customer-theme-root .keep-on-dark .text-blue-500 {
+  color: #ffc400 !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark .hover\:text-white:hover,
+html:not(.dark) .customer-theme-root .keep-on-dark .hover\:text-blue-400:hover {
+  color: #ffc400 !important;
 }
 
 html:not(.dark) .customer-theme-root .keep-on-dark,
-html:not(.dark) .customer-theme-root .keep-on-dark.bg-slate-950,
+html:not(.dark) .customer-theme-root .keep-on-dark.bg-slate-950 {
+  background-color: #141519 !important;
+}
+
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/95,
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/90,
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/70,
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/60,
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/50,
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/40,
+html:not(.dark) .customer-theme-root .keep-on-dark header {
+  background-color: #141519 !important;
+}
+
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-900,
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-900\/95,
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-900\/90,
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-900\/80 {
-  background-color: #020617 !important;
+  background-color: #202127 !important;
 }
 
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/85,
 html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-950\/80 {
-  background-color: rgb(2 6 23 / 0.9) !important;
+  background-color: rgb(20 21 25 / 0.92) !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-800,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-slate-800\/80,
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-slate-800,
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-slate-800\/80 {
+  background-color: #202127 !important;
+  color: #ffffff !important;
+  border-color: rgb(255 255 255 / 0.1) !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-slate-800:hover,
+html:not(.dark) .customer-theme-root .keep-on-dark button.hover\:bg-slate-700:hover {
+  background-color: #2a2c33 !important;
+  color: #ffffff !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-slate-800 .text-blue-400,
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-slate-800 .text-blue-300,
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-slate-800 .text-emerald-400 {
+  color: #ffc400 !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-slate-800 .text-emerald-400 {
+  color: #34d399 !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-slate-800 .text-red-400 {
+  color: #f87171 !important;
 }
 
 html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-800,
 html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-800\/80,
-html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-700 {
-  border-color: #1e293b !important;
+html:not(.dark) .customer-theme-root .keep-on-dark .border-slate-700,
+html:not(.dark) .customer-theme-root .keep-on-dark .border-white\/5,
+html:not(.dark) .customer-theme-root .keep-on-dark .border-white\/10,
+html:not(.dark) .customer-theme-root .keep-on-dark .border-white\/20 {
+  border-color: rgb(255 255 255 / 0.08) !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-blue-600,
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-blue-600,
+html:not(.dark) .customer-theme-root .keep-on-dark button.bg-blue-600 *,
+html:not(.dark) .customer-theme-root .keep-on-dark .bg-blue-600 .text-slate-950 {
+  background-color: #ffc400 !important;
+  color: #141519 !important;
+}
+
+html:not(.dark) .customer-theme-root .keep-on-dark .hover\:bg-white\/5:hover {
+  background-color: rgb(255 255 255 / 0.05) !important;
+}
+
+/* Yellow specs / CTA bars: always racing yellow with charcoal ink */
+.bg-blue-600.text-slate-950,
+.bg-blue-600 .text-slate-950,
+.bg-blue-600 .text-slate-950\/60,
+.bg-blue-600 .text-slate-950\/70 {
+  color: #141519 !important;
+}
+
+/*
+  Portal yellow panels (welcome / catalog):
+  stay racing yellow + charcoal in BOTH light and dark.
+  Opt out of light-mode slate remaps that turn charcoal buttons white.
+*/
+.portal-yellow-panel,
+html:not(.dark) .customer-theme-root .portal-yellow-panel,
+html.dark .portal-yellow-panel {
+  background-color: #ffc400 !important;
+  color: #141519 !important;
+  border-color: rgb(20 21 25 / 0.15) !important;
+}
+
+.portal-yellow-panel .text-slate-950,
+.portal-yellow-panel .text-slate-950\/70,
+.portal-yellow-panel .text-slate-950\/65,
+.portal-yellow-panel .text-slate-800,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .text-slate-950,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .text-slate-950\/70,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .text-slate-950\/65,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .text-slate-800 {
+  color: #141519 !important;
+}
+
+.portal-yellow-panel .text-slate-950\/70,
+.portal-yellow-panel .text-slate-950\/65,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .text-slate-950\/70,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .text-slate-950\/65 {
+  color: rgb(20 21 25 / 0.7) !important;
+}
+
+.portal-yellow-panel .bg-slate-950,
+.portal-yellow-panel .bg-slate-950\/10,
+.portal-yellow-panel .bg-slate-950\/15,
+.portal-yellow-panel button.bg-slate-950,
+.portal-yellow-panel .hover\:bg-slate-800:hover,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .bg-slate-950,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .bg-slate-950\/10,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .bg-slate-950\/15,
+html:not(.dark) .customer-theme-root .portal-yellow-panel button.bg-slate-950,
+html:not(.dark) .customer-theme-root .portal-yellow-panel button.hover\:bg-slate-800:hover {
+  background-color: #141519 !important;
+  color: #ffc400 !important;
+}
+
+.portal-yellow-panel .bg-slate-950\/10,
+.portal-yellow-panel .bg-slate-950\/15,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .bg-slate-950\/10,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .bg-slate-950\/15 {
+  background-color: rgb(20 21 25 / 0.1) !important;
+  color: #141519 !important;
+}
+
+.portal-yellow-panel .border-slate-950,
+.portal-yellow-panel .border-slate-950\/15,
+.portal-yellow-panel .border-slate-950\/25,
+.portal-yellow-panel .border-slate-950\/35,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .border-slate-950,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .border-slate-950\/15,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .border-slate-950\/25,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .border-slate-950\/35 {
+  border-color: rgb(20 21 25 / 0.25) !important;
+}
+
+.portal-yellow-panel .text-blue-600,
+.portal-yellow-panel button.bg-slate-950 .text-blue-600,
+.portal-yellow-panel button.bg-slate-950 *,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .text-blue-600,
+html:not(.dark) .customer-theme-root .portal-yellow-panel button.bg-slate-950,
+html:not(.dark) .customer-theme-root .portal-yellow-panel button.bg-slate-950 * {
+  color: #ffc400 !important;
+}
+
+.portal-yellow-panel .bg-slate-950\/10 .text-blue-600,
+.portal-yellow-panel .bg-slate-950\/15 *,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .bg-slate-950\/10 *,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .bg-slate-950\/15 * {
+  color: #141519 !important;
+}
+
+.portal-yellow-panel span.bg-slate-950,
+html:not(.dark) .customer-theme-root .portal-yellow-panel span.bg-slate-950 {
+  background-color: #141519 !important;
+  color: #ffc400 !important;
+}
+
+/* Icon wells on yellow panels: yellow glyph on charcoal (overrides .bg-blue-600 * ink) */
+.portal-yellow-panel .portal-yellow-icon,
+.portal-yellow-panel .portal-yellow-icon svg,
+.portal-yellow-panel .portal-yellow-icon *,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .portal-yellow-icon,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .portal-yellow-icon svg,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .portal-yellow-icon * {
+  color: #ffc400 !important;
+  stroke: #ffc400 !important;
+}
+
+.portal-yellow-panel .portal-yellow-icon,
+html:not(.dark) .customer-theme-root .portal-yellow-panel .portal-yellow-icon {
+  background-color: #141519 !important;
+  border-color: #141519 !important;
 }
 
 /* Workshop sheets stay the light admin invoice, in either site theme. */

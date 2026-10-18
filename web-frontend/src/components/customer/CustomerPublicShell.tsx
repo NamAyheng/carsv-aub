@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowRight, Calendar, Car, Menu, Phone, UserCheck, X } from 'lucide-react';
+import { Calendar, Car, Menu, UserCheck, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { pathForSection, sectionForPath } from '../../routes';
 import { ThemeToggle } from '../common/ThemeToggle';
@@ -45,10 +45,6 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
   const fromPath = sectionForPath(pathname);
   const activeSection = currentPage === 'blog' ? 'blog' : fromPath === 'live-bay' ? 'transparency' : fromPath;
 
-  const greyBtn = isDark
-    ? 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
-    : 'bg-slate-200 hover:bg-slate-300 text-slate-900 border-slate-300';
-
   const handleOpenAuth = (mode: 'LOGIN' | 'REGISTER') => {
     if (onOpenAuth) onOpenAuth(mode);
     else if (onOpenCustomerPortal) onOpenCustomerPortal();
@@ -75,67 +71,35 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
   const navClass = (id: string) => {
     const active = activeSection === id;
     if (active) {
-      return 'bg-blue-600 text-white shadow-sm shadow-blue-600/20 transition-colors';
+      return 'bg-blue-600 text-slate-950 shadow-sm shadow-blue-600/25 transition-colors';
     }
-    return isDark
-      ? 'text-slate-300 hover:bg-blue-600/20 hover:text-blue-200 transition-colors'
-      : 'text-slate-600 hover:bg-blue-50 hover:text-blue-700 transition-colors';
+    return 'text-white/80 hover:bg-white/10 hover:text-white transition-colors';
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-blue-600 selection:text-white flex flex-col">
-      <div className="bg-slate-900 border-b border-slate-800/80 px-4 sm:px-8 py-2 text-xs text-slate-400">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-2">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5 text-slate-300">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Workshop Open: 07:30 AM - 06:30 PM (Mon - Sat)
-            </span>
-            <span className="hidden md:inline text-slate-600">•</span>
-            <span className="hidden md:flex items-center gap-1 text-slate-300">
-              <Phone className="w-3.5 h-3.5 text-blue-400" />
-              Emergency Assistance: +855 12 888 901
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {isAuthenticated && currentRole === 'CUSTOMER' ? (
-              <button
-                type="button"
-                onClick={handleEnterCustomer}
-                className="bg-blue-600 hover:bg-blue-500 text-white font-medium px-3 py-1 rounded-md transition-colors flex items-center gap-1.5"
-              >
-                <span>Go to My Customer Portal</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleOpenAuth('LOGIN')}
-                  className="hover:text-white transition-colors cursor-pointer text-slate-300 font-medium"
-                >
-                  Customer Sign In
-                </button>
-              </div>
-            )}
-            <ThemeToggle variant="pill" />
-          </div>
-        </div>
-      </div>
-
-      <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80">
+    <div
+      className={`min-h-screen font-sans antialiased flex flex-col selection:bg-blue-600 selection:text-slate-950 transition-colors ${
+        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}
+    >
+      <header className="portal-brand-header sticky top-0 z-40 border-b border-white/10 text-white shadow-md shadow-black/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="h-16 flex items-center justify-between gap-4">
-            <button type="button" className="flex items-center gap-3 shrink-0" onClick={() => handleNav('home')}>
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shadow-lg shadow-blue-600/25 border border-blue-400/30">
-                <Car className="w-5 h-5 text-white" />
+            <button
+              type="button"
+              className="portal-brand-logo flex items-center gap-2.5 shrink-0 cursor-pointer"
+              onClick={() => handleNav('home')}
+            >
+              <div className="portal-brand-logo-mark w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-600/30">
+                <Car className="w-5 h-5 text-slate-950" strokeWidth={2.25} />
               </div>
-              <div className="leading-tight text-left">
-                <span className="text-xl font-black tracking-tight text-white whitespace-nowrap">
-                  Car<span className="text-blue-500">SV</span>
-                </span>
-                <p className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Precision garage</p>
+              <div className="text-left leading-tight">
+                <div className="text-lg font-black tracking-tight whitespace-nowrap text-white">
+                  Car<span className="text-blue-400">SV</span>
+                </div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap text-white/70">
+                  Precision garage
+                </div>
               </div>
             </button>
 
@@ -144,16 +108,16 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
                 <button
                   type="button"
                   onClick={handleEnterCustomer}
-                  className={`hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-semibold border whitespace-nowrap ${greyBtn}`}
+                  className="bar-action hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-semibold border border-white/25 bg-white/15 hover:bg-white/25 text-white whitespace-nowrap transition-colors"
                 >
-                  <UserCheck className="w-4 h-4 text-emerald-500" />
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
                   Portal
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={() => handleOpenAuth('LOGIN')}
-                  className={`hidden sm:inline-flex items-center h-9 px-3 rounded-full text-sm font-semibold border whitespace-nowrap ${greyBtn}`}
+                  className="bar-action hidden sm:inline-flex items-center h-9 px-3 rounded-full text-sm font-semibold border border-white/25 bg-white/15 hover:bg-white/25 text-white whitespace-nowrap transition-colors"
                 >
                   Login
                 </button>
@@ -162,25 +126,25 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
               <button
                 type="button"
                 onClick={() => handleOpenBooking()}
-                className="hidden sm:inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold whitespace-nowrap"
+                className="bar-action hidden sm:inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-blue-600 hover:bg-blue-500 text-slate-950 text-sm font-semibold whitespace-nowrap shadow-sm shadow-blue-600/25 cursor-pointer transition-all"
               >
                 <Calendar className="w-4 h-4" />
-                Book
+                Book service
               </button>
 
-              <ThemeToggle />
+              <ThemeToggle className="!bg-white/15 !border-white/25 !text-white hover:!bg-white/25 [&_svg]:!text-white" />
 
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="lg:hidden p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white"
+                className="bar-action lg:hidden h-9 w-9 rounded-full flex items-center justify-center border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
               >
-                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
               </button>
             </div>
           </div>
 
-          <nav className="hidden lg:flex items-center gap-2 pb-3 overflow-x-auto">
+          <nav className="hidden lg:flex items-center gap-1 pb-3 overflow-x-auto">
             {NAV.map((item) => (
               <button
                 key={item.id}
@@ -196,30 +160,30 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
         </div>
 
         {mobileMenuOpen && (
-          <div className="lg:hidden bg-slate-900/95 border-b border-slate-800 px-6 py-5 space-y-4">
-            <div className="flex flex-col gap-3 font-medium text-slate-200">
+          <div className="lg:hidden bg-[#202127] border-b border-white/10 px-6 py-5 space-y-4">
+            <div className="flex flex-col gap-2 font-medium">
               {NAV.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => handleNav(item.id)}
                   aria-current={activeSection === item.id ? 'page' : undefined}
-                  className={`text-left px-3 py-2 rounded-xl ${navClass(item.id)}`}
+                  className={`text-left px-3 py-2.5 rounded-xl ${navClass(item.id)}`}
                 >
                   {item.label}
                 </button>
               ))}
             </div>
-            <div className="pt-4 border-t border-slate-800 flex flex-col gap-2.5">
+            <div className="pt-4 border-t border-white/10 flex flex-col gap-2.5">
               <button
                 type="button"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   handleOpenBooking();
                 }}
-                className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold text-center"
+                className="w-full py-3 rounded-xl bg-blue-600 text-slate-950 font-bold text-center shadow-sm shadow-blue-600/25"
               >
-                Book Appointment
+                Book service
               </button>
               <button
                 type="button"
@@ -228,7 +192,7 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
                   if (isAuthenticated && currentRole === 'CUSTOMER') handleEnterCustomer();
                   else handleOpenAuth('LOGIN');
                 }}
-                className={`w-full py-3 rounded-xl font-semibold text-center border ${greyBtn}`}
+                className="w-full py-3 rounded-xl font-semibold text-center border border-white/25 bg-white/10 text-white"
               >
                 {isAuthenticated && currentRole === 'CUSTOMER' ? 'Back to portal' : 'Customer Login'}
               </button>

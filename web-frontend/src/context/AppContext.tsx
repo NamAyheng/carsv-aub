@@ -41,7 +41,10 @@ import {
   CustomerPortalData,
   CustomerProfile,
   decideCustomerEstimate,
+  claimCustomerPayment,
+  CustomerPaymentClaimInput,
   loadCustomerPortal,
+  withdrawCustomerPayment,
   loadPublicServices,
   markAllCustomerNotificationsRead,
   markCustomerNotificationRead,
@@ -273,6 +276,8 @@ interface AppContextType {
   createInvoice: (inv: Omit<Invoice, 'id'>) => Invoice;
   updateInvoice: (id: string, inv: Partial<Invoice>) => void;
   recordPayment: (payment: Omit<PaymentRecord, 'id'>) => PaymentRecord | null;
+  submitPaymentClaim: (input: CustomerPaymentClaimInput) => Promise<PaymentRecord | null>;
+  withdrawPaymentClaim: (paymentId: string) => Promise<boolean>;
 
   approveEstimate: (id: string, note?: string) => void;
   rejectEstimate: (id: string, note?: string) => void;
@@ -303,7 +308,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem('carsv_theme');
       if (saved === 'dark' || saved === 'light') return saved;
     }
-    return 'light';
+    return 'dark';
   });
 
   const setTheme = (newTheme: 'light' | 'dark') => {
@@ -1098,12 +1103,86 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast({ type: 'success', title: 'Invoice Updated', message: 'Invoice changes saved.' });
   };
 
+  const submitPaymentClaim = async (input: CustomerPaymentClaimInput) => {
+    if (!liveCustomerRef.current) {
+      addToast({
+        type: 'error',
+        title: 'Sign in required',
+        message: 'Log in to submit a payment for verification.',
+      });
+      return null;
+    }
+    try {
+      const recorded = await claimCustomerPayment(profileFromUser(), input);
+      const portal = await loadCustomerPortal(profileFromUser());
+      applyPortal(portal);
+      addToast({
+        type: 'success',
+        title: 'Payment submitted',
+        message: `${recorded.paymentIdNumber} is pending garage verification.`,
+      });
+      return recorded;
+    } catch (err) {
+      addToast({
+        type: 'error',
+        title: 'Payment not submitted',
+        message: err instanceof Error ? err.message : 'Could not submit this payment.',
+      });
+      return null;
+    }
+  };
+
+  const withdrawPaymentClaim = async (paymentId: string) => {
+    if (!liveCustomerRef.current) {
+      const removed = payments.find((p) => p.id === paymentId);
+      setPayments((prev) => prev.filter((p) => p.id !== paymentId));
+      if (removed) {
+        setInvoices((prev) =>
+          prev.map((inv) => {
+            if (inv.id !== removed.invoiceId && inv.invoiceNumber !== removed.invoiceNumber) return inv;
+            const pending = Math.max(0, (inv.amountPending || 0) - removed.amount);
+            return {
+              ...inv,
+              amountPending: pending,
+              paymentState: pending > 0 ? 'PENDING' : inv.amountPaid > 0 && inv.amountPaid < inv.totalAmount ? 'UNPAID' : inv.amountPaid >= inv.totalAmount ? 'PAID' : 'UNPAID',
+              status: pending > 0 ? 'PENDING' : inv.amountPaid >= inv.totalAmount ? 'PAID' : inv.amountPaid > 0 ? 'PARTIAL' : 'UNPAID',
+            };
+          })
+        );
+      }
+      addToast({
+        type: 'success',
+        title: 'Claim withdrawn',
+        message: 'You can submit a new payment for this invoice.',
+      });
+      return true;
+    }
+    try {
+      await withdrawCustomerPayment(paymentId);
+      const portal = await loadCustomerPortal(profileFromUser());
+      applyPortal(portal);
+      addToast({
+        type: 'success',
+        title: 'Payment reset',
+        message: 'Pending claim removed on the server. Submit a new payment when ready.',
+      });
+      return true;
+    } catch (err) {
+      addToast({
+        type: 'error',
+        title: 'Could not withdraw',
+        message: err instanceof Error ? err.message : 'Try again or contact the garage.',
+      });
+      return false;
+    }
+  };
+
   const recordPayment = (payment: Omit<PaymentRecord, 'id'>) => {
     if (liveCustomerRef.current) {
       addToast({
-        type: 'error',
-        title: 'Payment not recorded',
-        message: 'Payments are recorded by the garage and appear here after they are saved.',
+        type: 'info',
+        title: 'Use Pay on the invoice',
+        message: 'Choose a method, upload proof if needed, then wait for verification.',
       });
       return null;
     }
@@ -1734,6 +1813,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createInvoice,
         updateInvoice,
         recordPayment,
+        submitPaymentClaim,
+        withdrawPaymentClaim,
         approveEstimate,
         rejectEstimate,
         submitWarrantyClaim,

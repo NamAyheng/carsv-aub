@@ -273,10 +273,96 @@
     sync();
   }
 
+  function setLockedFollow(form, name, text) {
+    const value =
+      form.querySelector('[data-invoice-follow="' + name + '"]') ||
+      form.querySelector('[data-payment-follow="' + name + '"]') ||
+      form.querySelector('[data-part-request-follow="' + name + '"]') ||
+      form.querySelector('[data-locked-for="' + name + '"]');
+    if (value) value.textContent = text || "—";
+  }
+
+  function bindInvoice(form) {
+    const job = form.querySelector('[name="repair_job"][data-invoice-source]');
+    if (!job || form.dataset.invoiceReady === "1") return;
+    form.dataset.invoiceReady = "1";
+
+    function sync() {
+      const chosen = job.options[job.selectedIndex];
+      const hasJob = Boolean(chosen && chosen.value);
+      const customerLabel = hasJob ? chosen.getAttribute("data-customer-label") || "—" : "Select a work order";
+      const vehicleLabel = hasJob ? chosen.getAttribute("data-vehicle-label") || "—" : "Select a work order";
+      const bookingLabel = hasJob ? chosen.getAttribute("data-booking-label") || "—" : "—";
+      setLockedFollow(form, "customer", customerLabel);
+      setLockedFollow(form, "vehicle", vehicleLabel);
+      setLockedFollow(form, "booking", bookingLabel);
+    }
+
+    job.addEventListener("change", sync);
+    sync();
+  }
+
+  function bindPayment(form) {
+    const invoice = form.querySelector('[name="invoice"][data-payment-source]');
+    if (!invoice || form.dataset.paymentReady === "1") return;
+    form.dataset.paymentReady = "1";
+
+    function sync() {
+      const chosen = invoice.options[invoice.selectedIndex];
+      const hasInvoice = Boolean(chosen && chosen.value);
+      const customerLabel = hasInvoice
+        ? chosen.getAttribute("data-customer-label") || "—"
+        : "Select an invoice";
+      const vehicleLabel = hasInvoice
+        ? chosen.getAttribute("data-vehicle-label") || "—"
+        : "Select an invoice";
+      const customerBox =
+        form.querySelector('[data-payment-follow="customer"]') ||
+        form.querySelector('[data-locked-for="customer"]');
+      const vehicleBox =
+        form.querySelector('[data-payment-follow="vehicle"]') ||
+        form.querySelector('[data-locked-for="vehicle"]');
+      if (customerBox) customerBox.textContent = customerLabel;
+      if (vehicleBox) vehicleBox.textContent = vehicleLabel;
+    }
+
+    invoice.addEventListener("change", sync);
+    sync();
+  }
+
+  function bindPartRequest(form) {
+    const booking = form.querySelector('[name="booking"][data-part-request-booking]');
+    if (!booking || form.dataset.partRequestReady === "1") return;
+    form.dataset.partRequestReady = "1";
+
+    function sync() {
+      const chosen = booking.options[booking.selectedIndex];
+      const hasBooking = Boolean(chosen && chosen.value);
+      const customerLabel = hasBooking
+        ? chosen.getAttribute("data-customer-label") || "—"
+        : "Select a booking";
+      const vehicleLabel = hasBooking
+        ? chosen.getAttribute("data-vehicle-label") || "—"
+        : "Select a booking";
+      const jobLabel = hasBooking
+        ? chosen.getAttribute("data-job-label") || "No work order yet (quote)"
+        : "Select a booking";
+      setLockedFollow(form, "customer", customerLabel);
+      setLockedFollow(form, "vehicle", vehicleLabel);
+      setLockedFollow(form, "repair_job", jobLabel);
+    }
+
+    booking.addEventListener("change", sync);
+    sync();
+  }
+
   function bindVisits() {
     document.querySelectorAll(".cf-modal form").forEach(function (form) {
       bindWorkOrder(form);
       bindInspection(form);
+      bindInvoice(form);
+      bindPayment(form);
+      bindPartRequest(form);
     });
     document.querySelectorAll('select[name="status"]').forEach(function (select) {
       paintStatus(select);

@@ -56,6 +56,23 @@ export async function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
+export class AuthApiError extends Error {
+  code?: string;
+  email?: string;
+  verificationToken?: string;
+
+  constructor(
+    message: string,
+    opts?: { code?: string; email?: string; verificationToken?: string },
+  ) {
+    super(message);
+    this.name = 'AuthApiError';
+    this.code = opts?.code;
+    this.email = opts?.email;
+    this.verificationToken = opts?.verificationToken;
+  }
+}
+
 export async function apiLogin(identifier: string, password: string): Promise<LoginResult> {
   const trimmed = identifier.trim();
   const body = trimmed.includes('@')
@@ -69,11 +86,51 @@ export async function apiLogin(identifier: string, password: string): Promise<Lo
   });
   const data = await readJson(response);
   if (!response.ok || !data.ok || typeof data.access !== 'string') {
-    throw new Error(typeof data.error === 'string' ? data.error : 'Invalid credentials.');
+    throw new AuthApiError(
+      typeof data.error === 'string' ? data.error : 'Invalid credentials.',
+      {
+        code: typeof data.code === 'string' ? data.code : undefined,
+        email: typeof data.email === 'string' ? data.email : undefined,
+        verificationToken:
+          typeof data.verification_token === 'string' ? data.verification_token : undefined,
+      },
+    );
   }
   accessToken = data.access;
   return data as LoginResult;
 }
+
+export async function apiPublicAuthConfig(): Promise<{ google_client_id: string }> {
+  const response = await fetch(`${API_BASE}/api/auth/public-config/`, {
+    credentials: 'include',
+  });
+  const data = await readJson(response);
+  return {
+    google_client_id: typeof data.google_client_id === 'string' ? data.google_client_id : '',
+  };
+}
+
+export async function apiGoogleLogin(credential: string): Promise<LoginResult> {
+  const response = await fetch(`${API_BASE}/api/auth/google/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential, id_token: credential }),
+  });
+  const data = await readJson(response);
+  if (!response.ok || !data.ok || typeof data.access !== 'string') {
+    throw new Error(typeof data.error === 'string' ? data.error : 'Google sign-in failed.');
+  }
+  accessToken = data.access;
+  return data as LoginResult;
+}
+
+export type RegisterResult = {
+  ok: boolean;
+  detail?: string;
+  email?: string;
+  verification_token?: string;
+};
 
 export async function apiRegister(payload: {
   email: string;
@@ -81,7 +138,7 @@ export async function apiRegister(payload: {
   first_name: string;
   last_name?: string;
   phone?: string;
-}): Promise<void> {
+}): Promise<RegisterResult> {
   const response = await fetch(`${API_BASE}/api/auth/register/`, {
     method: 'POST',
     credentials: 'include',
@@ -91,6 +148,20 @@ export async function apiRegister(payload: {
   const data = await readJson(response);
   if (!response.ok || !data.ok) {
     throw new Error(typeof data.error === 'string' ? data.error : 'Could not create the account.');
+  }
+  return data as RegisterResult;
+}
+
+export async function apiVerifyEmail(token: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/auth/verify-email/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: token.trim() }),
+  });
+  const data = await readJson(response);
+  if (!response.ok || !data.ok) {
+    throw new Error(typeof data.error === 'string' ? data.error : 'Could not verify email.');
   }
 }
 

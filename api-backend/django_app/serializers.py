@@ -253,14 +253,19 @@ class PaymentSerializer(serializers.HyperlinkedModelSerializer):
             "number",
             "invoice",
             "customer",
+            "vehicle",
             "amount",
             "method",
             "paid_at",
             "reference",
+            "proof_image",
             "received_by",
             "status",
             "receipt_number",
+            "verified_by",
+            "verified_at",
         ]
+        read_only_fields = ["verified_by", "verified_at"]
 
 
 class LoginSerializer(serializers.Serializer):

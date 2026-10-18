@@ -10,23 +10,30 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+
 from django_app.models import (
     BlogPost,
     Booking,
     add_booking_service,
     booking_slot_taken,
     cancel_booking,
+    claimed_payment_total,
     confirm_customer_repair,
     decline_repair,
     open_visit_for,
     OPEN_VISIT,
     confirm_customer_part_purchase,
+    invoice_payment_state,
+    next_payment_number,
     part_request_can_withdraw,
     remove_booking_extra_service,
     sync_invoice_costs,
     sync_vehicle_shop_status,
+    verified_payment_total,
     visit_open_part_requests,
     withdraw_part_request,
+    withdraw_pending_payment,
     Estimate,
     Inspection,
     Invoice,
@@ -127,7 +134,68 @@ class CustomerVehicleViewSet(CustomerApiMixin, viewsets.ModelViewSet):
         return Vehicle.objects.filter(customer=self.customer).order_by("plate")
 
     def perform_create(self, serializer):
-        serializer.save(customer=self.customer, status=Vehicle.Status.ACTIVE)
+        vehicle = serializer.save(customer=self.customer, status=Vehicle.Status.ACTIVE)
+        from django_app.models import Notification, notify_customer
+        from django_app.telegram_bot import format_customer_alert
+
+        car_line = f"{vehicle.plate} — {vehicle.brand} {vehicle.model} ({vehicle.year})"
+        notify_customer(
+            self.customer,
+            kind=Notification.Kind.VEHICLE,
+            title="Vehicle added",
+            message=f"{car_line} is on your account.",
+            telegram_text=format_customer_alert(
+                emoji="🚗",
+                title="Vehicle added",
+                customer=self.customer,
+                fields=[f"🚗 {car_line}"],
+                body="Your car is now on your account. You can book a visit anytime.",
+            ),
+        )
+
+    def perform_update(self, serializer):
+        vehicle = self.get_object()
+        tracked = (
+            ("plate", "Plate"),
+            ("brand", "Brand"),
+            ("model", "Model"),
+            ("year", "Year"),
+            ("color", "Color"),
+            ("vehicle_type", "Vehicle type"),
+            ("vin", "VIN"),
+            ("engine_number", "Engine number"),
+            ("mileage", "Mileage"),
+            ("notes", "Notes"),
+        )
+        before = {key: getattr(vehicle, key) for key, _ in tracked}
+        vehicle = serializer.save()
+        changes = []
+        for key, label in tracked:
+            old, new = before[key], getattr(vehicle, key)
+            if old != new:
+                changes.append((label, old, new))
+        if "image" in getattr(serializer, "validated_data", {}):
+            changes.append(("Photo", None, "updated"))
+        if not changes:
+            return
+        from django_app.models import Notification, notify_customer
+        from django_app.telegram_bot import format_change_lines, format_customer_alert
+
+        car_line = f"{vehicle.plate} — {vehicle.brand} {vehicle.model} ({vehicle.year})"
+        change_lines = format_change_lines(changes)
+        notify_customer(
+            self.customer,
+            kind=Notification.Kind.VEHICLE,
+            title="Vehicle updated",
+            message=f"Updated on {car_line}: " + "; ".join(f"{c[0]}" for c in changes),
+            telegram_text=format_customer_alert(
+                emoji="🚗",
+                title="Vehicle updated",
+                customer=self.customer,
+                fields=[f"🚗 {car_line}"] + change_lines,
+                body="Your vehicle details were updated.",
+            ),
+        )
 
     def destroy(self, request, *args, **kwargs):
         vehicle = self.get_object()
@@ -265,14 +333,29 @@ class CustomerBookingViewSet(CustomerApiMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         booking = serializer.save(customer=self.customer, status=Booking.Status.PENDING)
-        when = booking.booking_date.isoformat()
-        if booking.booking_time:
-            when = f"{when} {booking.booking_time.strftime('%H:%M')}"
-        Notification.objects.create(
-            customer=self.customer,
+        from django_app.models import notify_customer
+        from django_app.telegram_bot import booking_detail_fields, format_booking_when, format_customer_alert
+
+        when = format_booking_when(booking) or (
+            booking.booking_date.isoformat() if booking.booking_date else ""
+        )
+        plate = booking.vehicle.plate if booking.vehicle_id else "your car"
+        service_name = booking.service.name if booking.service_id else "Service"
+        notify_customer(
+            self.customer,
             kind=Notification.Kind.BOOKING,
             title="Booking received",
-            message=f"{booking.service.name} for {booking.vehicle.plate} on {when} is pending confirmation.",
+            message=f"{service_name} for {plate} on {when} is pending confirmation.",
+            telegram_text=format_customer_alert(
+                emoji="📅",
+                title="Booking received",
+                customer=self.customer,
+                fields=booking_detail_fields(booking, include_when=True),
+                body=[
+                    "We got your booking. It’s waiting for the garage to confirm.",
+                    "We’ll message you when it’s set.",
+                ],
+            ),
         )
 
     @action(detail=True, methods=["post"])
@@ -303,6 +386,9 @@ class CustomerBookingViewSet(CustomerApiMixin, viewsets.ModelViewSet):
                 {"ok": False, "error": "That vehicle already has a booking at this time."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        from django_app.telegram_bot import format_booking_when
+
+        old_when = format_booking_when(booking)
         booking.booking_date = booking_date
         booking.booking_time = booking_time
         booking.save()
@@ -313,6 +399,25 @@ class CustomerBookingViewSet(CustomerApiMixin, viewsets.ModelViewSet):
         if job is not None and job.status != RepairJob.Status.COMPLETED and job.start_date != booking.booking_date:
             job.start_date = booking.booking_date
             job.save(update_fields=["start_date"])
+        new_when = format_booking_when(booking)
+        if old_when != new_when:
+            from django_app.models import Notification, notify_customer
+            from django_app.telegram_bot import booking_detail_fields, format_customer_alert
+
+            notify_customer(
+                self.customer,
+                kind=Notification.Kind.BOOKING,
+                title="Booking rescheduled",
+                message=f"Your booking was moved to {new_when}.",
+                telegram_text=format_customer_alert(
+                    emoji="📅",
+                    title="Booking rescheduled",
+                    customer=self.customer,
+                    fields=booking_detail_fields(booking, include_when=True)
+                    + [f"✏️ When: {old_when or '(empty)'} → {new_when or '(empty)'}"],
+                    body="Your booking time was updated.",
+                ),
+            )
         return Response(self.get_serializer(booking).data)
 
     @action(detail=True, methods=["post"], url_path="add-service")
@@ -688,6 +793,8 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
     vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True)
     vehicle_title = serializers.SerializerMethodField()
     amount_paid = serializers.SerializerMethodField()
+    amount_pending = serializers.SerializerMethodField()
+    payment_state = serializers.SerializerMethodField()
     service_name = serializers.SerializerMethodField()
     mechanic_name = serializers.SerializerMethodField()
     booking_date = serializers.SerializerMethodField()
@@ -719,7 +826,9 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
             "grand_total",
             "invoice_date",
             "status",
+            "payment_state",
             "amount_paid",
+            "amount_pending",
         ]
         read_only_fields = fields
 
@@ -729,8 +838,14 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
             instance.refresh_from_db()
         return super().to_representation(instance)
 
+    def get_payment_state(self, invoice):
+        return invoice_payment_state(invoice)
+
     def get_amount_paid(self, invoice):
-        total = invoice.payments.filter(status=Payment.Status.PAID).aggregate(total=Sum("amount"))["total"]
+        return verified_payment_total(invoice)
+
+    def get_amount_pending(self, invoice):
+        total = invoice.payments.filter(status=Payment.Status.PENDING).aggregate(total=Sum("amount"))["total"]
         return total or 0
 
     def get_vehicle_title(self, invoice):
@@ -839,6 +954,7 @@ class CustomerInvoiceViewSet(CustomerApiMixin, viewsets.ReadOnlyModelViewSet):
 
 class CustomerPaymentSerializer(serializers.ModelSerializer):
     invoice_number = serializers.CharField(source="invoice.number", read_only=True)
+    proof_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Payment
@@ -851,18 +967,164 @@ class CustomerPaymentSerializer(serializers.ModelSerializer):
             "method",
             "paid_at",
             "reference",
+            "proof_url",
             "status",
             "receipt_number",
+            "verified_at",
         ]
         read_only_fields = fields
 
+    def get_proof_url(self, payment):
+        return absolute_media_url(self, payment.proof_image)
 
-class CustomerPaymentViewSet(CustomerApiMixin, viewsets.ReadOnlyModelViewSet):
+
+class CustomerPaymentClaimSerializer(serializers.Serializer):
+    invoice = serializers.IntegerField()
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    method = serializers.ChoiceField(choices=Payment.Method.choices)
+    reference = serializers.CharField(required=False, allow_blank=True, max_length=80)
+    paid_at = serializers.DateField(required=False)
+    proof = serializers.ImageField(required=False, allow_null=True)
+
+    def validate_proof(self, value):
+        if value in (None, ""):
+            return value
+        validate_uploaded_image(value)
+        return value
+
+    def validate(self, attrs):
+        customer = self.context["customer"]
+        invoice = Invoice.objects.filter(pk=attrs["invoice"], customer=customer).first()
+        if invoice is None:
+            raise serializers.ValidationError({"invoice": "Invoice was not found."})
+        if invoice.status in (Invoice.Status.CANCELLED, Invoice.Status.DRAFT):
+            raise serializers.ValidationError({"invoice": "This invoice cannot accept payments yet."})
+        if invoice.status == Invoice.Status.PAID:
+            raise serializers.ValidationError({"invoice": "This invoice is already paid."})
+        amount = attrs["amount"]
+        if amount <= 0:
+            raise serializers.ValidationError({"amount": "Payment amount must be greater than zero."})
+        remain = (invoice.grand_total - claimed_payment_total(invoice)).quantize(Decimal("0.01"))
+        amount = Decimal(amount).quantize(Decimal("0.01"))
+        attrs["amount"] = amount
+        if amount > remain:
+            raise serializers.ValidationError(
+                {
+                    "amount": (
+                        f"Amount is too much. Pay exactly ${remain} "
+                        f"(you entered ${amount})."
+                    )
+                }
+            )
+        if amount < remain:
+            raise serializers.ValidationError(
+                {
+                    "amount": (
+                        f"Amount is too little. Pay exactly ${remain} "
+                        f"(you entered ${amount})."
+                    )
+                }
+            )
+        method = attrs["method"]
+        proof = attrs.get("proof")
+        # Digital methods require a transaction image from the customer.
+        if method in (Payment.Method.CARD, Payment.Method.QR, Payment.Method.BANK) and not proof:
+            raise serializers.ValidationError(
+                {"proof": "Upload your transaction screenshot for card, QR, or bank transfer."}
+            )
+        # Cash is paid at the counter — customer may open a claim without proof; staff uploads the bill.
+        attrs["invoice_obj"] = invoice
+        return attrs
+
+
+class CustomerPaymentViewSet(CustomerApiMixin, viewsets.ModelViewSet):
     serializer_class = CustomerPaymentSerializer
     queryset = Payment.objects.none()
+    http_method_names = ["get", "post", "head", "options"]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         return Payment.objects.filter(customer=self.customer).select_related("invoice").order_by("-paid_at", "-id")
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return CustomerPaymentClaimSerializer
+        return CustomerPaymentSerializer
+
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        if "proof" not in data and request.FILES.get("proof"):
+            data["proof"] = request.FILES["proof"]
+        serializer = CustomerPaymentClaimSerializer(data=data, context={"customer": self.customer, "request": request})
+        serializer.is_valid(raise_exception=True)
+        invoice = serializer.validated_data["invoice_obj"]
+        paid_at = serializer.validated_data.get("paid_at") or timezone.localdate()
+        payment = Payment(
+            number=next_payment_number(),
+            invoice=invoice,
+            customer=self.customer,
+            vehicle=invoice.vehicle,
+            amount=serializer.validated_data["amount"],
+            method=serializer.validated_data["method"],
+            paid_at=paid_at,
+            reference=(serializer.validated_data.get("reference") or "").strip(),
+            status=Payment.Status.PENDING,
+        )
+        proof = serializer.validated_data.get("proof")
+        if proof:
+            payment.proof_image = proof
+        payment.save()
+        from django_app.models import notify_customer
+        from django_app.telegram_bot import format_customer_alert, money_text
+
+        method = payment.get_method_display()
+        notify_customer(
+            self.customer,
+            kind=Notification.Kind.PAYMENT,
+            title=f"Payment submitted · {payment.number}",
+            message=(
+                f"Your {method.lower()} payment of {money_text(payment.amount)} "
+                f"for {invoice.number} is waiting for garage confirmation."
+            ),
+            telegram_text=format_customer_alert(
+                emoji="💳",
+                title="Payment submitted",
+                customer=self.customer,
+                fields=[
+                    f"🧾 Invoice: {invoice.number}",
+                    f"🆔 Payment: {payment.number}",
+                    f"💵 Amount: {money_text(payment.amount)}",
+                    f"💳 Method: {method}",
+                ],
+                body=[
+                    "We received your payment. The garage is checking it.",
+                    "We’ll message you when it’s confirmed.",
+                ],
+            ),
+        )
+        out = CustomerPaymentSerializer(payment, context={"request": request})
+        return Response(out.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def withdraw(self, request, pk=None):
+        """Customer cancels a pending claim (wrong proof, etc.) so they can pay again."""
+        payment = self.get_object()
+        payment_id = payment.id
+        invoice_id = payment.invoice_id
+        try:
+            invoice = withdraw_pending_payment(payment, customer=self.customer)
+        except ValidationError as exc:
+            message = exc.messages[0] if getattr(exc, "messages", None) else str(exc)
+            return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "ok": True,
+                "withdrawn_payment_id": payment_id,
+                "invoice": invoice.id if invoice else invoice_id,
+                "payment_state": invoice_payment_state(invoice) if invoice else "UNPAID",
+                "detail": "Pending payment removed. You can submit a new payment.",
+            }
+        )
 
 
 class CustomerPartSerializer(serializers.ModelSerializer):

@@ -29,6 +29,10 @@ export type CustomerProfile = {
   role: string;
   address: string;
   photo_url?: string;
+  telegram_bot_configured?: boolean;
+  telegram_linked?: boolean;
+  telegram_username?: string;
+  telegram_alerts?: boolean;
 };
 
 type ApiVehicle = {
@@ -155,7 +159,9 @@ type ApiInvoice = {
   grand_total: string;
   invoice_date: string;
   status: string;
+  payment_state?: string;
   amount_paid: string;
+  amount_pending?: string;
 };
 
 type ApiPayment = {
@@ -167,8 +173,10 @@ type ApiPayment = {
   method: string;
   paid_at: string;
   reference: string;
+  proof_url?: string;
   status: string;
   receipt_number: string;
+  verified_at?: string | null;
 };
 
 type ApiPart = {
@@ -342,7 +350,49 @@ export function userFromProfile(profile: CustomerProfile): User {
     lastLogin: '',
     createdAt: '',
     address: profile.address || '',
+    telegramBotConfigured: Boolean(profile.telegram_bot_configured),
+    telegramLinked: Boolean(profile.telegram_linked),
+    telegramUsername: (profile.telegram_username || '').replace(/^@/, ''),
+    telegramAlerts: profile.telegram_alerts !== false,
   };
+}
+
+export async function fetchTelegramConnectLink(): Promise<{
+  url: string;
+  bot_username: string;
+  linked: boolean;
+  telegram_alerts: boolean;
+}> {
+  const response = await apiRequest('/api/auth/telegram/connect/');
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+  const data = (await response.json()) as {
+    ok?: boolean;
+    url?: string;
+    bot_username?: string;
+    linked?: boolean;
+    telegram_alerts?: boolean;
+    error?: string;
+  };
+  if (!data.url) throw new Error(data.error || 'Telegram connect is unavailable.');
+  return {
+    url: data.url,
+    bot_username: data.bot_username || '',
+    linked: Boolean(data.linked),
+    telegram_alerts: data.telegram_alerts !== false,
+  };
+}
+
+export async function disconnectTelegram(): Promise<void> {
+  const response = await apiRequest('/api/auth/telegram/connect/', { method: 'DELETE' });
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+}
+
+export async function setTelegramAlerts(enabled: boolean): Promise<void> {
+  const response = await apiRequest('/api/auth/telegram/connect/', {
+    method: 'PATCH',
+    body: JSON.stringify({ telegram_alerts: enabled }),
+  });
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
 }
 
 function mapVehicle(row: ApiVehicle, profile: CustomerProfile): Vehicle {
@@ -603,6 +653,12 @@ function mapInvoice(row: ApiInvoice, profile: CustomerProfile, vehicles: Vehicle
       totalPrice: money(row.parts_cost),
     });
   }
+  const paymentState =
+    row.payment_state === 'PAID' || row.status === 'PAID'
+      ? 'PAID'
+      : row.payment_state === 'PENDING'
+        ? 'PENDING'
+        : 'UNPAID';
   const status =
     row.status === 'PAID'
       ? 'PAID'
@@ -612,7 +668,9 @@ function mapInvoice(row: ApiInvoice, profile: CustomerProfile, vehicles: Vehicle
           ? 'CANCELLED'
           : row.status === 'DRAFT'
             ? 'DRAFT'
-            : 'PENDING';
+            : paymentState === 'PENDING'
+              ? 'PENDING'
+              : 'UNPAID';
   const jobId = row.repair_job ? String(row.repair_job).padStart(4, '0') : '';
   return {
     id: String(row.id),
@@ -641,6 +699,8 @@ function mapInvoice(row: ApiInvoice, profile: CustomerProfile, vehicles: Vehicle
     issueDate: row.invoice_date,
     dueDate: row.due_date || row.invoice_date,
     status,
+    paymentState,
+    amountPending: money(row.amount_pending || 0),
     notes: row.note || '',
   };
 }
@@ -667,8 +727,38 @@ function mapPayment(row: ApiPayment, profile: CustomerProfile): PaymentRecord {
     transactionRef: row.reference || '',
     status,
     receivedBy: '',
-    receiptNumber: row.receipt_number || row.number,
+    receiptNumber: row.receipt_number || undefined,
+    proofUrl: row.proof_url || '',
   };
+}
+
+export type CustomerPaymentClaimInput = {
+  invoiceId: string;
+  amount: number;
+  method: 'CASH' | 'BANK' | 'CARD' | 'QR';
+  reference?: string;
+  proofFile?: File | null;
+};
+
+export async function claimCustomerPayment(
+  profile: CustomerProfile,
+  input: CustomerPaymentClaimInput
+): Promise<PaymentRecord> {
+  const body = new FormData();
+  body.append('invoice', input.invoiceId);
+  body.append('amount', String(input.amount));
+  body.append('method', input.method);
+  if (input.reference) body.append('reference', input.reference);
+  if (input.proofFile) body.append('proof', input.proofFile);
+  const response = await apiRequest('/api/customer/payments/', { method: 'POST', body });
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+  return mapPayment((await response.json()) as ApiPayment, profile);
+}
+
+export async function withdrawCustomerPayment(paymentId: string): Promise<{ ok: boolean; payment_state?: string }> {
+  const response = await apiRequest(`/api/customer/payments/${paymentId}/withdraw/`, { method: 'POST', body: '{}' });
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+  return (await response.json()) as { ok: boolean; payment_state?: string };
 }
 
 function mapEstimate(row: ApiEstimate, profile: CustomerProfile): Estimate {
@@ -1096,12 +1186,13 @@ function mapPartRequest(row: ApiPartRequest): CustomerPartRequestRow {
   };
 }
 
-export async function addBookingService(bookingId: string, serviceId: string): Promise<void> {
+export async function addBookingService(bookingId: string, serviceId: string): Promise<ApiBooking> {
   const response = await apiRequest(`/api/customer/bookings/${bookingId}/add-service/`, {
     method: 'POST',
     body: JSON.stringify({ service: Number(serviceId) }),
   });
   if (!response.ok) throw new Error(await apiErrorMessage(response));
+  return response.json() as Promise<ApiBooking>;
 }
 
 export async function removeBookingService(bookingId: string, bookingServiceId: number): Promise<void> {

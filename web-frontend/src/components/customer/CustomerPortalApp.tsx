@@ -173,27 +173,27 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased flex flex-col selection:bg-blue-600 selection:text-white">
-      <header
-        className={`sticky top-0 z-40 backdrop-blur-md border-b ${
-          isDark ? 'bg-slate-950/90 border-slate-800' : 'bg-white/95 border-slate-200 shadow-sm'
-        }`}
-      >
+    <div
+      className={`min-h-screen font-sans antialiased flex flex-col selection:bg-blue-600 selection:text-slate-950 transition-colors ${
+        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}
+    >
+      <header className="portal-brand-header sticky top-0 z-40 border-b border-white/10 text-white shadow-md shadow-black/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="h-16 flex items-center justify-between gap-4">
             <button
               type="button"
               onClick={() => handleTabChange('DASHBOARD')}
-              className="flex items-center gap-2.5 shrink-0 cursor-pointer"
+              className="portal-brand-logo flex items-center gap-2.5 shrink-0 cursor-pointer"
             >
-              <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/25">
-                <Car className="w-5 h-5" />
+              <div className="portal-brand-logo-mark w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shadow-blue-600/30">
+                <Car className="w-5 h-5 text-slate-950" strokeWidth={2.25} />
               </div>
               <div className="text-left leading-tight">
-                <div className={`text-lg font-black tracking-tight whitespace-nowrap ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  Car<span className="text-blue-500">SV</span>
+                <div className="text-lg font-black tracking-tight whitespace-nowrap text-white">
+                  Car<span className="text-blue-400">SV</span>
                 </div>
-                <div className={`text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div className="text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap text-white/70">
                   Customer portal
                 </div>
               </div>
@@ -203,13 +203,13 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
               <button
                 type="button"
                 onClick={() => handleOpenBookingWithService()}
-                className="bar-action hidden sm:inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold whitespace-nowrap shadow-sm shadow-blue-600/25 cursor-pointer"
+                className="bar-action hidden sm:inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-blue-600 hover:bg-blue-500 text-slate-950 text-sm font-semibold whitespace-nowrap shadow-sm shadow-blue-600/25 cursor-pointer transition-all"
               >
                 <Calendar className="w-4 h-4" />
                 Book service
               </button>
 
-              <ThemeToggle />
+              <ThemeToggle className="!bg-white/15 !border-white/25 !text-white hover:!bg-white/25 [&_svg]:!text-white" />
 
               <div className="relative" ref={notificationsRef}>
                 <button
@@ -218,11 +218,7 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                     setNotificationsOpen(!notificationsOpen);
                     setProfileDropdownOpen(false);
                   }}
-                  className={`bar-action relative h-9 w-9 rounded-full flex items-center justify-center border transition-colors ${
-                    isDark
-                      ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                      : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
-                  }`}
+                  className="bar-action relative h-9 w-9 rounded-full flex items-center justify-center border transition-colors bg-white/15 border-white/25 text-white hover:bg-white/25"
                 >
                   <Bell className="w-4 h-4" />
                   {badgeTone && (
@@ -234,7 +230,7 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
 
                 {notificationsOpen && (
                   <div
-                    className={`notification-panel fixed top-16 right-4 w-[320px] max-w-[calc(100vw-32px)] rounded-2xl shadow-2xl z-50 border overflow-hidden ${
+                    className={`portal-header-menu notification-panel fixed top-16 right-4 w-[320px] max-w-[calc(100vw-32px)] rounded-2xl shadow-2xl z-50 border overflow-hidden ${
                       isDark ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-200'
                     }`}
                   >
@@ -319,32 +315,28 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                     setProfileDropdownOpen(!profileDropdownOpen);
                     setNotificationsOpen(false);
                   }}
-                  className={`bar-action flex items-center gap-2 h-9 pl-1 pr-2 rounded-full border transition-colors cursor-pointer ${
-                    isDark
-                      ? 'bg-slate-800 border-slate-700 hover:bg-slate-700'
-                      : 'bg-slate-100 border-slate-200 hover:bg-slate-200'
-                  }`}
+                  className="bar-action flex items-center gap-2 h-9 pl-1 pr-2 rounded-full border transition-colors cursor-pointer bg-white/15 border-white/25 hover:bg-white/25"
                 >
                   {currentUser?.avatar ? (
                     <img
                       src={currentUser.avatar}
                       alt={currentUser?.name}
-                      className="w-7 h-7 rounded-full object-cover"
+                      className="w-7 h-7 rounded-full object-cover ring-1 ring-white/40"
                     />
                   ) : (
-                    <span className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-black flex items-center justify-center">
+                    <span className="w-7 h-7 rounded-full bg-blue-600 text-slate-950 text-xs font-black flex items-center justify-center">
                       {(currentUser?.name || 'C').slice(0, 1).toUpperCase()}
                     </span>
                   )}
-                  <span className={`hidden sm:inline text-sm font-semibold whitespace-nowrap ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                  <span className="hidden sm:inline text-sm font-semibold whitespace-nowrap text-white">
                     {firstName}
                   </span>
-                  <ChevronDown className={`w-3.5 h-3.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`} />
+                  <ChevronDown className="w-3.5 h-3.5 text-white/70" />
                 </button>
 
                 {profileDropdownOpen && (
                   <div
-                    className={`absolute right-0 mt-2 w-56 rounded-2xl shadow-2xl p-2 z-50 text-xs space-y-1 border ${
+                    className={`portal-header-menu absolute right-0 mt-2 w-56 rounded-2xl shadow-2xl p-2 z-50 text-xs space-y-1 border ${
                       isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
                     }`}
                   >
@@ -403,18 +395,14 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className={`lg:hidden h-9 w-9 rounded-full flex items-center justify-center border ${
-                  isDark
-                    ? 'bg-slate-800 border-slate-700 text-slate-200'
-                    : 'bg-slate-100 border-slate-200 text-slate-700'
-                }`}
+                className="lg:hidden h-9 w-9 rounded-full flex items-center justify-center border bg-white/15 border-white/25 text-white hover:bg-white/25"
               >
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
             </div>
           </div>
 
-          <nav className={`hidden lg:flex items-center gap-1 pb-2.5 -mx-1 overflow-x-auto ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+          <nav className="hidden lg:flex items-center gap-1 pb-2.5 -mx-1 overflow-x-auto text-white/80">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
@@ -425,16 +413,14 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                   onClick={() => handleTabChange(item.id)}
                   className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-semibold whitespace-nowrap transition-colors cursor-pointer ${
                     active
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : isDark
-                        ? 'hover:bg-slate-800 hover:text-white'
-                        : 'hover:bg-slate-100 hover:text-slate-900'
+                      ? 'bg-blue-600 text-slate-950 shadow-sm shadow-blue-600/25'
+                      : 'text-white/80 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {item.label}
                   {tabTone(item.id) && (
-                    <span className={`w-1.5 h-1.5 rounded-full ${alertBadgeClass(tabTone(item.id) as AlertTone)} ${active ? 'ring-2 ring-white/40' : ''}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${alertBadgeClass(tabTone(item.id) as AlertTone)} ${active ? 'ring-2 ring-slate-950/20' : 'ring-2 ring-white/30'}`} />
                   )}
                 </button>
               );
@@ -443,7 +429,7 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
         </div>
 
         {mobileMenuOpen && (
-          <div className={`lg:hidden border-t px-4 py-3 space-y-1 ${isDark ? 'border-slate-800 bg-slate-950' : 'border-slate-200 bg-white'}`}>
+          <div className="lg:hidden border-t border-white/10 bg-slate-900/80 px-4 py-3 space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
@@ -452,12 +438,10 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                   key={item.id}
                   type="button"
                   onClick={() => handleTabChange(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
                     active
-                      ? 'bg-blue-600 text-white'
-                      : isDark
-                        ? 'text-slate-200 hover:bg-slate-800'
-                        : 'text-slate-700 hover:bg-slate-100'
+                      ? 'bg-blue-600 text-slate-950'
+                      : 'text-white/90 hover:bg-white/10'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -474,7 +458,7 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                 setMobileMenuOpen(false);
                 handleOpenBookingWithService();
               }}
-              className="w-full mt-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold"
+              className="w-full mt-2 py-2.5 rounded-xl bg-blue-600 text-slate-950 text-sm font-semibold shadow-sm shadow-blue-600/25"
             >
               Book service
             </button>

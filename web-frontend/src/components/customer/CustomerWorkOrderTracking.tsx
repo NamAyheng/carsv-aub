@@ -24,10 +24,12 @@ import { belongsToCurrentCustomer } from '../../utils/customerScope';
 import { CustomerPartRequestRow, listCustomerPartRequests } from '../../api/garage';
 
 function trackingStatusTone(status?: string) {
+  // Same soft chip style used across the customer site (light fill + dark text + border).
   switch (status) {
     case 'PENDING':
+    case 'WAITING':
       return {
-        bar: 'bg-orange-700',
+        bar: 'bg-orange-600',
         text: 'text-orange-700',
         badge: 'bg-orange-50 text-orange-800 border-orange-200',
         dot: 'bg-orange-600',
@@ -52,10 +54,10 @@ function trackingStatusTone(status?: string) {
       };
     case 'CANCELLED':
       return {
-        bar: 'bg-rose-600',
-        text: 'text-rose-700',
-        badge: 'bg-rose-50 text-rose-800 border-rose-200',
-        dot: 'bg-rose-600',
+        bar: 'bg-red-600',
+        text: 'text-red-700',
+        badge: 'bg-red-50 text-red-800 border-red-200',
+        dot: 'bg-red-600',
       };
     default:
       return {

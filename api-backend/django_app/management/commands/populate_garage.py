@@ -308,7 +308,7 @@ class Command(BaseCommand):
             self._visit("BK-10", "2G-6074", "Spark plug replacement", date(2026, 10, 9), time(10, 0), Booking.Status.IN_SERVICE, "Misfire when pulling away.", job=RepairJob.Status.REPAIRING, mechanic="vicheka.mao", estimate=Estimate.Status.APPROVED, parts=[("SPK-IR-SET", 1)], invoice=Invoice.Status.DRAFT, labor="30.00"),
             self._visit("BK-11", "2I-6846", "Transmission service", date(2026, 10, 8), time(8, 30), Booking.Status.IN_SERVICE, "Delayed engagement from park into drive.", job=RepairJob.Status.REPAIRING, mechanic="dara", estimate=Estimate.Status.APPROVED, parts=[("TRN-FLT-01", 1), ("TRN-OIL-01", 1)], invoice=Invoice.Status.UNPAID, labor="45.00"),
             self._visit("BK-12", "2HL-8339", "Coolant flush", date(2026, 10, 7), time(14, 30), Booking.Status.IN_SERVICE, "Temperature climbs in traffic.", job=RepairJob.Status.QUALITY_CHECK, mechanic="hour", estimate=Estimate.Status.APPROVED, parts=[("CLT-GRN-01", 1)], invoice=Invoice.Status.UNPAID, labor="25.00"),
-            self._visit("BK-13", "2W-2663", "Wheel alignment", date(2026, 10, 6), time(9, 0), Booking.Status.IN_SERVICE, "Car pulls to the right.", job=RepairJob.Status.READY_FOR_PICKUP, mechanic="nara.tun", invoice=Invoice.Status.PARTIAL, pay="half", method=Payment.Method.CARD, labor="35.00", discount="5.00"),
+            self._visit("BK-13", "2W-2663", "Wheel alignment", date(2026, 10, 6), time(9, 0), Booking.Status.IN_SERVICE, "Car pulls to the right.", job=RepairJob.Status.QUALITY_CHECK, mechanic="nara.tun", invoice=Invoice.Status.PARTIAL, pay="half", method=Payment.Method.CARD, labor="35.00", discount="5.00"),
             self._visit("BK-14", "2LJ-5247", "Oil change", date(2026, 8, 14), time(9, 0), Booking.Status.COMPLETED, "Scheduled oil and filter service.", job=RepairJob.Status.COMPLETED, mechanic="dara", estimate=Estimate.Status.APPROVED, parts=[("OIL-0W20-01", 1), ("ENG-OIL-H01", 1)], invoice=Invoice.Status.PAID, pay="full", method=Payment.Method.CASH, labor="15.00"),
             self._visit("BK-15", "2HZ-3585", "General inspection", date(2026, 8, 21), time(11, 0), Booking.Status.COMPLETED, "Pre-trip health check.", job=RepairJob.Status.COMPLETED, mechanic="hour", invoice=Invoice.Status.PAID, pay="full", method=Payment.Method.BANK, labor="10.00"),
             self._visit("BK-16", "2YX-3306", "Brake fluid flush", date(2026, 7, 30), time(15, 0), Booking.Status.COMPLETED, "Fluid had not been changed in three years.", job=RepairJob.Status.COMPLETED, mechanic="vicheka.mao", parts=[("BRK-FLD-01", 2)], invoice=Invoice.Status.PAID, pay="full", method=Payment.Method.QR, labor="20.00"),
@@ -486,8 +486,9 @@ class Command(BaseCommand):
                     paid_at=spec["day"],
                     reference=f"front-desk-{spec['key'].lower()}",
                     received_by=cashier,
-                    status=Payment.Status.PAID if pay == "full" else Payment.Status.PARTIAL,
+                    status=Payment.Status.PAID,
                     receipt_number=f"RCP-SAMPLE-{spec['key'][-2:]}",
+                    verified_at=timezone.now(),
                 )
                 self._notify(
                     vehicle.customer,

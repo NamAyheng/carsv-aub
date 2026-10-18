@@ -243,14 +243,24 @@
                 </div>
             </div>
 
+            {% if sheet.payment_warning %}
+                <div class="iv-pay-warn">
+                    <span class="material-symbols-outlined">info</span>
+                    <span>{{ sheet.payment_warning }}</span>
+                    {% if sheet.payments_url %}
+                        <a href="{{ sheet.payments_url }}">Open Payments</a>
+                    {% endif %}
+                </div>
+            {% endif %}
+
             <div class="iv-actions">
                 <button type="button" class="iv-btn-print" onclick="window.print()">
                     <span class="material-symbols-outlined">print</span>
                     Print
                 </button>
                 <div class="iv-actions-right">
-                    {% if sheet.can_pay %}
-                        <a class="iv-btn-pay" href="{{ sheet.pay_url }}">Accept Payment ({{ sheet.balance }})</a>
+                    {% if sheet.can_verify %}
+                        <a class="iv-btn-verify" href="{{ sheet.verify_url }}">Verify payment</a>
                     {% endif %}
                     <a class="iv-btn-close" href="{{ list_url }}">Close</a>
                 </div>

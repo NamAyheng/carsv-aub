@@ -5,7 +5,6 @@ from decimal import Decimal
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
-from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group
 from django.contrib.admin.actions import delete_selected as django_delete_selected
@@ -72,9 +71,15 @@ from django_app.models import (
     next_invoice_status,
     next_job_status,
     next_part_request_status,
+    next_payment_number,
     progress_for_job_status,
+    reject_payment,
     sync_booking_from_job,
     sync_vehicle_shop_status,
+    verify_payment,
+    verified_payment_total,
+    invoice_payment_state,
+    refresh_invoice_status,
     visit_service_total,
     current_customer_qs,
     role_choices,
@@ -282,7 +287,36 @@ class LockedDisplayWidget(forms.TextInput):
 
     def render(self, name, value, attrs=None, renderer=None):
         text = self._resolve_display(value) or "—"
-        return format_html('<div class="cf-locked-value">{}</div>', text)
+        final_attrs = self.build_attrs(self.attrs, attrs)
+        invoice_follow = final_attrs.get("data-invoice-follow")
+        if invoice_follow:
+            return format_html(
+                '<div class="cf-locked-value" data-locked-for="{}" data-invoice-follow="{}">{}</div>',
+                name,
+                invoice_follow,
+                text,
+            )
+        payment_follow = final_attrs.get("data-payment-follow")
+        if payment_follow:
+            return format_html(
+                '<div class="cf-locked-value" data-locked-for="{}" data-payment-follow="{}">{}</div>',
+                name,
+                payment_follow,
+                text,
+            )
+        part_follow = final_attrs.get("data-part-request-follow")
+        if part_follow:
+            return format_html(
+                '<div class="cf-locked-value" data-locked-for="{}" data-part-request-follow="{}">{}</div>',
+                name,
+                part_follow,
+                text,
+            )
+        return format_html(
+            '<div class="cf-locked-value" data-locked-for="{}">{}</div>',
+            name,
+            text,
+        )
 
 
 def _inner_widget(widget):
@@ -389,7 +423,7 @@ class StatusToneSelect(forms.Select):
         "INACTIVE": "inactive",
         "IN_SHOP": "progress",
         "DRAFT": "inactive",
-        "UNPAID": "waiting",
+        "UNPAID": "unpaid",
         "PARTIAL": "pending",
         "PAID": "ready",
         "FAILED": "cancelled",
@@ -400,9 +434,11 @@ class StatusToneSelect(forms.Select):
         "REJECTED": "cancelled",
     }
 
-    def __init__(self, attrs=None, choices=(), tone_map=None):
+    def __init__(self, attrs=None, choices=(), tone_map=None, disabled_values=None, disabled_suffix=""):
         super().__init__(attrs, choices)
         self.tone_map = tone_map or self.TONE
+        self.disabled_values = {str(item) for item in (disabled_values or [])}
+        self.disabled_suffix = disabled_suffix
 
     def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
         option = super().create_option(name, value, label, selected, index, subindex, attrs)
@@ -410,6 +446,11 @@ class StatusToneSelect(forms.Select):
         tone = self.tone_map.get(key)
         if tone:
             option["attrs"]["data-tone"] = tone
+        if key and key in self.disabled_values:
+            option["attrs"]["disabled"] = "disabled"
+            option["attrs"]["class"] = (option["attrs"].get("class", "") + " is-disabled").strip()
+            if self.disabled_suffix and key:
+                option["label"] = f"{label}{self.disabled_suffix}"
         return option
 
 
@@ -1205,11 +1246,110 @@ SparePartGarageForm = garage_form(
     ("part_number", "name", "category", "brand", "image", "unit_price", "quantity", "min_stock", "status"),
 )
 PartsUsageGarageForm = garage_form(PartsUsage, ("repair_job", "spare_part", "quantity", "unit_price", "recorded_by"))
-class PartRequestGarageForm(
-    garage_form(PartRequest, ("customer", "vehicle", "spare_part", "fulfillment", "notes", "cancel_reason", "status"))
-):
+class PartRequestGarageForm(GarageModelForm):
+    """
+    Workshop install → booking (visit quote) is the parent FK; work order follows the booking.
+    Counter / delivery → no booking; staff pick customer + vehicle.
+    """
+
+    class Meta:
+        model = PartRequest
+        fields = (
+            "customer",
+            "vehicle",
+            "booking",
+            "repair_job",
+            "spare_part",
+            "fulfillment",
+            "notes",
+            "cancel_reason",
+            "status",
+        )
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        issued = bool(self.instance.pk and self.instance.parts_usage_id)
+        customers = Customer.objects.order_by("name")
+        vehicles = Vehicle.objects.select_related("customer").order_by("plate")
+        bookings = (
+            Booking.objects.select_related("customer", "vehicle", "service", "repair_job")
+            .exclude(status=Booking.Status.CANCELLED)
+            .order_by("-booking_date", "-id")
+        )
+        jobs = RepairJob.objects.select_related("customer", "vehicle", "booking").order_by("-id")
+
+        fulfillment = self._current_fulfillment()
+        install = fulfillment == PartRequest.Fulfillment.INSTALL
+
+        self.fields["customer"].queryset = customers
+        self.fields["customer"].empty_label = "Select customer"
+        self.fields["customer"].label_from_instance = self._customer_label
+        self.fields["customer"].required = not install
+        self.fields["customer"].help_text = (
+            "Taken from the booking for workshop install."
+            if install
+            else "Customer buying the part at the counter or for delivery."
+        )
+
+        self.fields["vehicle"].queryset = vehicles
+        self.fields["vehicle"].empty_label = "Select vehicle"
+        self.fields["vehicle"].required = False
+        self.fields["vehicle"].label_from_instance = self._vehicle_label
+        self.fields["vehicle"].help_text = (
+            "Taken from the booking for workshop install."
+            if install
+            else "Optional for counter / delivery."
+        )
+        if not install and not issued:
+            self.fields["vehicle"].widget = LinkedSelect(
+                attrs={"class": "cf-input"},
+                option_attrs={str(item.id): {"data-customer": str(item.customer_id)} for item in vehicles},
+            )
+            self.fields["vehicle"].widget.choices = self.fields["vehicle"].choices
+
+        booking_attrs = {}
+        for item in bookings:
+            job = linked_job(item)
+            booking_attrs[str(item.id)] = {
+                "data-customer": str(item.customer_id),
+                "data-vehicle": str(item.vehicle_id),
+                "data-job": str(job.id) if job is not None else "",
+                "data-customer-label": self._customer_label(item.customer),
+                "data-vehicle-label": self._vehicle_label(item.vehicle),
+                "data-job-label": (
+                    f"WO-{job.id:04d} · {item.vehicle.plate}" if job is not None else "No work order yet (quote)"
+                ),
+            }
+        self.fields["booking"].queryset = bookings
+        self.fields["booking"].empty_label = "Select booking (visit quote)"
+        self.fields["booking"].required = install and not issued
+        self.fields["booking"].label = "Booking"
+        self.fields["booking"].help_text = (
+            "Visit quote this part belongs to. Same booking as the customer quote page."
+            if install
+            else "Not used for counter pickup / delivery."
+        )
+        self.fields["booking"].label_from_instance = self._booking_label
+        if install and not issued:
+            self.fields["booking"].widget = LinkedSelect(
+                attrs={"class": "cf-input", "data-part-request-booking": "1"},
+                option_attrs=booking_attrs,
+            )
+            self.fields["booking"].widget.choices = self.fields["booking"].choices
+        elif not install and not issued:
+            self.fields["booking"].disabled = True
+            self.fields["booking"].required = False
+            self.fields["booking"].widget = LockedDisplayWidget(display="— (not used)")
+
+        self.fields["repair_job"].queryset = jobs
+        self.fields["repair_job"].empty_label = "Follows booking (or none yet)"
+        self.fields["repair_job"].required = False
+        self.fields["repair_job"].label = "Work order"
+        self.fields["repair_job"].help_text = (
+            "Filled from the booking’s work order when one exists. Quote-phase parts may show none yet."
+        )
+        self.fields["repair_job"].label_from_instance = self._job_label
+
         notes = self.fields["notes"].widget
         notes.attrs["class"] = "cf-input"
         notes.attrs["rows"] = 3
@@ -1219,13 +1359,58 @@ class PartRequestGarageForm(
         reason.attrs["placeholder"] = "Required when the part is cancelled (for example out of stock)."
         self.fields["cancel_reason"].help_text = "Required when status is Cancelled."
         self.fields["status"].help_text = (
-            "Confirm issues one unit on the vehicle's open work order, reduces shelf stock, "
-            "and adds the price to that job's invoice. Cancel when the part is not available. "
-            "Record payment on the invoice."
+            "Confirm issues one unit on the visit work order, reduces shelf stock, "
+            "and adds the price to that job’s invoice. Cancel when the part is not available."
         )
-        if self.instance.pk and self.instance.parts_usage_id:
-            for name in ("customer", "vehicle", "spare_part", "fulfillment", "status", "cancel_reason"):
-                self.fields[name].disabled = True
+        self.fields["fulfillment"].widget.attrs["data-part-request-fulfillment"] = "1"
+        self.fields["fulfillment"].help_text = (
+            "Workshop install stays on the booking quote. Counter pickup / delivery are parts-only (no booking)."
+        )
+
+        linked = self._posted_booking() if install else None
+        if install and linked is None:
+            booking_id = None
+            if self.instance.pk and self.instance.booking_id:
+                booking_id = self.instance.booking_id
+            elif not self.is_bound:
+                booking_id = self.initial.get("booking")
+            if booking_id:
+                linked = (
+                    Booking.objects.select_related("customer", "vehicle", "service", "repair_job")
+                    .filter(pk=booking_id)
+                    .first()
+                )
+        job = linked_job(linked) if linked is not None else None
+        if linked is not None:
+            self.initial["booking"] = linked.pk
+            self.initial["customer"] = linked.customer_id
+            self.initial["vehicle"] = linked.vehicle_id
+            if job is not None:
+                self.initial["repair_job"] = job.pk
+            self.fields["customer"].queryset = Customer.objects.filter(pk=linked.customer_id)
+            self.fields["vehicle"].queryset = Vehicle.objects.filter(pk=linked.vehicle_id)
+            if job is not None:
+                self.fields["repair_job"].queryset = RepairJob.objects.filter(pk=job.pk)
+            else:
+                self.fields["repair_job"].queryset = RepairJob.objects.none()
+
+        if issued:
+            for name in (
+                "customer",
+                "vehicle",
+                "booking",
+                "repair_job",
+                "spare_part",
+                "fulfillment",
+                "status",
+                "cancel_reason",
+            ):
+                if name in self.fields:
+                    self.fields[name].disabled = True
+                    self.fields[name].required = False
+                    self.fields[name].widget = LockedDisplayWidget(
+                        display=_locked_field_display(self, name, self.fields[name]) or "—"
+                    )
             wo = f"WO-{self.instance.repair_job_id:04d}" if self.instance.repair_job_id else "a work order"
             invoice = (
                 Invoice.objects.filter(repair_job_id=self.instance.repair_job_id)
@@ -1236,11 +1421,113 @@ class PartRequestGarageForm(
             )
             billed = f" Billed on {invoice}." if invoice else ""
             self.fields["notes"].help_text = f"Already issued on {wo}.{billed} Record payment on that invoice."
+        elif install:
+            customer_display = (
+                self._customer_label(linked.customer) if linked is not None else "Select a booking"
+            )
+            vehicle_display = (
+                self._vehicle_label(linked.vehicle) if linked is not None else "Select a booking"
+            )
+            job_display = (
+                self._job_label(job)
+                if job is not None
+                else ("No work order yet (quote)" if linked is not None else "Select a booking")
+            )
+            for name, display in (
+                ("customer", customer_display),
+                ("vehicle", vehicle_display),
+                ("repair_job", job_display),
+            ):
+                self.fields[name].disabled = True
+                self.fields[name].required = False
+                self.fields[name].widget = LockedDisplayWidget(
+                    display=display,
+                    attrs={"data-part-request-follow": name},
+                )
+
+        self.order_fields(
+            [
+                "fulfillment",
+                "booking",
+                "repair_job",
+                "customer",
+                "vehicle",
+                "spare_part",
+                "notes",
+                "cancel_reason",
+                "status",
+            ]
+        )
+        for field in self.fields.values():
+            widgets = [field.widget]
+            inner = getattr(field.widget, "widget", None)
+            if inner is not None:
+                widgets.append(inner)
+            for widget in widgets:
+                if isinstance(widget, LockedDisplayWidget):
+                    continue
+                css = widget.attrs.get("class", "cf-input")
+                if "cf-input" not in css and not isinstance(widget, forms.Textarea):
+                    widget.attrs["class"] = f"{css} cf-input".strip()
+
+    def _current_fulfillment(self):
+        if self.is_bound and self.data.get("fulfillment"):
+            return self.data.get("fulfillment")
+        if self.instance.pk and self.instance.fulfillment:
+            return self.instance.fulfillment
+        return self.initial.get("fulfillment") or PartRequest.Fulfillment.INSTALL
+
+    def _posted_booking(self):
+        if not self.is_bound:
+            return None
+        raw = self.data.get("booking")
+        if not raw:
+            return None
+        return (
+            Booking.objects.select_related("customer", "vehicle", "service", "repair_job")
+            .filter(pk=raw)
+            .first()
+        )
+
+    @staticmethod
+    def _customer_label(item):
+        return f"{item.name} ({item.phone})" if item.phone else item.name
+
+    @staticmethod
+    def _vehicle_label(item):
+        return f"{item.plate} — {item.brand} {item.model} ({item.year})"
+
+    @staticmethod
+    def _job_label(item):
+        return f"WO-{item.id:04d} · {item.vehicle.plate} · {item.customer.name}"
+
+    @staticmethod
+    def _booking_label(item):
+        when = item.booking_date.isoformat() if item.booking_date else "—"
+        if item.booking_time:
+            when = f"{when} {item.booking_time.strftime('%H:%M')}"
+        service = item.service.name if item.service_id else "Visit"
+        return f"BK-{item.id:04d} · {service} · {item.vehicle.plate} · {when}"
 
     def clean(self):
         cleaned = super().clean()
         if self.instance.pk and self.instance.parts_usage_id:
             return cleaned
+        fulfillment = cleaned.get("fulfillment") or getattr(self.instance, "fulfillment", None)
+        booking = cleaned.get("booking")
+        if booking is None and self.instance.pk and self.instance.booking_id and "booking" not in self.data:
+            booking = self.instance.booking
+            cleaned["booking"] = booking
+        if fulfillment == PartRequest.Fulfillment.INSTALL:
+            if booking is None:
+                self.add_error("booking", "Workshop install needs a booking (the visit quote).")
+            else:
+                cleaned["customer"] = booking.customer
+                cleaned["vehicle"] = booking.vehicle
+                cleaned["repair_job"] = linked_job(booking)
+        elif fulfillment in (PartRequest.Fulfillment.PICKUP, PartRequest.Fulfillment.DELIVERY):
+            cleaned["booking"] = None
+            cleaned["repair_job"] = None
         status = cleaned.get("status")
         if status == PartRequest.Status.CANCELLED:
             if not (cleaned.get("cancel_reason") or "").strip():
@@ -1257,14 +1544,443 @@ class PartRequestGarageForm(
                 "That part is out of stock, so it cannot be issued. Set status to Cancelled and say why.",
             )
         return cleaned
-InvoiceGarageForm = garage_form(
-    Invoice,
-    ("number", "customer", "vehicle", "repair_job", "labor_cost", "service_cost", "parts_cost", "discount", "tax", "status"),
-)
-PaymentGarageForm = garage_form(
-    Payment,
-    ("number", "invoice", "customer", "amount", "method", "paid_at", "reference", "received_by", "status", "receipt_number"),
-)
+class InvoiceGarageForm(GarageModelForm):
+    """
+    One invoice → one work order → one customer + vehicle (+ booking via the job).
+    Customer/vehicle/work order are not free-pick lists on edit.
+    """
+
+    booking = forms.CharField(required=False, label="Booking")
+
+    class Meta:
+        model = Invoice
+        fields = (
+            "number",
+            "repair_job",
+            "customer",
+            "vehicle",
+            "labor_cost",
+            "service_cost",
+            "parts_cost",
+            "discount",
+            "tax",
+            "status",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        editing = bool(self.instance.pk)
+        jobs = (
+            RepairJob.objects.select_related("customer", "vehicle", "booking__service")
+            .order_by("-id")
+        )
+        if editing and self.instance.repair_job_id:
+            jobs = jobs.filter(Q(invoice__isnull=True) | Q(pk=self.instance.repair_job_id))
+        else:
+            jobs = jobs.filter(invoice__isnull=True)
+
+        self.fields["repair_job"].label = "Work order"
+        self.fields["repair_job"].queryset = jobs
+        self.fields["repair_job"].empty_label = "Select work order"
+        self.fields["repair_job"].label_from_instance = self._job_label
+        self.fields["repair_job"].required = True
+        self.fields["repair_job"].help_text = (
+            "This invoice belongs to one work order. Customer, vehicle, and booking come from it."
+        )
+        if "status" in self.fields:
+            paid = (
+                verified_payment_total(self.instance).quantize(Decimal("0.01"))
+                if editing
+                else Decimal("0")
+            )
+            grand = Decimal(self.instance.grand_total or 0).quantize(Decimal("0.01")) if editing else Decimal("0")
+            if paid <= 0:
+                allowed = {Invoice.Status.UNPAID, Invoice.Status.CANCELLED}
+                if not editing:
+                    allowed.add(Invoice.Status.DRAFT)
+                help_status = (
+                    "All statuses stay listed. Paid / Partially paid stay disabled until "
+                    "Payments has verified amounts covering this invoice."
+                )
+            elif paid < grand:
+                allowed = {Invoice.Status.PARTIAL, Invoice.Status.CANCELLED}
+                help_status = (
+                    "Partially paid is available from verified Payments. Paid unlocks when the balance is covered."
+                )
+            else:
+                allowed = {Invoice.Status.PAID, Invoice.Status.CANCELLED}
+                help_status = "Paid is available from verified Payments."
+            status_choices = list(Invoice.Status.choices)
+            disabled = [value for value, _label in status_choices if value not in allowed]
+            tone = StatusToneSelect(
+                attrs={"class": "cf-input"},
+                disabled_values=disabled,
+                disabled_suffix=" — verify on Payments",
+            )
+            tone.choices = status_choices
+            self.fields["status"].choices = status_choices
+            self.fields["status"].widget = tone
+            self.fields["status"].help_text = help_status
+            current = self.instance.status if editing else Invoice.Status.UNPAID
+            if current not in allowed:
+                fallback = Invoice.Status.UNPAID if Invoice.Status.UNPAID in allowed else next(iter(allowed))
+                self.initial["status"] = fallback
+                self.fields["status"].initial = fallback
+
+        self.fields["customer"].required = False
+        self.fields["customer"].label_from_instance = self._customer_label
+        self.fields["customer"].help_text = "Locked to the work order customer."
+        self.fields["vehicle"].required = False
+        self.fields["vehicle"].label_from_instance = self._vehicle_label
+        self.fields["vehicle"].help_text = "Locked to the work order vehicle."
+
+        linked = self._posted_job()
+        if editing and self.instance.repair_job_id and linked is None:
+            linked = (
+                RepairJob.objects.select_related("customer", "vehicle", "booking__service")
+                .filter(pk=self.instance.repair_job_id)
+                .first()
+            )
+        if linked is not None:
+            self.initial["repair_job"] = linked.pk
+            self.initial["customer"] = linked.customer_id
+            self.initial["vehicle"] = linked.vehicle_id
+            self.fields["customer"].queryset = Customer.objects.filter(pk=linked.customer_id)
+            self.fields["vehicle"].queryset = Vehicle.objects.filter(pk=linked.vehicle_id)
+        else:
+            self.fields["customer"].queryset = Customer.objects.none()
+            self.fields["vehicle"].queryset = Vehicle.objects.none()
+
+        booking_label = self._booking_label(linked.booking) if linked and linked.booking_id else "—"
+        self.fields["booking"].initial = booking_label
+        self.fields["booking"].disabled = True
+        self.fields["booking"].required = False
+        self.fields["booking"].help_text = "From the work order visit (not a separate invoice FK)."
+        self.fields["booking"].widget = LockedDisplayWidget(display=booking_label)
+
+        if editing:
+            # Existing invoice: identity FKs are fixed — never a full customer list.
+            for name in ("repair_job", "customer", "vehicle"):
+                field = self.fields[name]
+                field.disabled = True
+                field.required = False
+                field.widget = LockedDisplayWidget(
+                    display=_locked_field_display(self, name, field)
+                )
+            self.fields["repair_job"].help_text = "Linked work order. Change it from Work Orders if needed."
+            self.fields["customer"].help_text = "This invoice’s customer (from the work order)."
+            self.fields["vehicle"].help_text = "This invoice’s vehicle (from the work order)."
+        else:
+            job_attrs = {}
+            for item in jobs:
+                job_attrs[str(item.id)] = {
+                    "data-customer": str(item.customer_id),
+                    "data-vehicle": str(item.vehicle_id),
+                    "data-customer-label": self._customer_label(item.customer),
+                    "data-vehicle-label": self._vehicle_label(item.vehicle),
+                    "data-booking-label": self._booking_label(item.booking) if item.booking_id else "—",
+                }
+            self.fields["repair_job"].widget = LinkedSelect(
+                attrs={"class": "cf-input", "data-invoice-source": "1"},
+                option_attrs=job_attrs,
+            )
+            self.fields["repair_job"].widget.choices = self.fields["repair_job"].choices
+            for name in ("customer", "vehicle"):
+                field = self.fields[name]
+                field.disabled = True
+                field.widget = LockedDisplayWidget(
+                    display=_locked_field_display(self, name, field) or "Select a work order"
+                )
+                field.widget.attrs["data-invoice-follow"] = name
+
+        self.order_fields(
+            [
+                "number",
+                "repair_job",
+                "booking",
+                "customer",
+                "vehicle",
+                "labor_cost",
+                "service_cost",
+                "parts_cost",
+                "discount",
+                "tax",
+                "status",
+            ]
+        )
+        for field in self.fields.values():
+            widgets = [field.widget]
+            inner = getattr(field.widget, "widget", None)
+            if inner is not None:
+                widgets.append(inner)
+            for widget in widgets:
+                if isinstance(widget, LockedDisplayWidget):
+                    continue
+                css = widget.attrs.get("class", "cf-input")
+                if "cf-input" not in css:
+                    widget.attrs["class"] = f"{css} cf-input".strip()
+
+    def _posted_job(self):
+        if not self.is_bound:
+            return None
+        raw = self.data.get("repair_job")
+        if not raw:
+            return None
+        return (
+            RepairJob.objects.select_related("customer", "vehicle", "booking__service")
+            .filter(pk=raw)
+            .first()
+        )
+
+    @staticmethod
+    def _customer_label(item):
+        return f"{item.name} ({item.phone})" if item.phone else item.name
+
+    @staticmethod
+    def _vehicle_label(item):
+        return f"{item.plate} — {item.brand} {item.model} ({item.year})"
+
+    @staticmethod
+    def _job_label(item):
+        plate = item.vehicle.plate if item.vehicle_id else "—"
+        name = item.customer.name if item.customer_id else "—"
+        return f"WO-{item.id:04d} · {plate} · {name}"
+
+    @staticmethod
+    def _booking_label(booking):
+        if booking is None:
+            return "—"
+        when = booking.booking_date.isoformat() if booking.booking_date else "—"
+        if booking.booking_time:
+            when = f"{when} {booking.booking_time.strftime('%H:%M')}"
+        service = booking.service.name if booking.service_id else "Visit"
+        return f"BK-{booking.id:04d} · {service} · {when}"
+
+    def clean(self):
+        cleaned = super().clean()
+        job = cleaned.get("repair_job")
+        if job is None and self.instance.pk and self.instance.repair_job_id:
+            job = self.instance.repair_job
+            cleaned["repair_job"] = job
+        if job is None:
+            self.add_error("repair_job", "Select the work order for this invoice.")
+            return cleaned
+        try:
+            existing = job.invoice
+        except Invoice.DoesNotExist:
+            existing = None
+        if existing is not None and existing.pk != self.instance.pk:
+            self.add_error("repair_job", "This work order already has an invoice.")
+            return cleaned
+        cleaned["customer"] = job.customer
+        cleaned["vehicle"] = job.vehicle
+
+        # Paid / partial are not free-pick — only statuses allowed by verified payments.
+        status = cleaned.get("status")
+        labor = Decimal(cleaned.get("labor_cost") or 0)
+        service = Decimal(cleaned.get("service_cost") or 0)
+        parts = Decimal(cleaned.get("parts_cost") or 0)
+        discount = Decimal(cleaned.get("discount") or 0)
+        tax = Decimal(cleaned.get("tax") or 0)
+        grand = (labor + service + parts - discount + tax).quantize(Decimal("0.01"))
+        paid = (
+            verified_payment_total(self.instance)
+            if getattr(self.instance, "pk", None)
+            else Decimal("0")
+        ).quantize(Decimal("0.01"))
+        if paid <= 0:
+            allowed = {Invoice.Status.UNPAID, Invoice.Status.CANCELLED, Invoice.Status.DRAFT}
+        elif paid < grand:
+            allowed = {Invoice.Status.PARTIAL, Invoice.Status.CANCELLED}
+        else:
+            allowed = {Invoice.Status.PAID, Invoice.Status.CANCELLED}
+        if status and status not in allowed:
+            self.add_error(
+                "status",
+                (
+                    f"Status “{dict(Invoice.Status.choices).get(status, status)}” is not available. "
+                    f"Verified payments: ${paid} of ${grand}. Use the Payments page."
+                ),
+            )
+        return cleaned
+
+
+class PaymentGarageForm(GarageModelForm):
+    """Invoice is the parent FK. Customer and vehicle follow the invoice."""
+
+    class Meta:
+        model = Payment
+        fields = (
+            "number",
+            "invoice",
+            "customer",
+            "vehicle",
+            "amount",
+            "method",
+            "paid_at",
+            "reference",
+            "proof_image",
+            "received_by",
+            "status",
+            "receipt_number",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        editing = bool(self.instance.pk)
+        invoices = Invoice.objects.select_related("customer", "vehicle").order_by("-id")
+
+        self.fields["invoice"].queryset = invoices
+        self.fields["invoice"].empty_label = "Select invoice"
+        self.fields["invoice"].label_from_instance = (
+            lambda item: f"{item.number} — {item.customer.name} — {item.vehicle.plate}"
+        )
+        self.fields["invoice"].help_text = "One payment belongs to one invoice. Customer and vehicle come from it."
+
+        self.fields["customer"].required = False
+        self.fields["customer"].label_from_instance = (
+            lambda item: f"{item.name} ({item.phone})" if item.phone else item.name
+        )
+        self.fields["customer"].help_text = "Locked to the invoice customer."
+        self.fields["vehicle"].required = False
+        self.fields["vehicle"].label_from_instance = (
+            lambda item: f"{item.plate} — {item.brand} {item.model} ({item.year})"
+        )
+        self.fields["vehicle"].help_text = "Locked to the invoice vehicle."
+
+        linked = self._posted_invoice()
+        if editing and self.instance.invoice_id and linked is None:
+            linked = (
+                Invoice.objects.select_related("customer", "vehicle")
+                .filter(pk=self.instance.invoice_id)
+                .first()
+            )
+        if linked is not None:
+            self.initial["invoice"] = linked.pk
+            self.initial["customer"] = linked.customer_id
+            self.initial["vehicle"] = linked.vehicle_id
+            self.fields["customer"].queryset = Customer.objects.filter(pk=linked.customer_id)
+            self.fields["vehicle"].queryset = Vehicle.objects.filter(pk=linked.vehicle_id)
+        else:
+            self.fields["customer"].queryset = Customer.objects.none()
+            self.fields["vehicle"].queryset = Vehicle.objects.none()
+
+        self.fields["proof_image"].help_text = "Cash bill or digital transfer screenshot. Required before Verify."
+        self.fields["received_by"].empty_label = "Select staff"
+        self.fields["received_by"].help_text = "Staff who received the payment. Required before Verify."
+        self.fields["received_by"].label_from_instance = (
+            lambda item: item.user.get_full_name() or item.user.username if item.user_id else str(item)
+        )
+        self.fields["status"].help_text = "Pending until staff verifies. Paid only after Verify."
+        self.fields["receipt_number"].required = False
+        self.fields["receipt_number"].help_text = "Filled with the payment id (PAY-####) when verified."
+        if editing and self.instance.receipt_number:
+            self.fields["receipt_number"].disabled = True
+            self.fields["receipt_number"].widget = LockedDisplayWidget(
+                display=self.instance.receipt_number
+            )
+        elif editing and self.instance.number:
+            self.fields["receipt_number"].widget = LockedDisplayWidget(
+                display=self.instance.number + " (on verify)"
+            )
+            self.fields["receipt_number"].disabled = True
+
+        if editing:
+            for name in ("invoice", "customer", "vehicle"):
+                field = self.fields[name]
+                field.disabled = True
+                field.required = False
+                field.widget = LockedDisplayWidget(
+                    display=_locked_field_display(self, name, field)
+                )
+            self.fields["invoice"].help_text = "Linked invoice. Customer and vehicle stay with it."
+        else:
+            invoice_attrs = {
+                str(item.id): {
+                    "data-customer": str(item.customer_id),
+                    "data-vehicle": str(item.vehicle_id),
+                    "data-customer-label": (
+                        f"{item.customer.name} ({item.customer.phone})"
+                        if item.customer.phone
+                        else item.customer.name
+                    ),
+                    "data-vehicle-label": (
+                        f"{item.vehicle.plate} — {item.vehicle.brand} {item.vehicle.model} ({item.vehicle.year})"
+                    ),
+                }
+                for item in invoices
+            }
+            self.fields["invoice"].widget = LinkedSelect(
+                attrs={"class": "cf-input", "data-payment-source": "1"},
+                option_attrs=invoice_attrs,
+            )
+            self.fields["invoice"].widget.choices = self.fields["invoice"].choices
+            for name in ("customer", "vehicle"):
+                field = self.fields[name]
+                field.disabled = True
+                field.widget = LockedDisplayWidget(
+                    display=_locked_field_display(self, name, field) or "Select an invoice",
+                    attrs={"data-payment-follow": name},
+                )
+
+        if not editing and not self.initial.get("number"):
+            self.fields["number"].initial = next_payment_number()
+            self.initial["number"] = self.fields["number"].initial
+        if not editing and not self.initial.get("status"):
+            self.fields["status"].initial = Payment.Status.PENDING
+            self.initial["status"] = Payment.Status.PENDING
+
+        self.order_fields(
+            [
+                "number",
+                "invoice",
+                "customer",
+                "vehicle",
+                "amount",
+                "method",
+                "paid_at",
+                "reference",
+                "proof_image",
+                "received_by",
+                "status",
+                "receipt_number",
+            ]
+        )
+        for field in self.fields.values():
+            widgets = [field.widget]
+            inner = getattr(field.widget, "widget", None)
+            if inner is not None:
+                widgets.append(inner)
+            for widget in widgets:
+                if isinstance(widget, LockedDisplayWidget):
+                    continue
+                css = widget.attrs.get("class", "cf-input")
+                if "cf-input" not in css and not isinstance(widget, forms.ClearableFileInput):
+                    widget.attrs["class"] = f"{css} cf-input".strip()
+
+    def _posted_invoice(self):
+        if not self.is_bound:
+            return None
+        raw = self.data.get("invoice")
+        if not raw:
+            return None
+        return Invoice.objects.select_related("customer", "vehicle").filter(pk=raw).first()
+
+    def clean(self):
+        cleaned = super().clean()
+        invoice = cleaned.get("invoice")
+        if invoice is None and self.instance.pk and self.instance.invoice_id:
+            invoice = self.instance.invoice
+            cleaned["invoice"] = invoice
+        if invoice is not None:
+            cleaned["customer"] = invoice.customer
+            cleaned["vehicle"] = invoice.vehicle
+            self.instance.customer = invoice.customer
+            self.instance.vehicle = invoice.vehicle
+        status = cleaned.get("status")
+        if status == Payment.Status.PAID and not cleaned.get("received_by"):
+            self.add_error("received_by", "Select staff (Received by) before marking Paid.")
+        return cleaned
 
 
 class RoleGarageForm(GarageModelForm):
@@ -1361,11 +2077,21 @@ class ModalFormMixin:
         if isinstance(field.widget, forms.Textarea):
             field.widget.attrs.setdefault("rows", "3")
         if db_field.name == "status" and not isinstance(field.widget, StatusToneSelect):
+            choices = list(getattr(field, "choices", None) or [])
+            if not choices and getattr(db_field, "choices", None):
+                choices = list(db_field.choices)
+            if not choices:
+                choices = [("ACTIVE", "Active"), ("INACTIVE", "Inactive")]
             tone_map = None
             if getattr(self, "model", None) is PartRequest:
-                tone_map = {**StatusToneSelect.TONE, "CONFIRMED": "ready", "NOTED": "pending", "CANCELLED": "cancelled"}
+                tone_map = {
+                    **StatusToneSelect.TONE,
+                    "CONFIRMED": "ready",
+                    "NOTED": "pending",
+                    "CANCELLED": "cancelled",
+                }
             tone = StatusToneSelect(attrs={"class": "cf-input"}, tone_map=tone_map)
-            tone.choices = field.choices
+            tone.choices = choices
             if field.widget.attrs.get("disabled"):
                 tone.attrs["disabled"] = True
             field.widget = tone
@@ -1545,11 +2271,6 @@ class UserAdmin(ModalFormMixin, BaseUserAdmin, ModelAdmin):
             "rows": rows,
             "empty": "No users match this search.",
         }
-
-
-@admin.register(Group)
-class GroupAdmin(BaseGroupAdmin, ModelAdmin):
-    pass
 
 
 @admin.register(Role)
@@ -2042,8 +2763,8 @@ class VehicleAdmin(ModelAdmin):
     def _invoice_card(self, invoice):
         status_map = {
             Invoice.Status.DRAFT: ("pending", "DRAFT"),
-            Invoice.Status.UNPAID: ("waiting", "UNPAID"),
-            Invoice.Status.PARTIAL: ("progress", "PARTIAL"),
+            Invoice.Status.UNPAID: ("unpaid", "UNPAID"),
+            Invoice.Status.PARTIAL: ("pending", "PARTIAL"),
             Invoice.Status.PAID: ("ready", "PAID"),
             Invoice.Status.CANCELLED: ("cancelled", "CANCELLED"),
         }
@@ -3847,11 +4568,23 @@ class SparePartAdmin(CarsvPageAdmin):
 @admin.register(PartRequest)
 class PartRequestAdmin(CarsvPageAdmin):
     form = PartRequestGarageForm
-    list_display = ("number", "customer", "vehicle", "spare_part", "fulfillment", "status", "created_at")
-    search_fields = ("number", "customer__name", "vehicle__plate", "spare_part__name", "spare_part__part_number", "notes")
+    list_display = ("number", "booking", "customer", "vehicle", "spare_part", "fulfillment", "status", "repair_job", "created_at")
+    search_fields = (
+        "number",
+        "customer__name",
+        "vehicle__plate",
+        "spare_part__name",
+        "spare_part__part_number",
+        "notes",
+        "booking__id",
+        "repair_job__id",
+    )
     modal_title_add = "Add Part Request"
     modal_title_edit = "Edit Part Request"
-    modal_subtitle = "Advance Pending → Noted → Confirmed to issue the part. Cancel when it is not available and say why."
+    modal_subtitle = (
+        "Workshop install links to a booking (visit quote); the work order follows that booking. "
+        "Advance Pending → Noted → Confirmed to issue the part."
+    )
     modal_save_add = "Save Request"
     modal_save_edit = "Save Request"
     STATUS_BADGE = {
@@ -3893,6 +4626,12 @@ class PartRequestAdmin(CarsvPageAdmin):
         initial = super().get_changeform_initial_data(request)
         if request.GET.get("cancel") == "1":
             initial["status"] = PartRequest.Status.CANCELLED
+        fulfillment = request.GET.get("fulfillment")
+        if fulfillment in dict(PartRequest.Fulfillment.choices):
+            initial["fulfillment"] = fulfillment
+        booking_id = request.GET.get("booking")
+        if booking_id and booking_id.isdigit():
+            initial["booking"] = int(booking_id)
         return initial
 
     def get_form(self, request, obj=None, change=False, **kwargs):
@@ -3961,7 +4700,17 @@ class PartRequestAdmin(CarsvPageAdmin):
             messages.error(request, self._validation_text(exc) or "Could not confirm this request.")
 
     def get_queryset(self, request):
-        qs = super().get_queryset(request).select_related("customer", "vehicle", "spare_part", "repair_job__invoice")
+        qs = (
+            super()
+            .get_queryset(request)
+            .select_related(
+                "customer",
+                "vehicle",
+                "spare_part",
+                "booking__service",
+                "repair_job__invoice",
+            )
+        )
         status = request.GET.get("status")
         if status in dict(PartRequest.Status.choices):
             qs = qs.filter(status=status)
@@ -4017,11 +4766,24 @@ class PartRequestAdmin(CarsvPageAdmin):
                 | Q(spare_part__part_number__icontains=query)
                 | Q(notes__icontains=query)
                 | Q(cancel_reason__icontains=query)
+                | Q(booking__id__icontains=query)
+                | Q(repair_job__id__icontains=query)
             )
         status_filter = request.GET.get("status") or ""
         fulfillment_filter = request.GET.get("fulfillment") or ""
         rows = []
         for item in qs.order_by("-created_at", "-id"):
+            if item.booking_id:
+                bk_url = reverse("admin:django_app_booking_change", args=[item.booking_id])
+                service = item.booking.service.name if item.booking.service_id else "Visit"
+                booking_cell = format_html(
+                    '<a class="wo-num" href="{}">{}</a><div class="cc-email">{}</div>',
+                    bk_url,
+                    f"BK-{item.booking_id:04d}",
+                    service,
+                )
+            else:
+                booking_cell = "—"
             if item.vehicle_id:
                 vehicle_cell = _pair(f"{item.vehicle.brand} {item.vehicle.model}", item.vehicle.plate)
             else:
@@ -4055,6 +4817,7 @@ class PartRequestAdmin(CarsvPageAdmin):
                 {
                     "cells": [
                         format_html('<a class="wo-num" href="{}">{}</a>', change_url, item.number),
+                        booking_cell,
                         item.customer.name,
                         vehicle_cell,
                         _pair(item.spare_part.name, item.spare_part.part_number),
@@ -4068,14 +4831,17 @@ class PartRequestAdmin(CarsvPageAdmin):
             )
         return {
             "title": "Part Requests",
-            "subtitle": "Use Noted / Confirm like work orders. Cancel when the part is not available and record the reason.",
+            "subtitle": (
+                "Workshop install parts belong on a booking (visit quote); the work order follows that booking. "
+                "Use Noted / Confirm to issue. Cancel when the part is not available."
+            ),
             "count": PartRequest.objects.count(),
             "count_label": "Requests",
             "model": "partrequest",
             "add_url": reverse("admin:django_app_partrequest_add"),
             "add_label": "Add Request",
             "extra_link": {"url": reverse("admin:django_app_sparepart_changelist"), "label": "Parts inventory"},
-            "search_placeholder": "Search by request, customer, plate, or part...",
+            "search_placeholder": "Search by request, booking, customer, plate, or part...",
             "search_query": query,
             "filters": [
                 {
@@ -4091,7 +4857,18 @@ class PartRequestAdmin(CarsvPageAdmin):
                     + [{"value": value, "label": label} for value, label in PartRequest.Fulfillment.choices],
                 },
             ],
-            "columns": ["Request", "Customer", "Vehicle", "Part", "Fulfillment", "Status", "Work order", "Requested", "Actions"],
+            "columns": [
+                "Request",
+                "Booking",
+                "Customer",
+                "Vehicle",
+                "Part",
+                "Fulfillment",
+                "Status",
+                "Work order",
+                "Requested",
+                "Actions",
+            ],
             "rows": rows,
             "empty": "No part requests match this search.",
         }
@@ -4199,6 +4976,12 @@ class InvoiceAdmin(CarsvPageAdmin):
     def response_change(self, request, obj):
         return redirect("admin:django_app_invoice_change", obj.pk)
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # Paid / unpaid / partial always follow verified payment totals.
+        if obj.status != Invoice.Status.CANCELLED:
+            refresh_invoice_status(obj)
+
     def _backdrop_page(self, request):
         page = self.prepare_page(request)
         page["form_action"] = reverse("admin:django_app_invoice_changelist")
@@ -4288,15 +5071,13 @@ class InvoiceAdmin(CarsvPageAdmin):
                         "total": _money(part.unit_price),
                     }
                 )
-        paid = invoice.payments.exclude(
-            status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
-        ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        paid = verified_payment_total(invoice)
         balance = invoice.grand_total - paid
         if balance < 0:
             balance = Decimal("0")
         badge_map = {
             Invoice.Status.PAID: "ready",
-            Invoice.Status.UNPAID: "waiting",
+            Invoice.Status.UNPAID: "unpaid",
             Invoice.Status.PARTIAL: "pending",
             Invoice.Status.DRAFT: "inactive",
             Invoice.Status.CANCELLED: "cancelled",
@@ -4304,13 +5085,35 @@ class InvoiceAdmin(CarsvPageAdmin):
         note_parts = []
         if job and job.problem:
             note_parts.append(job.problem)
-        can_pay = invoice.status not in (Invoice.Status.PAID, Invoice.Status.CANCELLED) and balance > 0
+        pay_state = invoice_payment_state(invoice)
+        pending_payment = (
+            invoice.payments.filter(status=Payment.Status.PENDING).order_by("-id").first()
+        )
+        payments_url = reverse("admin:django_app_payment_changelist") + f"?q={invoice.number}"
+        verify_url = ""
+        if pending_payment is not None:
+            verify_url = reverse("admin:django_app_payment_change", args=[pending_payment.id])
+        if pay_state == "PENDING":
+            payment_warning = (
+                "A payment claim is waiting. Open Payments to upload proof if needed, "
+                "select staff, then Verify."
+            )
+        elif pay_state == "PAID":
+            payment_warning = ""
+        elif balance > 0:
+            payment_warning = (
+                "Balance still due. Invoices are display-only — record and verify money "
+                "on the Payments page."
+            )
+        else:
+            payment_warning = ""
         return {
             "id": invoice.id,
             "number": invoice.number,
             "status": invoice.status,
             "status_label": invoice.status,
             "status_class": badge_map.get(invoice.status, "pending"),
+            "pay_state": pay_state,
             "issued": invoice.invoice_date,
             "due": job.estimated_end if job else None,
             "has_extra_parts": has_extra_parts,
@@ -4339,8 +5142,10 @@ class InvoiceAdmin(CarsvPageAdmin):
             "balance": _money(balance),
             "has_balance": balance > 0,
             "note": "\n".join(note_parts),
-            "can_pay": can_pay,
-            "pay_url": reverse("admin:django_app_payment_add") + f"?invoice={invoice.id}",
+            "can_verify": pending_payment is not None,
+            "verify_url": verify_url or payments_url,
+            "payments_url": payments_url,
+            "payment_warning": payment_warning,
         }
 
     def changelist_view(self, request, extra_context=None):
@@ -4382,7 +5187,7 @@ class InvoiceAdmin(CarsvPageAdmin):
 
         badge_map = {
             Invoice.Status.PAID: "ready",
-            Invoice.Status.UNPAID: "waiting",
+            Invoice.Status.UNPAID: "unpaid",
             Invoice.Status.PARTIAL: "pending",
             Invoice.Status.DRAFT: "inactive",
             Invoice.Status.CANCELLED: "cancelled",
@@ -4403,14 +5208,17 @@ class InvoiceAdmin(CarsvPageAdmin):
                 dict(Invoice.Status.choices).get(nxt, nxt),
             )
         elif invoice.status not in (Invoice.Status.PAID, Invoice.Status.CANCELLED):
-            paid = invoice.payments.exclude(
-                status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
-            ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
-            if invoice.grand_total - paid > 0:
-                next_html = format_html(
-                    '<a class="ap-btn tone-waiting" href="{}">Record payment</a>',
-                    reverse("admin:django_app_payment_add") + f"?invoice={invoice.id}",
-                )
+            # Invoice list is display-only for money — point staff to Payments.
+            pay_state = invoice_payment_state(invoice)
+            if pay_state == "PENDING":
+                tip = "Pending payment — verify on Payments"
+            else:
+                tip = "Payment due — manage on Payments"
+            next_html = format_html(
+                '<span class="wo-scroll wo-scroll-note" title="Invoices do not take payment. Use the Payments page.">'
+                '<span class="wo-scroll-text wo-note">{}</span></span>',
+                tip,
+            )
         return format_html(
             '<div class="wo-actions">{}{}</div>',
             next_html,
@@ -4444,7 +5252,7 @@ class InvoiceAdmin(CarsvPageAdmin):
         paid_count = paid.count() or 1
         badge_map = {
             Invoice.Status.PAID: "ready",
-            Invoice.Status.UNPAID: "waiting",
+            Invoice.Status.UNPAID: "unpaid",
             Invoice.Status.PARTIAL: "pending",
             Invoice.Status.DRAFT: "inactive",
             Invoice.Status.CANCELLED: "cancelled",
@@ -4466,7 +5274,7 @@ class InvoiceAdmin(CarsvPageAdmin):
             )
         return {
             "title": "Invoices & Billing",
-            "subtitle": "Bills for workshop repair jobs. Cash received is on the Payments page.",
+            "subtitle": "Invoice display for workshop jobs. Record and verify money on Payments — not here.",
             "count": Invoice.objects.count(),
             "count_label": "Invoices",
             "model": "invoice",
@@ -4502,31 +5310,167 @@ class PaymentAdmin(CarsvPageAdmin):
     list_display = ("number", "invoice", "amount", "method", "status", "paid_at")
     modal_title_add = "Record Payment"
     modal_title_edit = "Edit Payment"
-    modal_subtitle = "Amount received against an invoice, with method and receipt details."
-    modal_save_add = "Record Payment"
+    modal_subtitle = (
+        "Tied to an invoice (same idea as booking → work order). "
+        "Upload proof, select staff, then Verify — Pending does not mark the invoice paid."
+    )
+    modal_save_add = "Save Payment"
+    STATUS_BADGE = {
+        Payment.Status.PENDING: "pending",
+        Payment.Status.PAID: "ready",
+        Payment.Status.FAILED: "cancelled",
+        Payment.Status.REFUNDED: "inactive",
+    }
+
+    def changelist_view(self, request, extra_context=None):
+        action = request.GET.get("action")
+        pk = request.GET.get("pk")
+        if action in {"verify", "reject"} and pk:
+            if action == "verify":
+                self._verify(request, pk)
+            else:
+                self._reject(request, pk)
+            params = request.GET.copy()
+            params.pop("action", None)
+            params.pop("pk", None)
+            url = reverse("admin:django_app_payment_changelist")
+            if params:
+                url = f"{url}?{params.urlencode()}"
+            return redirect(url)
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def _verify(self, request, pk):
+        payment = Payment.objects.filter(pk=pk).select_related("invoice", "customer").first()
+        if payment is None:
+            return
+        try:
+            verify_payment(payment, user=request.user)
+        except ValidationError as exc:
+            messages.error(request, self._payment_error(exc) or "Could not verify this payment.")
+
+    def _reject(self, request, pk):
+        payment = Payment.objects.filter(pk=pk).select_related("invoice", "customer").first()
+        if payment is None:
+            return
+        try:
+            reject_payment(payment, user=request.user)
+            messages.success(request, f"{payment.number} marked as failed.")
+        except ValidationError as exc:
+            messages.error(request, self._payment_error(exc) or "Could not reject this payment.")
+
+    def _payment_error(self, exc):
+        if hasattr(exc, "message_dict"):
+            return " ".join(error for errors in exc.message_dict.values() for error in errors)
+        if getattr(exc, "messages", None):
+            return " ".join(exc.messages)
+        return str(exc)
 
     def get_queryset(self, request):
-        qs = super().get_queryset(request).select_related("invoice", "customer", "received_by__user")
+        qs = (
+            super()
+            .get_queryset(request)
+            .select_related("invoice", "customer", "vehicle", "received_by__user", "verified_by")
+        )
         method = request.GET.get("method")
         if method in dict(Payment.Method.choices):
             qs = qs.filter(method=method)
+        status = request.GET.get("status")
+        if status in dict(Payment.Status.choices):
+            qs = qs.filter(status=status)
         return qs
 
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)
+        initial.setdefault("number", next_payment_number())
+        initial.setdefault("status", Payment.Status.PENDING)
+        initial.setdefault("paid_at", localdate())
         invoice_id = request.GET.get("invoice")
         if invoice_id:
-            invoice = Invoice.objects.filter(pk=invoice_id).first()
+            invoice = Invoice.objects.filter(pk=invoice_id).select_related("customer", "vehicle").first()
             if invoice:
                 initial["invoice"] = invoice.pk
                 initial["customer"] = invoice.customer_id
-                paid = invoice.payments.exclude(
-                    status__in=(Payment.Status.FAILED, Payment.Status.REFUNDED)
-                ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
-                remain = invoice.grand_total - paid
+                initial["vehicle"] = invoice.vehicle_id
+                remain = invoice.grand_total - verified_payment_total(invoice)
+                pending = invoice.payments.filter(status=Payment.Status.PENDING).aggregate(
+                    total=Sum("amount")
+                )["total"] or Decimal("0")
+                remain = remain - pending
                 if remain > 0:
                     initial["amount"] = remain
         return initial
+
+    def save_model(self, request, obj, form, change):
+        if obj.invoice_id:
+            obj.customer_id = obj.invoice.customer_id
+            obj.vehicle_id = obj.invoice.vehicle_id
+        if not change and not obj.number:
+            obj.number = next_payment_number()
+        if obj.status == Payment.Status.PAID and not obj.verified_at:
+            # Saving as Paid from the form still requires proof + staff; treat like verify.
+            has_proof = bool(obj.proof_image) or (
+                change and Payment.objects.filter(pk=obj.pk).exclude(proof_image="").exists()
+            )
+            if not has_proof:
+                messages.error(request, "Upload payment proof before marking Paid. Saved as Pending.")
+                obj.status = Payment.Status.PENDING
+            elif not obj.received_by_id:
+                messages.error(request, "Select staff (Received by) before marking Paid. Saved as Pending.")
+                obj.status = Payment.Status.PENDING
+            else:
+                obj.verified_at = obj.verified_at or now()
+                if request.user.is_authenticated and not obj.verified_by_id:
+                    obj.verified_by = request.user
+                from django_app.models import receipt_number_for
+
+                obj.receipt_number = receipt_number_for(obj)
+        super().save_model(request, obj, form, change)
+
+    def _row_actions(self, payment, query, method_filter, status_filter):
+        from urllib.parse import urlencode
+
+        change_url = reverse("admin:django_app_payment_change", args=[payment.id])
+        delete_url = reverse("admin:django_app_payment_delete", args=[payment.id])
+        pieces = ['<span class="wo-actions">']
+        args = []
+        if payment.status == Payment.Status.PENDING:
+            params = {"action": "verify", "pk": payment.id}
+            if query:
+                params["q"] = query
+            if method_filter:
+                params["method"] = method_filter
+            if status_filter:
+                params["status"] = status_filter
+            if payment.proof_image and payment.received_by_id:
+                pieces.append('<a class="ap-btn tone-ready" href="{}?{}">Verify</a>')
+                args.extend([reverse("admin:django_app_payment_changelist"), urlencode(params)])
+            elif not payment.received_by_id:
+                pieces.append(
+                    '<span class="wo-scroll wo-scroll-note" title="Select Received by on Edit Payment first">'
+                    '<span class="wo-scroll-text wo-note">Select staff first</span></span>'
+                )
+            else:
+                pieces.append(
+                    '<span class="wo-scroll wo-scroll-note" title="Upload proof on Edit Payment first">'
+                    '<span class="wo-scroll-text wo-note">Upload proof first</span></span>'
+                )
+            reject_params = dict(params)
+            reject_params["action"] = "reject"
+            pieces.append('<a class="ap-btn cancel" href="{}?{}">Reject</a>')
+            args.extend([reverse("admin:django_app_payment_changelist"), urlencode(reject_params)])
+        pieces.append("{}</span>")
+        args.append(_actions(change_url, delete_url, obj=payment))
+        return format_html("".join(pieces), *args)
+
+    def _proof_cell(self, payment):
+        """List stays text-only; full image shows on Edit Payment."""
+        if not payment.proof_image:
+            return format_html('<span class="cc-id">{}</span>', "No proof")
+        return format_html(
+            '<a class="wo-num" href="{}" title="Open in edit">{}</a>',
+            reverse("admin:django_app_payment_change", args=[payment.id]),
+            "Has proof",
+        )
 
     def build_page(self, request):
         qs = self.get_queryset(request)
@@ -4537,37 +5481,45 @@ class PaymentAdmin(CarsvPageAdmin):
                 | Q(invoice__number__icontains=query)
                 | Q(customer__name__icontains=query)
                 | Q(reference__icontains=query)
+                | Q(receipt_number__icontains=query)
             )
-        badge_map = {
-            Payment.Status.PAID: "ready",
-            Payment.Status.UNPAID: "waiting",
-            Payment.Status.PARTIAL: "pending",
-            Payment.Status.FAILED: "cancelled",
-            Payment.Status.REFUNDED: "inactive",
-        }
+        method_filter = request.GET.get("method") or ""
+        status_filter = request.GET.get("status") or ""
         rows = []
         for payment in qs.order_by("-paid_at", "-id"):
             rows.append(
                 {
                     "cells": [
-                        format_html('<a class="wo-num" href="{}">{}</a>', reverse("admin:django_app_payment_change", args=[payment.id]), payment.number),
-                        format_html('<a class="wo-num" href="{}">{}</a>', reverse("admin:django_app_invoice_change", args=[payment.invoice_id]), payment.invoice.number),
+                        format_html(
+                            '<a class="wo-num" href="{}">{}</a>',
+                            reverse("admin:django_app_payment_change", args=[payment.id]),
+                            payment.number,
+                        ),
+                        format_html(
+                            '<a class="wo-num" href="{}">{}</a>',
+                            reverse("admin:django_app_invoice_change", args=[payment.invoice_id]),
+                            payment.invoice.number,
+                        ),
                         payment.customer.name,
                         format_html('<span class="cc-spent">${}</span>', payment.amount),
                         payment.get_method_display(),
+                        self._proof_cell(payment),
                         payment.paid_at,
-                        _badge(badge_map.get(payment.status, "pending"), payment.get_status_display().upper()),
-                        _actions(
-                            reverse("admin:django_app_payment_change", args=[payment.id]),
-                            reverse("admin:django_app_payment_delete", args=[payment.id]),
-                            obj=payment,
+                        _badge(
+                            self.STATUS_BADGE.get(payment.status, "pending"),
+                            payment.get_status_display().upper(),
                         ),
+                        self._row_actions(payment, query, method_filter, status_filter),
                     ]
                 }
             )
+        pending_count = Payment.objects.filter(status=Payment.Status.PENDING).count()
         return {
             "title": "Payments",
-            "subtitle": "Front desk and cashier. Money received against invoices — not the invoice editor.",
+            "subtitle": (
+                "Each payment belongs to one invoice. Upload proof, select staff, then Verify "
+                f"(same style as work orders). {pending_count} waiting for verification."
+            ),
             "count": Payment.objects.count(),
             "count_label": "Payments",
             "model": "payment",
@@ -4578,13 +5530,29 @@ class PaymentAdmin(CarsvPageAdmin):
             "search_query": query,
             "filters": [
                 {
+                    "name": "status",
+                    "value": status_filter,
+                    "options": [{"value": "", "label": "All statuses"}]
+                    + [{"value": value, "label": label} for value, label in Payment.Status.choices],
+                },
+                {
                     "name": "method",
-                    "value": request.GET.get("method") or "",
+                    "value": method_filter,
                     "options": [{"value": "", "label": "All methods"}]
                     + [{"value": value, "label": label} for value, label in Payment.Method.choices],
-                }
+                },
             ],
-            "columns": ["Payment #", "Invoice", "Customer", "Amount", "Method", "Date", "Status", "Actions"],
+            "columns": [
+                "Payment #",
+                "Invoice",
+                "Customer",
+                "Amount",
+                "Method",
+                "Proof",
+                "Date",
+                "Status",
+                "Actions",
+            ],
             "rows": rows,
             "empty": "No payments match this search.",
         }

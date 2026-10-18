@@ -1,7 +1,21 @@
 {% load i18n %}
 <style>
-    .cf-image-preview { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 10px; margin-top: 0; }
+    .cf-image-preview {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        max-height: 420px;
+        object-fit: contain;
+        border-radius: 12px;
+        margin-top: 0.65rem;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+    }
     .cf-image-preview[hidden] { display: none; }
+    .cf-field.cf-proof-field input[type="file"] { width: 100%; box-sizing: border-box; }
+    .cf-field.cf-proof-field .cf-file-current { display: block; width: 100%; margin-bottom: 0.35rem; font-size: 12px; }
+    .cf-field.cf-proof-field a { word-break: break-all; }
     .cf-image-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
     .cf-image-row:empty { display: none; }
     .cf-image-tile {
@@ -121,14 +135,16 @@
                 {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
                 {{ field.errors }}
             </div>
-        {% elif field.field.widget.input_type == "file" or field.name == "image" or field.name == "photo" %}
-            <div class="cf-field cf-span {% if field.field.disabled %}is-locked{% endif %}">
+        {% elif field.field.widget.input_type == "file" or field.name == "image" or field.name == "photo" or field.name == "proof_image" %}
+            <div class="cf-field cf-span {% if field.name == "proof_image" %}cf-proof-field{% endif %} {% if field.field.disabled %}is-locked{% endif %}">
                 <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
                 {{ field }}
                 {% if field.name == "image" and adminform.form.instance.image %}
                     <img src="{{ adminform.form.instance.image.url }}" alt="" class="cf-image-preview">
                 {% elif field.name == "photo" and adminform.form.instance.photo %}
                     <img src="{{ adminform.form.instance.photo.url }}" alt="" class="cf-image-preview">
+                {% elif field.name == "proof_image" and adminform.form.instance.proof_image %}
+                    <img src="{{ adminform.form.instance.proof_image.url }}" alt="Payment proof" class="cf-image-preview" data-view-src="{{ adminform.form.instance.proof_image.url }}">
                 {% else %}
                     <img alt="" class="cf-image-preview" hidden>
                 {% endif %}
@@ -264,7 +280,17 @@
             var file = input.files && input.files[0];
             if (!frame || !file) return;
             frame.hidden = false;
-            frame.src = URL.createObjectURL(file);
+            var url = URL.createObjectURL(file);
+            frame.src = url;
+            frame.setAttribute("data-view-src", url);
+            frame.style.cursor = "zoom-in";
+        });
+    });
+
+    document.querySelectorAll(".cf-image-preview[data-view-src]").forEach(function (img) {
+        img.style.cursor = "zoom-in";
+        img.addEventListener("click", function () {
+            openLightbox(img.getAttribute("data-view-src") || img.src);
         });
     });
 

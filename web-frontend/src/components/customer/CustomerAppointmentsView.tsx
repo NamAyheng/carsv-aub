@@ -20,6 +20,7 @@ import {
   listCustomerPartRequests,
 } from '../../api/garage';
 import { belongsToCurrentCustomer } from '../../utils/customerScope';
+import { appointmentStatusTone, softStatusBadge, softStatusButton } from '../../utils/customerStatusTone';
 import { Appointment } from '../../types';
 
 interface CustomerAppointmentsViewProps {
@@ -50,6 +51,16 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
 
   const [activeTab, setActiveTab] = useState<'UPCOMING' | 'TODAY' | 'COMPLETED' | 'CANCELLED' | 'ALL'>('UPCOMING');
   const [selectedAppointmentDetails, setSelectedAppointmentDetails] = useState<Appointment | null>(null);
+  const [rescheduleAppointment, setRescheduleAppointment] = useState<Appointment | null>(null);
+
+  const refreshPartRequests = async () => {
+    try {
+      const rows = await listCustomerPartRequests();
+      setPartRequests(rows);
+    } catch {
+      setPartRequests([]);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -63,8 +74,28 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
     return () => {
       cancelled = true;
     };
-  }, [appointments?.length]);
-  const [rescheduleAppointment, setRescheduleAppointment] = useState<Appointment | null>(null);
+  }, [appointments?.length, selectedAppointmentDetails?.id]);
+
+  // Keep open details in sync with portal appointments (services list after refresh).
+  useEffect(() => {
+    if (!selectedAppointmentDetails) return;
+    const fresh = (appointments || []).find((row) => row.id === selectedAppointmentDetails.id);
+    if (!fresh) return;
+    const sameServices =
+      JSON.stringify(fresh.services || []) === JSON.stringify(selectedAppointmentDetails.services || []) &&
+      fresh.serviceName === selectedAppointmentDetails.serviceName;
+    if (!sameServices) {
+      setSelectedAppointmentDetails(fresh);
+    }
+  }, [appointments, selectedAppointmentDetails]);
+
+  const openAppointmentDetails = (apt: Appointment) => {
+    const fresh = (appointments || []).find((row) => row.id === apt.id) || apt;
+    setSelectedAppointmentDetails(fresh);
+    setExtraServiceId('');
+    setExtraPartId('');
+    void refreshPartRequests();
+  };
   const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [newDate, setNewDate] = useState('');
@@ -150,18 +181,9 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
             : status === 'CANCELLED'
               ? 'Cancelled'
               : 'Scheduled');
-    switch (status) {
-      case 'CONFIRMED':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">{text}</span>;
-      case 'IN_PROGRESS':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">{text}</span>;
-      case 'COMPLETED':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30">{text}</span>;
-      case 'CANCELLED':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-red-500/15 text-red-400 border border-red-500/30">{text}</span>;
-      default:
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">{text}</span>;
-    }
+    return (
+      <span className={softStatusBadge(appointmentStatusTone(status, label || text))}>{text}</span>
+    );
   };
 
   return (
@@ -264,7 +286,7 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
 
               <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
                 <button
-                  onClick={() => setSelectedAppointmentDetails(apt)}
+                  onClick={() => openAppointmentDetails(apt)}
                   className="text-xs text-slate-400 hover:text-white font-semibold py-1 px-2.5 rounded-lg hover:bg-slate-800 transition-colors"
                 >
                   View Details
@@ -275,7 +297,7 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                     <button
                       type="button"
                       onClick={() => onTrackWorkOrder(apt.workOrderNumber || apt.id)}
-                      className="text-xs text-emerald-400 hover:text-emerald-300 font-bold py-1.5 px-3 rounded-lg bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-500/20 transition-all"
+                      className={softStatusButton('green')}
                     >
                       Track
                     </button>
@@ -289,7 +311,7 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                           setNewDate(apt.date);
                           setNewTime(apt.time);
                         }}
-                        className="text-xs text-blue-400 hover:text-blue-300 font-bold py-1.5 px-3 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/20 transition-all"
+                        className={softStatusButton('blue')}
                       >
                         Reschedule
                       </button>
@@ -300,7 +322,7 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                           setCancelTarget(apt);
                           setCancelReason('');
                         }}
-                        className="text-xs text-red-400 hover:text-red-300 font-bold py-1.5 px-3 rounded-lg bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 transition-all"
+                        className={softStatusButton('red')}
                       >
                         Cancel
                       </button>
@@ -438,10 +460,15 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                 <span className="text-slate-400">Services on this visit:</span>
                 {(selectedAppointmentDetails.services && selectedAppointmentDetails.services.length > 0
                   ? selectedAppointmentDetails.services
-                  : [{ name: selectedAppointmentDetails.serviceName, price: 0, primary: true }]
-                ).map((item) => (
-                  <div key={item.name} className="flex justify-between text-white font-bold">
-                    <span>{item.name}</span>
+                  : [{ id: null, name: selectedAppointmentDetails.serviceName, price: 0, primary: true }]
+                ).map((item, index) => (
+                  <div key={item.id != null ? `svc-${item.id}` : `${item.name}-${index}`} className="flex justify-between text-white font-bold">
+                    <span>
+                      {item.name}
+                      {item.primary ? (
+                        <span className="ml-1.5 text-[10px] font-semibold text-slate-500">main</span>
+                      ) : null}
+                    </span>
                     {item.price > 0 && <span>${item.price.toFixed(2)}</span>}
                   </div>
                 ))}
@@ -453,17 +480,24 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                       if (!extraServiceId || addingService) return;
                       setAddingService(true);
                       try {
-                        await addBookingService(selectedAppointmentDetails.id, extraServiceId);
+                        const updated = await addBookingService(selectedAppointmentDetails.id, extraServiceId);
                         await refreshCustomerPortal();
-                        const added = (services || []).find((item) => item.id === extraServiceId);
-                        setSelectedAppointmentDetails((current) => current && ({
-                          ...current,
-                          serviceName: added ? `${current.serviceName}, ${added.name}` : current.serviceName,
-                          services: [
-                            ...(current.services || []),
-                            { name: added?.name || 'Service', price: added?.basePrice || 0, primary: false },
-                          ],
+                        const mappedServices = (updated.services || []).map((item) => ({
+                          id: item.id == null ? null : Number(item.id),
+                          name: item.name,
+                          price: Number(item.price) || 0,
+                          primary: Boolean(item.primary),
                         }));
+                        setSelectedAppointmentDetails((current) =>
+                          current
+                            ? {
+                                ...current,
+                                serviceName:
+                                  mappedServices.map((row) => row.name).join(', ') || current.serviceName,
+                                services: mappedServices,
+                              }
+                            : current
+                        );
                         setExtraServiceId('');
                         addToast({
                           type: 'success',
@@ -492,7 +526,12 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                         {(services || [])
                           .filter((item) => item.status === 'ACTIVE')
                           .filter((item) => item.id !== selectedAppointmentDetails.serviceId)
-                          .filter((item) => !(selectedAppointmentDetails.services || []).some((row) => row.name === item.name))
+                          .filter(
+                            (item) =>
+                              !(selectedAppointmentDetails.services || []).some(
+                                (row) => row.name === item.name || String(row.id) === item.id
+                              )
+                          )
                           .map((item) => (
                             <option key={item.id} value={item.id}>{item.name} · ${item.basePrice.toFixed(2)}</option>
                           ))}
@@ -537,8 +576,7 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                               bookingId: selectedAppointmentDetails.id,
                               fulfillment: 'INSTALL_IN_WORKSHOP',
                             });
-                            const rows = await listCustomerPartRequests();
-                            setPartRequests(rows);
+                            await refreshPartRequests();
                             setExtraPartId('');
                             await refreshCustomerPortal();
                             addToast({
