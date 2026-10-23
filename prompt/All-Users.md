@@ -30,12 +30,16 @@ After first successful login, delete `DJANGO_SUPERUSER_PASSWORD` from the Render
    - `http://127.0.0.1:3000` (local)
 4. Save. Wait 1–5 minutes, then hard-refresh the site.
 
-### Finish Telegram (one-time in BotFather)
+### Telegram alerts (not login)
 
-1. Open Telegram → `@BotFather`
-2. `/mybots` → **CarSVGarageBot** → **Bot Settings** → **Domain**
-   - or send `/setdomain` and choose the bot
-3. Set domain to: `carsv-web.onrender.com` (no `https://`)
-4. Webhook is already set to `https://carsv-api.onrender.com/api/telegram/webhook/`
+Telegram does **not** sign you in. Flow (same as local):
+
+1. Create / sign in to a **customer** account on the website (email or Google)
+2. Put your phone on the profile (e.g. `0978767679`)
+3. Open `@CarSVGarageBot` → **Start** → **Share my phone number** → confirm link  
+   — or Profile → **Connect Telegram**
+4. One Telegram ↔ one CarSV account. Local Docker DB and Render DB are separate; a link on local does not apply on Render.
+
+Webhook: `https://carsv-api.onrender.com/api/telegram/webhook/`
 
 **Forgot password:** Sign In modal → Forgot password; Resend only delivers to `namayheng12345@gmail.com` until a custom domain is verified.

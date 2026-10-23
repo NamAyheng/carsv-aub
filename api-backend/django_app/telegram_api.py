@@ -3,7 +3,7 @@
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from django_app.models import Customer
@@ -83,16 +83,26 @@ class TelegramConnectView(APIView):
 
 
 class TelegramWebhookView(APIView):
-    """Telegram sends bot updates here (setWebhook)."""
+    """Telegram sends bot updates here (setWebhook).
+
+    No DRF anon throttle — Telegram retries on failure, and a missing
+    DEFAULT_THROTTLE_RATES['anon'] entry was returning HTTP 500 (silent bot).
+    """
 
     authentication_classes = []
     permission_classes = [AllowAny]
-    throttle_classes = [AnonRateThrottle]
+    throttle_classes = []
 
     def post(self, request):
         if not bot_configured():
             return Response({"ok": True})
         if not verify_webhook_secret(request):
             return Response({"ok": False}, status=status.HTTP_403_FORBIDDEN)
-        handle_update(request.data if isinstance(request.data, dict) else {})
+        try:
+            handle_update(request.data if isinstance(request.data, dict) else {})
+        except Exception:
+            # Always ACK Telegram so the bot does not go silent on a bad update.
+            import logging
+
+            logging.getLogger(__name__).exception("Telegram webhook handler failed")
         return Response({"ok": True})
