@@ -167,8 +167,14 @@ def register_customer(*, email, password, first_name, last_name="", phone=""):
         user.save()
     except IntegrityError as exc:
         raise AuthError("An account with this email already exists.", 400) from exc
-    _deliver_verification_email(user)
-    return user
+    try:
+        _deliver_verification_email(user)
+        return user, True
+    except AuthError as exc:
+        # Account exists; email provider (e.g. Resend sandbox) may refuse the address.
+        if exc.status_code == 503:
+            return user, False
+        raise
 
 
 def issue_email_verify_token(user):

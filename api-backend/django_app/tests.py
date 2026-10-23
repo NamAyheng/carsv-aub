@@ -428,6 +428,7 @@ class ApiAuthTests(APITestCase):
         }
         created = self.client.post("/api/auth/register/", payload, format="json")
         self.assertEqual(created.status_code, 201)
+        self.assertTrue(created.data.get("email_sent"))
         self.assertNotIn("password", created.data)
         user = User.objects.get(email="new.customer@example.com")
         self.assertEqual(user.role, AppUser.Role.CUSTOMER)
@@ -442,6 +443,25 @@ class ApiAuthTests(APITestCase):
             format="json",
         )
         self.assertEqual(invalid.status_code, 400)
+
+    @patch("django_app.auth_services.send_mail", side_effect=RuntimeError("provider refused"))
+    def test_register_keeps_account_when_verification_email_fails(self, _send_mail):
+        response = self.client.post(
+            "/api/auth/register/",
+            {
+                "email": "other.person@example.com",
+                "password": "Testpass123!",
+                "first_name": "Other",
+                "phone": "0885831366",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data.get("ok"))
+        self.assertFalse(response.data.get("email_sent"))
+        user = User.objects.get(email="other.person@example.com")
+        self.assertFalse(user.email_verified)
+        self.assertEqual(user.status, AppUser.Status.INACTIVE)
 
     def _token_from_mail(self, body, path="token="):
         from urllib.parse import unquote

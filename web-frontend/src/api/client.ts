@@ -142,6 +142,7 @@ export type RegisterResult = {
   ok: boolean;
   detail?: string;
   email?: string;
+  email_sent?: boolean;
 };
 
 export async function apiRegister(payload: {

@@ -268,6 +268,14 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     })
       .then((result) => {
         openCheckEmailStep(result.email || regEmail, result.detail);
+        if (result.email_sent === false) {
+          addToast({
+            type: 'info',
+            title: 'Account created',
+            message:
+              'Verification email could not be delivered to this address yet. Use Resend, or ask an admin to verify in Django admin.',
+          });
+        }
       })
       .catch((error: unknown) => {
         addToast({

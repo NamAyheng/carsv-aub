@@ -104,17 +104,28 @@ class RegisterView(AuthView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            register_customer(**serializer.validated_data)
+            _user, email_sent = register_customer(**serializer.validated_data)
         except AuthError as exc:
             return _error(exc)
+        email = serializer.validated_data["email"].strip().lower()
+        if email_sent:
+            detail = (
+                "Your account has been created. Please check your email and verify "
+                "your address before logging in."
+            )
+        else:
+            detail = (
+                "Your account was created, but the verification email could not be delivered. "
+                "Use Resend on the next screen, or ask an admin to verify the account. "
+                "With Resend’s free sender, mail often only reaches the account owner’s address "
+                "until a custom domain is verified."
+            )
         return Response(
             {
                 "ok": True,
-                "detail": (
-                    "Your account has been created. Please check your email and verify "
-                    "your address before logging in."
-                ),
-                "email": serializer.validated_data["email"].strip().lower(),
+                "email_sent": email_sent,
+                "detail": detail,
+                "email": email,
             },
             status=status.HTTP_201_CREATED,
         )

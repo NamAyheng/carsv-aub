@@ -17,7 +17,7 @@ After first successful login, delete `DJANGO_SUPERUSER_PASSWORD` from the Render
 | --- | --- |
 | URL | https://carsv-web.onrender.com |
 | Email sign-in | Email + password |
-| Email for Resend test | `namayheng12345@gmail.com` only |
+| Email for Resend test | `namayheng12345@gmail.com` only (form register to other addresses stays Inactive until verify — Resend free sender often blocks them) |
 | Google | Client ID is on Render API (`GOOGLE_CLIENT_ID`) |
 | Telegram bot | `@CarSVGarageBot` |
 
