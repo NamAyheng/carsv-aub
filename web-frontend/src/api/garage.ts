@@ -18,6 +18,31 @@ import {
   WorkOrderStatus,
 } from '../types';
 
+/** Normalize media URLs for Vite proxy (local) or absolute API host (Render Static Site). */
+export function mediaUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  let trimmed = String(url).trim();
+  if (!trimmed) return '';
+  try {
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      const parsed = new URL(trimmed);
+      const host = parsed.hostname.toLowerCase();
+      if (host === 'api' || host === 'carsv-api' || host.endsWith('.internal')) {
+        trimmed = `${parsed.pathname}${parsed.search}`;
+      } else {
+        return trimmed;
+      }
+    }
+  } catch {
+    /* keep original */
+  }
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+  if (apiBase && trimmed.startsWith('/media/')) {
+    return `${apiBase}${trimmed}`;
+  }
+  return trimmed;
+}
+
 export type CustomerProfile = {
   id: number;
   username: string;
@@ -345,7 +370,7 @@ export function userFromProfile(profile: CustomerProfile): User {
     email: profile.email,
     phone: profile.phone || '',
     role: 'CUSTOMER',
-    avatar: profile.photo_url || '',
+    avatar: mediaUrl(profile.photo_url),
     status: 'ACTIVE',
     lastLogin: '',
     createdAt: '',
@@ -412,8 +437,8 @@ function mapVehicle(row: ApiVehicle, profile: CustomerProfile): Vehicle {
     transmission: 'Automatic',
     status: vehicleStatus(row.status),
     lastServiceDate: '',
-    image: row.image_url || '',
-    imageUrl: row.image_url || '',
+    image: mediaUrl(row.image_url),
+    imageUrl: mediaUrl(row.image_url),
     notes: row.notes || '',
     vehicleType: row.vehicle_type || '',
     engineNumber: row.engine_number || '',
@@ -433,7 +458,7 @@ function mapService(row: ApiService): ServiceItem {
     requiredParts: [],
     status: 'ACTIVE',
     timesPerformed: 0,
-    imageUrl: row.image_url || '',
+    imageUrl: mediaUrl(row.image_url),
   };
 }
 
@@ -485,7 +510,7 @@ function mapInspection(row: ApiInspection, workOrderId: string): InspectionRepor
     workOrderId,
     type: 'BEFORE_REPAIR',
     inspectorName: row.staff_name || '',
-    inspectorPhoto: row.staff_photo || '',
+    inspectorPhoto: mediaUrl(row.staff_photo),
     fuelLabel: row.fuel_level || '',
     conditionSummary: row.condition || '',
     damageSummary: row.damage || '',
@@ -498,7 +523,7 @@ function mapInspection(row: ApiInspection, workOrderId: string): InspectionRepor
     engineCondition: 'NORMAL',
     existingDamages: row.damage ? row.damage.split('\n').filter(Boolean) : [],
     checkItems: [],
-    photos: row.photos || [],
+    photos: (row.photos || []).map((photo) => mediaUrl(photo)).filter(Boolean),
     notes: row.note || '',
     inspectionStatus: row.status_label || row.status || '',
     frontBrakeMm: row.front_brake_mm == null || row.front_brake_mm === '' ? '' : String(row.front_brake_mm),
@@ -545,7 +570,7 @@ function mapRepair(row: ApiRepair, profile: CustomerProfile, vehicles: Vehicle[]
     statusLabel: row.status_label || '',
     assignedTechnicianId: '',
     assignedTechnicianName: row.mechanic_name || 'Unassigned',
-    assignedTechnicianPhoto: row.mechanic_photo || '',
+    assignedTechnicianPhoto: mediaUrl(row.mechanic_photo),
     estimatedCost: invoiceTotal,
     laborRatePerHour: 0,
     laborHoursEstimated: 0,
@@ -866,7 +891,7 @@ function mapPart(row: ApiPart): InventoryPart {
     location: row.category_name || '',
     status: row.quantity > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK',
     lastRestockedDate: '',
-    imageUrl: row.image_url || '',
+    imageUrl: mediaUrl(row.image_url),
   };
 }
 
@@ -881,9 +906,9 @@ function mapHistory(row: ApiHistory, profile: CustomerProfile): ServiceHistoryRe
     mileage: row.mileage || 0,
     serviceType: row.problem || row.diagnosis || 'Completed repair',
     mechanicName: row.mechanic_name || '',
-    mechanicPhoto: row.mechanic_photo || '',
+    mechanicPhoto: mediaUrl(row.mechanic_photo),
     inspectorName: row.inspector_name || '',
-    inspectorPhoto: row.inspector_photo || '',
+    inspectorPhoto: mediaUrl(row.inspector_photo),
     partsUsed: row.parts_used || '',
     laborCost: 0,
     totalCost: money(row.total_cost),

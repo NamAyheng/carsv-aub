@@ -1229,6 +1229,26 @@ def advance_part_request(part_request, user=None):
     if nxt == PartRequest.Status.NOTED:
         part_request.status = PartRequest.Status.NOTED
         part_request.save(update_fields=["status"])
+        from django_app.telegram_bot import format_customer_alert
+
+        part_name = part_request.spare_part.name if part_request.spare_part_id else "Part"
+        notify_customer(
+            part_request.customer_id,
+            kind=Notification.Kind.INVOICE,
+            title=f"{part_request.number} noted",
+            message=f"The garage noted your request for {part_name}.",
+            telegram_text=format_customer_alert(
+                emoji="📦",
+                title="Part request noted",
+                customer=part_request.customer,
+                fields=[
+                    f"📦 Part: {part_name}",
+                    f"🆔 Request: {part_request.number}",
+                    f"🚚 How: {part_request.get_fulfillment_display()}",
+                ],
+                body="The garage has noted your request and will confirm it next.",
+            ),
+        )
         return part_request
     return confirm_part_request(part_request, user=user)
 
@@ -2433,7 +2453,7 @@ def check_in_booking(booking, user=None):
         sync_vehicle_shop_status(booking.vehicle)
         booking.refresh_from_db()
         waiting = list(
-            PartRequest.objects.select_for_update()
+            PartRequest.objects.select_for_update(of=("self",))
             .filter(booking=booking, status=PartRequest.Status.CONFIRMED, parts_usage__isnull=True)
             .select_related("spare_part")
         )
@@ -2468,10 +2488,15 @@ def confirm_part_request(part_request, user=None):
         visit = part_request.booking
         if visit is not None and visit.status == Booking.Status.CANCELLED:
             raise ValidationError("This visit was cancelled, so this part stays off the job.")
-        if visit is None or visit.status not in OPEN_VISIT:
+        # Counter pickup / delivery stay parts-only — do not attach to an unrelated workshop visit.
+        parts_only = part_request.fulfillment in (
+            PartRequest.Fulfillment.PICKUP,
+            PartRequest.Fulfillment.DELIVERY,
+        )
+        if not parts_only and (visit is None or visit.status not in OPEN_VISIT):
             visit = open_visit_for(part_request.customer, part_request.vehicle)
         job = None
-        if visit is not None:
+        if visit is not None and not parts_only:
             try:
                 job = visit.repair_job
             except RepairJob.DoesNotExist:
@@ -2521,8 +2546,10 @@ def confirm_part_request(part_request, user=None):
             RepairJob.Status.READY_FOR_PICKUP,
         )
         billable = (Invoice.Status.DRAFT, Invoice.Status.UNPAID, Invoice.Status.PARTIAL)
+        # of=("self",): invoice__isnull / invoice__status filters use an OUTER JOIN;
+        # Postgres rejects FOR UPDATE on the nullable side of that join.
         job = (
-            RepairJob.objects.select_for_update()
+            RepairJob.objects.select_for_update(of=("self",))
             .filter(
                 customer_id=part_request.customer_id,
                 vehicle_id=part_request.vehicle_id,

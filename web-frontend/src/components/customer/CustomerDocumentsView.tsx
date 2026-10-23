@@ -511,10 +511,18 @@ export const CustomerDocumentsView: React.FC = () => {
                 </div>
               </div>
               <div className="p-4 sm:p-5 bg-slate-50/80 dark:bg-transparent">
-                <div className="invoice-sheet max-w-3xl mx-auto">
+                <div
+                  className={`invoice-sheet max-w-3xl mx-auto ${
+                    isDark ? 'invoice-sheet--dark' : 'invoice-sheet--light'
+                  }`}
+                >
                   {paper.invoice && paper.category === 'Invoice' ? (
-                    <div className="rounded-2xl overflow-hidden border border-slate-200 bg-white">
-                      <InvoiceDocument invoice={paper.invoice} theme="light" />
+                    <div
+                      className={`rounded-2xl overflow-hidden border ${
+                        isDark ? 'border-slate-700' : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <InvoiceDocument invoice={paper.invoice} theme={isDark ? 'dark' : 'light'} />
                     </div>
                   ) : (
                     <PaperSheet paper={paper} />

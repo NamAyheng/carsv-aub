@@ -8,6 +8,7 @@ import { CustomerPublicLanding } from './components/customer/CustomerPublicLandi
 import { CustomerPublicBlog } from './components/customer/CustomerPublicBlog';
 import { CustomerAuthModal } from './components/customer/CustomerAuthModal';
 import { CustomerBookAppointmentModal } from './components/customer/CustomerBookAppointmentModal';
+import { VerifyEmailPage } from './components/customer/VerifyEmailPage';
 import { portalPaths, sectionForPath } from './routes';
 
 function ThemeFrame({ children }: { children: React.ReactNode }) {
@@ -150,6 +151,7 @@ function AppRoutes() {
         <Route path="/live-bay" element={<PublicSite />} />
         <Route path="/blog" element={<PublicSite />} />
         <Route path="/contact" element={<PublicSite />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/dashboard" element={<RequireCustomer><CustomerPage tab="DASHBOARD" /></RequireCustomer>} />
         <Route path="/vehicles" element={<RequireCustomer><CustomerPage tab="VEHICLES" /></RequireCustomer>} />
         <Route path="/appointments" element={<RequireCustomer><CustomerPage tab="APPOINTMENTS" /></RequireCustomer>} />

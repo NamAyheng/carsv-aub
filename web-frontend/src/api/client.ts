@@ -59,17 +59,12 @@ export async function refreshAccessToken(): Promise<boolean> {
 export class AuthApiError extends Error {
   code?: string;
   email?: string;
-  verificationToken?: string;
 
-  constructor(
-    message: string,
-    opts?: { code?: string; email?: string; verificationToken?: string },
-  ) {
+  constructor(message: string, opts?: { code?: string; email?: string }) {
     super(message);
     this.name = 'AuthApiError';
     this.code = opts?.code;
     this.email = opts?.email;
-    this.verificationToken = opts?.verificationToken;
   }
 }
 
@@ -91,8 +86,6 @@ export async function apiLogin(identifier: string, password: string): Promise<Lo
       {
         code: typeof data.code === 'string' ? data.code : undefined,
         email: typeof data.email === 'string' ? data.email : undefined,
-        verificationToken:
-          typeof data.verification_token === 'string' ? data.verification_token : undefined,
       },
     );
   }
@@ -129,7 +122,6 @@ export type RegisterResult = {
   ok: boolean;
   detail?: string;
   email?: string;
-  verification_token?: string;
 };
 
 export async function apiRegister(payload: {
@@ -152,7 +144,7 @@ export async function apiRegister(payload: {
   return data as RegisterResult;
 }
 
-export async function apiVerifyEmail(token: string): Promise<void> {
+export async function apiVerifyEmail(token: string): Promise<{ detail?: string }> {
   const response = await fetch(`${API_BASE}/api/auth/verify-email/`, {
     method: 'POST',
     credentials: 'include',
@@ -162,6 +154,22 @@ export async function apiVerifyEmail(token: string): Promise<void> {
   const data = await readJson(response);
   if (!response.ok || !data.ok) {
     throw new Error(typeof data.error === 'string' ? data.error : 'Could not verify email.');
+  }
+  return { detail: typeof data.detail === 'string' ? data.detail : undefined };
+}
+
+export async function apiResendVerification(email: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/auth/resend-verification/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim() }),
+  });
+  const data = await readJson(response);
+  if (!response.ok || !data.ok) {
+    throw new Error(
+      typeof data.error === 'string' ? data.error : 'Could not resend the verification email.',
+    );
   }
 }
 

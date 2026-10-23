@@ -298,9 +298,17 @@ button.bg-blue-500 *,
   color: #6ee7b7;
 }
 
+.dark .text-rose-800,
 .dark .text-rose-700,
-.dark .text-rose-600 {
+.dark .text-rose-600,
+.dark .text-red-800,
+.dark .text-red-700 {
   color: #fda4af;
+}
+
+.dark .text-orange-800,
+.dark .text-orange-700 {
+  color: #fdba74;
 }
 
 .dark .text-purple-700,
@@ -325,6 +333,10 @@ button.bg-blue-500 *,
 }
 
 .dark .border-rose-200,
+.dark .border-red-200 {
+  border-color: rgb(244 63 94 / 0.35);
+}
+
 .dark .border-purple-200,
 .dark .border-indigo-200,
 .dark .border-sky-200 {
@@ -523,6 +535,8 @@ html:not(.dark) .customer-theme-root textarea::placeholder {
 html:not(.dark) .customer-theme-root .bg-emerald-600,
 html:not(.dark) .customer-theme-root .bg-red-600,
 html:not(.dark) .customer-theme-root .bg-red-500,
+html:not(.dark) .customer-theme-root .bg-rose-600,
+html:not(.dark) .customer-theme-root .bg-rose-500,
 html:not(.dark) .customer-theme-root .bg-amber-500,
 html:not(.dark) .customer-theme-root .bg-orange-500,
 html:not(.dark) .customer-theme-root .bg-orange-600 {
@@ -533,6 +547,8 @@ html:not(.dark) .customer-theme-root .bg-orange-500 *,
 html:not(.dark) .customer-theme-root .bg-orange-600 *,
 html:not(.dark) .customer-theme-root .bg-red-600 *,
 html:not(.dark) .customer-theme-root .bg-red-500 *,
+html:not(.dark) .customer-theme-root .bg-rose-600 *,
+html:not(.dark) .customer-theme-root .bg-rose-500 *,
 html:not(.dark) .customer-theme-root .bg-emerald-600 * {
   color: #ffffff !important;
 }
@@ -903,34 +919,23 @@ html:not(.dark) .customer-theme-root .portal-yellow-panel .portal-yellow-icon {
   border-color: #141519 !important;
 }
 
-/* Workshop sheets stay the light admin invoice, in either site theme. */
-.invoice-sheet,
-.dark .invoice-sheet,
-.dark .invoice-sheet .bg-white {
-  background-color: #ffffff !important;
+/* Invoice preview follows site theme; print (@media print) stays white paper. */
+.invoice-sheet--light,
+.invoice-sheet--light .bg-white {
+  background-color: #ffffff;
   color: #0f172a;
 }
 
-.dark .invoice-sheet .bg-slate-50,
-.invoice-sheet .bg-slate-50,
-.dark .invoice-sheet .bg-slate-100 {
-  background-color: #f8fafc !important;
+.invoice-sheet--dark {
+  background-color: transparent;
+  color: #e2e8f0;
 }
 
-.dark .invoice-sheet .text-slate-900,
-.dark .invoice-sheet .text-slate-800 {
-  color: #0f172a !important;
-}
-
-.dark .invoice-sheet .text-slate-500,
-.dark .invoice-sheet .text-slate-600,
-.dark .invoice-sheet .text-slate-400 {
-  color: #64748b !important;
-}
-
-.dark .invoice-sheet .border-slate-200,
-.dark .invoice-sheet .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
-  border-color: #e2e8f0 !important;
+/* Prevent global dark remaps from washing out light invoice sheets. */
+html:not(.dark) .invoice-sheet--light .bg-slate-50,
+.invoice-sheet--light .bg-slate-50,
+.invoice-sheet--light .bg-slate-100 {
+  background-color: #f8fafc;
 }
 
 @media print {
@@ -952,6 +957,24 @@ html:not(.dark) .customer-theme-root .portal-yellow-panel .portal-yellow-icon {
     top: 0;
     width: 100%;
     background: #ffffff !important;
+    color: #0f172a !important;
     box-shadow: none !important;
+  }
+
+  #garage-sheet *,
+  .print-sheet * {
+    color: inherit !important;
+    background-color: transparent !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+
+  #garage-sheet .bg-slate-50,
+  #garage-sheet .bg-slate-100,
+  #garage-sheet .bg-slate-950,
+  #garage-sheet .bg-slate-950\/50,
+  .print-sheet .bg-slate-50,
+  .print-sheet .bg-slate-100 {
+    background-color: #f8fafc !important;
   }
 }

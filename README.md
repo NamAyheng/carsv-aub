@@ -10,6 +10,20 @@ AUB Year 4 — Car Garage Management System.
 
 Works on **Windows** and **Linux** (same repo). Use the OS block that matches your machine.
 
+### Docker Compose (recommended for teammates)
+
+PostgreSQL + Django + React in containers — see **[DOCKER.md](DOCKER.md)**.
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+- App: http://localhost:3000  
+- Admin: http://localhost:8000/admin/  
+
+Local SQLite (`api-backend/db.sqlite3`) stays untouched; Compose uses its own Postgres volume (`carsv-db` on host port **5433**).
+
 ## Django (API + Admin)
 
 ### Windows (PowerShell)

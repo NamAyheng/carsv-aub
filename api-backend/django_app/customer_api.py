@@ -45,6 +45,7 @@ from django_app.models import (
     Service,
     SparePart,
     Vehicle,
+    notify_customer,
 )
 from django_app.permissions import IsCustomer
 from django_app.plates import normalize_vehicle_plate, require_vehicle_plate
@@ -513,15 +514,13 @@ class CustomerInspectionSerializer(serializers.ModelSerializer):
         return job.problem if job is not None else ""
 
     def get_photos(self, inspection):
-        request = self.context.get("request")
+        from django_app.media_serving import media_url_path
+
         urls = []
         for shot in inspection.images.all():
             if not shot.image:
                 continue
-            url = shot.image.url
-            if request is not None:
-                url = request.build_absolute_uri(url)
-            urls.append(url)
+            urls.append(media_url_path(shot.image.name or shot.image.url or ""))
         return urls
 
 
@@ -695,13 +694,25 @@ class CustomerRepairViewSet(CustomerApiMixin, viewsets.ReadOnlyModelViewSet):
 
 
 def absolute_media_url(serializer, field):
+    """Return a site-relative media URL (/media/...).
+
+    Absolute URLs from request.build_absolute_uri() break when the API is
+    reached via Docker service DNS (Host: api:8000) through the Vite proxy —
+    browsers cannot resolve `http://api:8000/...`. Relative paths load from
+    the frontend origin and are proxied correctly.
+
+    Private uploads (payments, vehicles, etc.) get a signed `?m=` query in
+    production so they are not world-readable directory listings.
+    """
     if not field:
         return ""
-    request = serializer.context.get("request")
-    url = field.url
-    if request is None:
+    from django_app.media_serving import media_url_path
+
+    url = field.url or ""
+    if url.startswith("http://") or url.startswith("https://"):
         return url
-    return request.build_absolute_uri(url)
+    name = getattr(field, "name", None) or url
+    return media_url_path(name)
 
 
 class CustomerServiceSerializer(serializers.ModelSerializer):
@@ -1317,6 +1328,34 @@ class CustomerPartRequestSerializer(serializers.ModelSerializer):
                 job = None
         if job is not None:
             sync_invoice_costs(job)
+        from django_app.telegram_bot import format_customer_alert
+
+        part_name = row.spare_part.name if row.spare_part_id else "Part"
+        plate = row.vehicle.plate if row.vehicle_id else "your car"
+        notify_customer(
+            customer,
+            kind=Notification.Kind.INVOICE,
+            title=f"Part request {row.number}",
+            message=(
+                f"Your request for {part_name} ({row.get_fulfillment_display().lower()}) "
+                f"for {plate} was received."
+            ),
+            telegram_text=format_customer_alert(
+                emoji="📦",
+                title="Part request received",
+                customer=customer,
+                fields=[
+                    f"📦 Part: {part_name}",
+                    f"🆔 Request: {row.number}",
+                    f"🚗 Car: {plate}",
+                    f"🚚 How: {row.get_fulfillment_display()}",
+                ],
+                body=[
+                    "We got your part request.",
+                    "We’ll message you when the garage notes or confirms it.",
+                ],
+            ),
+        )
         return row
 
 

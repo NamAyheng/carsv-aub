@@ -1,6 +1,4 @@
 from django.contrib import admin
-from django.conf import settings
-from django.conf.urls.static import static
 from django.urls import include, path
 from django.views.generic import RedirectView
 from rest_framework import routers
@@ -125,5 +123,10 @@ urlpatterns = [
     path("api/", include(router.urls)),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+from django_app.media_serving import MediaServeView
+
+# Always register /media/ so production (DEBUG=0) can serve catalog + signed private files.
+# Local DEBUG keeps the same path; MediaServeView allows unsigned access while DEBUG is on.
+urlpatterns += [
+    path("media/<path:path>", MediaServeView.as_view(), name="carsv_media"),
+]

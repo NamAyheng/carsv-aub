@@ -1,8 +1,12 @@
+import os
+
 from django.http import HttpResponse
 
+_DEFAULT_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
 ALLOWED_ORIGINS = {
-    "http://127.0.0.1:3000",
-    "http://localhost:3000",
+    o.strip()
+    for o in os.environ.get("DJANGO_CORS_ORIGINS", _DEFAULT_ORIGINS).split(",")
+    if o.strip()
 }
 
 

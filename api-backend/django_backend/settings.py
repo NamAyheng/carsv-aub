@@ -30,8 +30,15 @@ SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY",
     "django-insecure-gpswhb7*&4g*nu#3x4c9psdv$0gql+z)^1^gfsnuil9_9(mhxk",
 )
-DEBUG = True
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.environ.get(
+        "DJANGO_ALLOWED_HOSTS",
+        "127.0.0.1,localhost,testserver,api",
+    ).split(",")
+    if h.strip()
+]
 
 INSTALLED_APPS = [
     "unfold",
@@ -50,6 +57,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django_backend.middleware.LocalhostCorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -80,16 +88,54 @@ TEMPLATES = [
 WSGI_APPLICATION = "django_backend.wsgi.application"
 FORM_RENDERER = "django.forms.renderers.TemplatesSetting"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-        # runserver + Telegram poller both write; wait instead of failing fast.
-        "OPTIONS": {
-            "timeout": 60,
-        },
+# Database: local default remains SQLite. Render provides DATABASE_URL; Compose uses POSTGRES_*.
+def _database_from_url(url: str) -> dict:
+    from urllib.parse import unquote, urlparse
+
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").split("+")[0].lower()
+    if scheme in ("postgres", "postgresql"):
+        engine = "django.db.backends.postgresql"
+    else:
+        raise ValueError(f"Unsupported DATABASE_URL scheme: {parsed.scheme!r}")
+    return {
+        "ENGINE": engine,
+        "NAME": unquote((parsed.path or "").lstrip("/")),
+        "USER": unquote(parsed.username or ""),
+        "PASSWORD": unquote(parsed.password or ""),
+        "HOST": parsed.hostname or "",
+        "PORT": str(parsed.port or 5432),
+        "CONN_MAX_AGE": 60,
     }
-}
+
+
+_DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
+_DB_ENGINE = os.environ.get("DATABASE_ENGINE", "sqlite").strip().lower()
+if _DATABASE_URL:
+    DATABASES = {"default": _database_from_url(_DATABASE_URL)}
+elif _DB_ENGINE in ("postgres", "postgresql", "pgsql"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("POSTGRES_DB", "carsv"),
+            "USER": os.environ.get("POSTGRES_USER", "carsv"),
+            "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "carsv"),
+            "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
+            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+            "CONN_MAX_AGE": 60,
+        }
+    }
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+            # runserver + Telegram poller both write; wait instead of failing fast.
+            "OPTIONS": {
+                "timeout": 60,
+            },
+        }
+    }
 
 AUTH_USER_MODEL = "django_app.User"
 
@@ -106,8 +152,19 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"
+        if not DEBUG
+        else "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = Path(os.environ.get("DJANGO_MEDIA_ROOT", str(BASE_DIR / "media")))
 # Django serves this folder while DEBUG is on. In production, serve MEDIA_ROOT at MEDIA_URL.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024
@@ -118,14 +175,48 @@ TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "")
 # Optional: set the same value in BotFather setWebhook secret_token header.
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 
+# Public frontend origin for email verification / reset links (no trailing slash).
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://127.0.0.1:3000").rstrip("/")
+
+# Email — local default: console. Render Free blocks SMTP; use Resend HTTPS backend.
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend",
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587") or "587")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1") == "1"
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "0") == "1"
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "CarSV <noreply@carsv.local>")
+EMAIL_VERIFY_RESEND_COOLDOWN = int(os.environ.get("EMAIL_VERIFY_RESEND_COOLDOWN", "60") or "60")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "carsv-auth",
+    }
+}
+
 _TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 REFRESH_COOKIE_NAME = "carsv_refresh"
 REFRESH_COOKIE_PATH = "/api/auth/"
 REFRESH_COOKIE_SECURE = os.environ.get("DJANGO_COOKIE_SECURE", "0") == "1"
+# Lax for local same-site; None for cross-site Static Site ↔ API on Render (requires Secure).
+_REFRESH_SAMESITE = (os.environ.get("DJANGO_REFRESH_COOKIE_SAMESITE") or "Lax").strip().capitalize()
+if _REFRESH_SAMESITE not in ("Lax", "Strict", "None"):
+    _REFRESH_SAMESITE = "Lax"
+REFRESH_COOKIE_SAMESITE = _REFRESH_SAMESITE
 
 CSRF_TRUSTED_ORIGINS = [
-    "http://127.0.0.1:3000",
-    "http://localhost:3000",
+    o.strip()
+    for o in os.environ.get(
+        "DJANGO_CSRF_TRUSTED_ORIGINS",
+        "http://127.0.0.1:3000,http://localhost:3000",
+    ).split(",")
+    if o.strip()
 ]
 
 REST_FRAMEWORK = {
@@ -248,8 +339,3 @@ UNFOLD = {
     },
 }
 
-MAILERS = {
-    "default": {
-        "BACKEND": "django.core.mail.backends.console.EmailBackend",
-    },
-}

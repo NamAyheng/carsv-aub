@@ -18,7 +18,7 @@ import {
   apiLogout,
   apiPublicAuthConfig,
   apiRegister,
-  apiVerifyEmail,
+  apiResendVerification,
 } from '../../api/client';
 import { requestGoogleIdToken } from '../../utils/googleSignIn';
 
@@ -60,7 +60,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 }) => {
   const { addToast, openCustomerSession, requestPasswordReset } = useApp();
 
-  const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT' | 'VERIFY'>(initialMode);
+  const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT' | 'CHECK_EMAIL'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
@@ -73,22 +73,21 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
 
   const [forgotEmail, setForgotEmail] = useState('');
-  const [verifyEmailAddr, setVerifyEmailAddr] = useState('');
-  const [verifyToken, setVerifyToken] = useState('');
-  const [pendingPassword, setPendingPassword] = useState('');
+  const [checkEmailAddr, setCheckEmailAddr] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
 
-  const openVerifyStep = (addr: string, token: string, nextPassword = '') => {
-    setVerifyEmailAddr(addr);
-    setVerifyToken(token);
-    setPendingPassword(nextPassword);
-    setEmail(addr);
-    setMode('VERIFY');
+  const openCheckEmailStep = (addr: string, detail?: string) => {
+    const normalized = addr.trim();
+    setCheckEmailAddr(normalized);
+    setEmail(normalized);
+    setMode('CHECK_EMAIL');
     addToast({
-      type: 'info',
-      title: 'Verify your email',
-      message: 'Your verification token is ready below. Confirm to activate your account.',
+      type: 'success',
+      title: 'Check your email',
+      message:
+        detail ||
+        'Your account has been created. Please check your email and verify your address before logging in.',
     });
   };
 
@@ -174,8 +173,11 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       const session = await apiLogin(email, password);
       await finishCustomerLogin(session.role);
     } catch (error) {
-      if (error instanceof AuthApiError && error.code === 'VERIFY_EMAIL' && error.verificationToken) {
-        openVerifyStep(error.email || email, error.verificationToken, password);
+      if (error instanceof AuthApiError && error.code === 'VERIFY_EMAIL') {
+        openCheckEmailStep(
+          error.email || email,
+          'Verify your email before signing in. We sent another link if your account is still waiting.',
+        );
         return;
       }
       addToast({
@@ -218,18 +220,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       phone: regPhone,
     })
       .then((result) => {
-        const token = result.verification_token || '';
-        const addr = result.email || regEmail;
-        if (token) {
-          openVerifyStep(addr, token, regPassword);
-          return;
-        }
-        addToast({
-          type: 'success',
-          title: 'Account created',
-          message: result.detail || 'Verify your email, then sign in.',
-        });
-        setMode('LOGIN');
+        openCheckEmailStep(result.email || regEmail, result.detail);
       })
       .catch((error: unknown) => {
         addToast({
@@ -241,32 +232,24 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       .finally(() => setIsSubmitting(false));
   };
 
-  const handleVerifySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verifyToken.trim()) {
-      addToast({ type: 'error', title: 'Token required', message: 'Paste or keep the verification token shown above.' });
+  const handleResendVerification = async () => {
+    if (!checkEmailAddr.trim()) {
+      addToast({ type: 'error', title: 'Email required', message: 'Enter the email used at registration.' });
       return;
     }
     setIsSubmitting(true);
     try {
-      await apiVerifyEmail(verifyToken);
+      await apiResendVerification(checkEmailAddr);
       addToast({
         type: 'success',
-        title: 'Email verified',
-        message: 'Your account is active. Signing you in…',
+        title: 'Email sent',
+        message: 'If that account is waiting for verification, a new link is on its way.',
       });
-      if (pendingPassword && verifyEmailAddr) {
-        const session = await apiLogin(verifyEmailAddr, pendingPassword);
-        await finishCustomerLogin(session.role);
-      } else {
-        setEmail(verifyEmailAddr);
-        setMode('LOGIN');
-      }
     } catch (error) {
       addToast({
         type: 'error',
-        title: 'Verification failed',
-        message: error instanceof Error ? error.message : 'Could not verify email.',
+        title: 'Could not resend',
+        message: error instanceof Error ? error.message : 'Could not resend the verification email.',
       });
     } finally {
       setIsSubmitting(false);
@@ -303,18 +286,18 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             {mode === 'LOGIN' && 'Sign In to CarSV'}
             {mode === 'REGISTER' && 'Create Customer Account'}
             {mode === 'FORGOT' && 'Reset Password'}
-            {mode === 'VERIFY' && 'Verify Your Email'}
+            {mode === 'CHECK_EMAIL' && 'Check Your Email'}
           </h3>
           <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
             {mode === 'LOGIN' && 'Access your vehicles, bookings, and invoices.'}
             {mode === 'REGISTER' && 'Join CarSV to track repairs and manage service history.'}
             {mode === 'FORGOT' && 'Enter your registered email to receive reset instructions.'}
-            {mode === 'VERIFY' && 'Confirm the token below to activate your customer account.'}
+            {mode === 'CHECK_EMAIL' && 'Open the verification link we sent, then sign in.'}
           </p>
         </div>
 
         {/* Mode Tabs (Login / Register) */}
-        {mode !== 'FORGOT' && mode !== 'VERIFY' && (
+        {mode !== 'FORGOT' && mode !== 'CHECK_EMAIL' && (
           <div className="flex border-b border-slate-800 bg-slate-950/50 p-1 m-4 rounded-xl">
             <button
               onClick={() => setMode('LOGIN')}
@@ -564,48 +547,48 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             </form>
           )}
 
-          {/* D. VERIFY EMAIL */}
-          {mode === 'VERIFY' && (
-            <form onSubmit={handleVerifySubmit} className="space-y-4">
+          {/* D. CHECK EMAIL (after register / unverified login) */}
+          {mode === 'CHECK_EMAIL' && (
+            <div className="space-y-4">
               <div className="rounded-xl border border-blue-500/30 bg-blue-600/10 px-3.5 py-3 text-left">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-300">
-                  Verification ready
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-300 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Verification required
                 </p>
-                <p className="text-xs text-slate-300 mt-1">
-                  Account: <span className="text-white font-medium">{verifyEmailAddr || 'your email'}</span>
+                <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
+                  Your account has been created. Please check your email and verify your address before
+                  logging in.
+                </p>
+                <p className="text-xs text-slate-400 mt-2">
+                  Sent to{' '}
+                  <span className="text-white font-medium">{checkEmailAddr || 'your email'}</span>
                 </p>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Verification Token
-                </label>
-                <div className="relative">
-                  <ShieldCheck className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                  <input
-                    type="text"
-                    required
-                    value={verifyToken}
-                    onChange={(e) => setVerifyToken(e.target.value)}
-                    placeholder="Paste verification token"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono break-all"
-                  />
-                </div>
+              <div className="grid grid-cols-2 gap-2">
+                <a
+                  href="https://mail.google.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-200 hover:border-slate-600 text-center"
+                >
+                  Open Gmail
+                </a>
+                <a
+                  href="mailto:"
+                  className="py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-200 hover:border-slate-600 text-center"
+                >
+                  Open email app
+                </a>
               </div>
 
               <button
-                type="submit"
+                type="button"
                 disabled={isSubmitting}
-                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                onClick={() => void handleResendVerification()}
+                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all disabled:opacity-50"
               >
-                {isSubmitting ? (
-                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <span>Verify & Continue</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
+                {isSubmitting ? 'Sending…' : 'Resend verification email'}
               </button>
 
               <button
@@ -615,7 +598,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
               >
                 ← Back to Login
               </button>
-            </form>
+            </div>
           )}
 
         </div>

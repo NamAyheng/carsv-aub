@@ -27,38 +27,38 @@ function payStateHint(state: InvoicePaymentState) {
   return 'Pay this invoice, then wait for verification.';
 }
 
-/** Soft badge style like Tracking: light fill + dark text + matching border. */
+/** Soft badge style like Tracking: light fill + readable text (dark theme remaps *-50/*-800). */
 function payStateTone(state: InvoicePaymentState) {
   if (state === 'PAID') {
     return {
       text: 'text-emerald-400',
       badge: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-      cardSelected: 'bg-slate-900 border-emerald-500/50 shadow-[inset_3px_0_0_0_rgb(16,185,129)]',
+      cardSelected: 'bg-slate-900 border-emerald-500/40 shadow-[inset_3px_0_0_0_rgb(16,185,129)]',
       cardIdle: 'bg-slate-900/80 border-slate-800 hover:border-emerald-500/40',
       button: 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100',
-      alert: 'border-emerald-600 bg-emerald-600 text-white',
+      alert: 'border-emerald-200 bg-emerald-50 text-emerald-800',
       filterOn: 'bg-emerald-50 text-emerald-800 border-emerald-200',
     };
   }
   if (state === 'PENDING') {
     return {
-      text: 'text-orange-400',
-      badge: 'bg-orange-50 text-orange-800 border-orange-200',
-      cardSelected: 'bg-slate-900 border-orange-500 shadow-[inset_3px_0_0_0_rgb(249,115,22)]',
-      cardIdle: 'bg-slate-900/80 border-slate-800 hover:border-orange-500/50',
-      button: 'bg-orange-50 text-orange-800 border border-orange-200 hover:bg-orange-100',
-      alert: 'border-orange-500 bg-orange-500 text-white',
-      filterOn: 'bg-orange-50 text-orange-800 border-orange-200',
+      text: 'text-amber-400',
+      badge: 'bg-amber-50 text-amber-800 border-amber-200',
+      cardSelected: 'bg-slate-900 border-amber-500/40 shadow-[inset_3px_0_0_0_rgb(245,158,11)]',
+      cardIdle: 'bg-slate-900/80 border-slate-800 hover:border-amber-500/40',
+      button: 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100',
+      alert: 'border-amber-200 bg-amber-50 text-amber-800',
+      filterOn: 'bg-amber-50 text-amber-800 border-amber-200',
     };
   }
   return {
-    text: 'text-red-400',
-    badge: 'bg-red-50 text-red-800 border-red-200',
-    cardSelected: 'bg-slate-900 border-red-500 shadow-[inset_3px_0_0_0_rgb(239,68,68)]',
-    cardIdle: 'bg-slate-900/80 border-slate-800 hover:border-red-500/50',
-    button: 'bg-red-600 text-white border border-red-600 hover:bg-red-700',
-    alert: 'border-red-600 bg-red-600 text-white',
-    filterOn: 'bg-red-50 text-red-800 border-red-200',
+    text: 'text-rose-400',
+    badge: 'bg-rose-50 text-rose-800 border-rose-200',
+    cardSelected: 'bg-slate-900 border-rose-500/40 shadow-[inset_3px_0_0_0_rgb(244,63,94)]',
+    cardIdle: 'bg-slate-900/80 border-slate-800 hover:border-rose-500/40',
+    button: 'bg-rose-500 text-white border border-rose-500 hover:bg-rose-600',
+    alert: 'border-rose-200 bg-rose-50 text-rose-800',
+    filterOn: 'bg-rose-50 text-rose-800 border-rose-200',
   };
 }
 
@@ -73,7 +73,9 @@ export const CustomerInvoicesView: React.FC = () => {
     withdrawPaymentClaim,
     addToast,
     liveCustomer,
+    theme,
   } = useApp();
+  const sheetTheme = theme === 'light' ? 'light' : 'dark';
 
   const customerInvoices = (invoices || []).filter((inv) => belongsToCurrentCustomer(currentUser, inv));
   const [invoiceParams] = useSearchParams();
@@ -418,8 +420,8 @@ export const CustomerInvoicesView: React.FC = () => {
                 activeState === 'PAID'
                   ? 'border-emerald-500/40'
                   : activeState === 'PENDING'
-                    ? 'border-orange-500/40'
-                    : 'border-red-500/40'
+                    ? 'border-amber-500/40'
+                    : 'border-rose-500/40'
               }`}
             >
               <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -487,24 +489,27 @@ export const CustomerInvoicesView: React.FC = () => {
                 </div>
               </div>
               {activeState === 'UNPAID' && (
-                <div className={`mx-4 mt-4 flex items-start gap-2 rounded-2xl border px-4 py-3 text-xs text-white ${payStateTone('UNPAID').alert}`}>
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-white" />
-                  <span className="text-white [&_strong]:text-white">
+                <div className={`mx-4 mt-4 flex items-start gap-2 rounded-2xl border px-4 py-3 text-xs ${payStateTone('UNPAID').alert}`}>
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 opacity-90" />
+                  <span>
                     Pay the invoice to continue. Ready for pickup stays locked until payment is verified.
                   </span>
                 </div>
               )}
               {activeState === 'PENDING' && (
-                <div className={`mx-4 mt-4 flex items-start gap-2 rounded-2xl border px-4 py-3 text-xs text-white ${payStateTone('PENDING').alert}`}>
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-white" />
-                  <span className="text-white [&_strong]:text-white">
+                <div className={`mx-4 mt-4 flex items-start gap-2 rounded-2xl border px-4 py-3 text-xs ${payStateTone('PENDING').alert}`}>
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 opacity-90" />
+                  <span>
                     Waiting for verification. Use <strong>View payment</strong> to check your submission. If the proof is wrong,
                     request a re-pay.
                   </span>
                 </div>
               )}
-              <div id="garage-sheet" className="invoice-sheet bg-white mt-4">
-                <InvoiceDocument invoice={active} theme="light" />
+              <div
+                id="garage-sheet"
+                className={`invoice-sheet mt-4 ${sheetTheme === 'dark' ? 'invoice-sheet--dark' : 'invoice-sheet--light'}`}
+              >
+                <InvoiceDocument invoice={active} theme={sheetTheme} />
               </div>
             </div>
           ) : null}

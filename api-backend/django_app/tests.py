@@ -367,6 +367,14 @@ class ApiAuthTests(APITestCase):
         )
         self.assertEqual(invalid.status_code, 400)
 
+    def _token_from_mail(self, body, path="token="):
+        from urllib.parse import unquote
+
+        for line in (body or "").splitlines():
+            if path in line:
+                return unquote(line.split("token=", 1)[-1].strip())
+        self.fail(f"No {path} link found in email body")
+
     def test_verify_email_then_login(self):
         registered = self.client.post(
             "/api/auth/register/",
@@ -374,21 +382,58 @@ class ApiAuthTests(APITestCase):
             format="json",
         )
         self.assertEqual(registered.status_code, 201)
-        self.assertIn("verification_token", registered.data)
-        token = registered.data["verification_token"]
-        self.assertEqual(token, mail.outbox[-1].body.strip().splitlines()[-1])
+        self.assertNotIn("verification_token", registered.data)
+        self.assertIn("check your email", registered.data["detail"].lower())
+        self.assertEqual(len(mail.outbox), 1)
+        token = self._token_from_mail(mail.outbox[-1].body)
         blocked = self._login(email="verify.me@example.com", password="Testpass123!")
         self.assertEqual(blocked.status_code, 400)
         self.assertEqual(blocked.data.get("code"), "VERIFY_EMAIL")
-        self.assertTrue(blocked.data.get("verification_token"))
+        self.assertNotIn("verification_token", blocked.data)
         verified = self.client.post("/api/auth/verify-email/", {"token": token}, format="json")
         self.assertEqual(verified.status_code, 200)
+        reused = self.client.post("/api/auth/verify-email/", {"token": token}, format="json")
+        self.assertEqual(reused.status_code, 400)
         login = self._login(email="verify.me@example.com", password="Testpass123!")
         self.assertEqual(login.status_code, 200)
 
+    def test_resend_verification_rate_limit_and_no_token_leak(self):
+        self.client.post(
+            "/api/auth/register/",
+            {"email": "resend.me@example.com", "password": "Testpass123!", "first_name": "Resend"},
+            format="json",
+        )
+        mail.outbox.clear()
+        first = self.client.post("/api/auth/resend-verification/", {"email": "resend.me@example.com"}, format="json")
+        self.assertEqual(first.status_code, 200)
+        self.assertNotIn("verification_token", first.data)
+        self.assertEqual(len(mail.outbox), 1)
+        second = self.client.post("/api/auth/resend-verification/", {"email": "resend.me@example.com"}, format="json")
+        self.assertEqual(second.status_code, 429)
+        self.assertNotIn("verification_token", second.data)
+
+    def test_expired_verification_link_is_rejected(self):
+        import time
+        from unittest import mock
+
+        from django_app.auth_services import EMAIL_VERIFY_MAX_AGE
+
+        registered = self.client.post(
+            "/api/auth/register/",
+            {"email": "expire.me@example.com", "password": "Testpass123!", "first_name": "Expire"},
+            format="json",
+        )
+        self.assertEqual(registered.status_code, 201)
+        token = self._token_from_mail(mail.outbox[-1].body)
+        future = time.time() + EMAIL_VERIFY_MAX_AGE + 60
+        with mock.patch("django.core.signing.time.time", return_value=future):
+            response = self.client.post("/api/auth/verify-email/", {"token": token}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("expired", response.data["error"].lower())
+
     def test_password_reset_confirm(self):
         self.client.post("/api/auth/password-reset/", {"email": "namayheng12345@gmail.com"}, format="json")
-        token = mail.outbox[-1].body.strip().splitlines()[-1]
+        token = self._token_from_mail(mail.outbox[-1].body, path="token=")
         updated = self.client.post(
             "/api/auth/password-reset/confirm/",
             {"token": token, "password": "Resetpass123!"},
@@ -421,6 +466,57 @@ class ApiAuthTests(APITestCase):
         new = self._login(email="namayheng12345@gmail.com", password="Changed123!")
         self.assertEqual(old.status_code, 400)
         self.assertEqual(new.status_code, 200)
+
+    def test_public_media_is_readable_and_private_needs_signature(self):
+        from pathlib import Path
+
+        from django.conf import settings
+        from django.test import override_settings
+
+        from django_app.media_serving import media_url_path
+
+        public_name = "services/test-oil.jpg"
+        private_name = "payments/2026/10/proof.jpg"
+        public_path = Path(settings.MEDIA_ROOT) / public_name
+        private_path = Path(settings.MEDIA_ROOT) / private_name
+        public_path.parent.mkdir(parents=True, exist_ok=True)
+        private_path.parent.mkdir(parents=True, exist_ok=True)
+        public_path.write_bytes(b"public-bytes")
+        private_path.write_bytes(b"secret-bytes")
+
+        open_public = self.client.get(f"/media/{public_name}")
+        self.assertEqual(open_public.status_code, 200)
+
+        with override_settings(DEBUG=False):
+            blocked = self.client.get(f"/media/{private_name}")
+            self.assertEqual(blocked.status_code, 403)
+            signed = media_url_path(private_name, force_sign=True)
+            allowed = self.client.get(signed)
+            self.assertEqual(allowed.status_code, 200)
+            self.assertEqual(allowed.getvalue(), b"secret-bytes")
+
+    def test_resend_api_backend_posts_over_https(self):
+        from unittest import mock
+
+        from django.core.mail import EmailMessage
+        from django.test import override_settings
+
+        from django_app.email_backends import ResendAPIBackend
+
+        class FakeResponse:
+            status_code = 200
+            text = '{"id":"ok"}'
+
+        with override_settings(RESEND_API_KEY="re_test", DEFAULT_FROM_EMAIL="CarSV <onboarding@resend.dev>"):
+            with mock.patch("django_app.email_backends.requests.post", return_value=FakeResponse()) as post:
+                backend = ResendAPIBackend()
+                sent = backend.send_messages(
+                    [EmailMessage("Subject", "Body text", None, ["a@example.com"])]
+                )
+        self.assertEqual(sent, 1)
+        args, kwargs = post.call_args
+        self.assertEqual(args[0], "https://api.resend.com/emails")
+        self.assertIn("Bearer re_test", kwargs["headers"]["Authorization"])
 
     def test_me_hides_role_changes(self):
         token = self._login(email="namayheng12345@gmail.com", password="Ayheng123!@#").data["access"]

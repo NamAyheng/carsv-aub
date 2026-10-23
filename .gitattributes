@@ -1,6 +1,9 @@
 # Keep text line endings consistent so Windows and Linux checkouts stay clean.
 * text=auto eol=lf
 
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
+
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf

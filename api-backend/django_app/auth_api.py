@@ -39,10 +39,15 @@ class AuthUserThrottle(UserRateThrottle):
     scope = "auth_user"
 
 
+_SECRET_RESPONSE_KEYS = frozenset({"verification_token", "token", "password", "current_password", "new_password"})
+
+
 def _error(exc):
     payload = {"ok": False, "error": exc.message}
     extra = getattr(exc, "extra", None) or {}
     for key, value in extra.items():
+        if key in _SECRET_RESPONSE_KEYS:
+            continue
         if value not in (None, ""):
             payload[key] = value
     return Response(payload, status=exc.status_code)
@@ -50,23 +55,26 @@ def _error(exc):
 
 def _with_refresh_cookie(payload, refresh, status_code=status.HTTP_200_OK):
     response = Response(payload, status=status_code)
+    samesite = getattr(settings, "REFRESH_COOKIE_SAMESITE", "Lax")
+    secure = settings.REFRESH_COOKIE_SECURE or samesite == "None"
     response.set_cookie(
         settings.REFRESH_COOKIE_NAME,
         refresh,
         max_age=int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()),
         httponly=True,
-        secure=settings.REFRESH_COOKIE_SECURE,
-        samesite="Lax",
+        secure=secure,
+        samesite=samesite,
         path=settings.REFRESH_COOKIE_PATH,
     )
     return response
 
 
 def _clear_refresh_cookie(response):
+    samesite = getattr(settings, "REFRESH_COOKIE_SAMESITE", "Lax")
     response.delete_cookie(
         settings.REFRESH_COOKIE_NAME,
         path=settings.REFRESH_COOKIE_PATH,
-        samesite="Lax",
+        samesite=samesite,
     )
     return response
 
@@ -96,14 +104,16 @@ class RegisterView(AuthView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            _user, verification_token = register_customer(**serializer.validated_data)
+            register_customer(**serializer.validated_data)
         except AuthError as exc:
             return _error(exc)
         return Response(
             {
                 "ok": True,
-                "detail": "Account created. Enter the verification token to activate your account.",
-                "verification_token": verification_token,
+                "detail": (
+                    "Your account has been created. Please check your email and verify "
+                    "your address before logging in."
+                ),
                 "email": serializer.validated_data["email"].strip().lower(),
             },
             status=status.HTTP_201_CREATED,
@@ -138,16 +148,15 @@ class VerifyEmailView(AuthView):
 class ResendVerificationView(AuthView):
     def post(self, request):
         try:
-            token = resend_verification(request.data.get("email"))
+            resend_verification(request.data.get("email"))
         except AuthError as exc:
             return _error(exc)
-        payload = {
-            "ok": True,
-            "detail": "If that account is waiting for verification, an email has been sent.",
-        }
-        if token:
-            payload["verification_token"] = token
-        return Response(payload)
+        return Response(
+            {
+                "ok": True,
+                "detail": "If that account is waiting for verification, an email has been sent.",
+            }
+        )
 
 
 class PasswordResetView(AuthView):
@@ -303,10 +312,9 @@ def _photo_url(user, customer, request):
     photo = user.photo if user.photo else (customer.photo if customer and customer.photo else None)
     if not photo:
         return ""
-    url = photo.url
-    if request is None:
-        return url
-    return request.build_absolute_uri(url)
+    from django_app.media_serving import media_url_path
+
+    return media_url_path(getattr(photo, "name", None) or photo.url or "")
 
 
 def profile_payload(user, request=None):

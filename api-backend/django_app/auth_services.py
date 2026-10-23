@@ -3,10 +3,12 @@ import hmac
 import logging
 import re
 import time
+from urllib.parse import quote
 
 from django.conf import settings
 from django.contrib.auth.models import update_last_login
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -24,6 +26,9 @@ GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 TELEGRAM_MAX_AGE = 60 * 60 * 24
 EMAIL_VERIFY_MAX_AGE = 60 * 60 * 24
 PASSWORD_RESET_MAX_AGE = 60 * 60
+EMAIL_VERIFY_SALT = "carsv-email-verify"
+PASSWORD_RESET_SALT = "carsv-password-reset"
+_SECRET_EXTRA_KEYS = frozenset({"verification_token", "token", "password", "current_password", "new_password"})
 
 
 class AuthError(Exception):
@@ -31,7 +36,8 @@ class AuthError(Exception):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
-        self.extra = extra
+        # Never leak tokens/secrets into API JSON via _error().
+        self.extra = {k: v for k, v in extra.items() if k not in _SECRET_EXTRA_KEYS}
 
 
 def public_email(user):
@@ -95,20 +101,15 @@ def password_login(identifier, password):
     if user is None or not user.check_password(password):
         raise AuthError(INVALID_CREDENTIALS, 400)
     if user.role == User.Role.CUSTOMER and not user.email_verified:
-        token = issue_email_verify_token(user)
-        _send_signed_email(
-            user,
-            salt="carsv-email-verify",
-            subject="Verify your CarSV account",
-            intro="Enter this verification token in the app:",
-            token=token,
-        )
+        try:
+            _deliver_verification_email(user)
+        except AuthError:
+            pass
         raise AuthError(
             VERIFY_EMAIL,
             400,
             code="VERIFY_EMAIL",
             email=public_email(user),
-            verification_token=token,
         )
     if user.status != User.Status.ACTIVE or not user.is_active:
         raise AuthError(INVALID_CREDENTIALS, 400)
@@ -156,53 +157,105 @@ def register_customer(*, email, password, first_name, last_name="", phone=""):
         user.save()
     except IntegrityError as exc:
         raise AuthError("An account with this email already exists.", 400) from exc
-    token = issue_email_verify_token(user)
-    _send_signed_email(
-        user,
-        salt="carsv-email-verify",
-        subject="Verify your CarSV account",
-        intro="Enter this verification token in the app:",
-        token=token,
-    )
-    return user, token
+    _deliver_verification_email(user)
+    return user
 
 
 def issue_email_verify_token(user):
-    return TimestampSigner(salt="carsv-email-verify").sign(str(user.pk))
+    """Embed unverified state so the same link cannot be reused after activation."""
+    return TimestampSigner(salt=EMAIL_VERIFY_SALT).sign(f"{user.pk}:unverified")
 
 
-def _send_signed_email(user, *, salt, subject, intro, token=None):
+def _frontend_base():
+    return (getattr(settings, "FRONTEND_URL", None) or "http://127.0.0.1:3000").rstrip("/")
+
+
+def _from_email():
+    return getattr(settings, "DEFAULT_FROM_EMAIL", None) or "CarSV <noreply@carsv.local>"
+
+
+def _verification_url(token):
+    return f"{_frontend_base()}/verify-email?token={quote(token, safe='')}"
+
+
+def _deliver_verification_email(user):
     if user.email_is_placeholder:
-        return ""
-    if token is None:
-        token = TimestampSigner(salt=salt).sign(str(user.pk))
+        raise AuthError("This account has no email address to verify.", 400)
+    token = issue_email_verify_token(user)
+    link = _verification_url(token)
+    body = (
+        "Your CarSV account was created.\n\n"
+        "Verify your email by opening this link (expires in 24 hours):\n"
+        f"{link}\n\n"
+        "If you did not create this account, you can ignore this message.\n"
+    )
     try:
         send_mail(
-            subject,
-            f"{intro}\n\n{token}\n",
-            "CarSV <noreply@carsv.local>",
+            "Verify your CarSV account",
+            body,
+            _from_email(),
             [user.email],
             fail_silently=False,
         )
     except Exception:
-        logger.exception("Could not send auth email")
-        raise AuthError("The account was saved, but the email could not be sent.", 503) from None
-    return token
+        logger.exception("Could not send verification email to user_id=%s", user.pk)
+        raise AuthError(
+            "The account was saved, but the email could not be sent. Try resend in a minute.",
+            503,
+        ) from None
 
 
-def _read_signed(token, salt, max_age):
+def _send_password_reset_email(user, token):
+    link = f"{_frontend_base()}/?reset=1&token={quote(token, safe='')}"
+    body = (
+        "Reset your CarSV password by opening this link (expires in 1 hour):\n"
+        f"{link}\n\n"
+        "If you did not request a reset, ignore this message.\n"
+    )
     try:
-        return int(TimestampSigner(salt=salt).unsign(token, max_age=max_age))
+        send_mail(
+            "Reset your CarSV password",
+            body,
+            _from_email(),
+            [user.email],
+            fail_silently=False,
+        )
+    except Exception:
+        logger.exception("Could not send password-reset email to user_id=%s", user.pk)
+        raise AuthError("The email could not be sent. Try again later.", 503) from None
+
+
+def _read_signed_raw(token, salt, max_age):
+    try:
+        return TimestampSigner(salt=salt).unsign(str(token or ""), max_age=max_age)
     except SignatureExpired as exc:
         raise AuthError("This link has expired.", 400) from exc
     except (BadSignature, ValueError, TypeError) as exc:
         raise AuthError("This link is invalid.", 400) from exc
 
 
+def _read_signed(token, salt, max_age):
+    """Integer user pk (password-reset tokens)."""
+    try:
+        return int(_read_signed_raw(token, salt, max_age))
+    except (TypeError, ValueError) as exc:
+        raise AuthError("This link is invalid.", 400) from exc
+
+
 def verify_email(token):
-    user = User.objects.filter(pk=_read_signed(token, "carsv-email-verify", EMAIL_VERIFY_MAX_AGE)).first()
+    raw = _read_signed_raw(token, EMAIL_VERIFY_SALT, EMAIL_VERIFY_MAX_AGE)
+    try:
+        pk_s, state = str(raw).split(":", 1)
+        pk = int(pk_s)
+    except (ValueError, TypeError) as exc:
+        raise AuthError("This link is invalid.", 400) from exc
+    if state != "unverified":
+        raise AuthError("This link is invalid.", 400)
+    user = User.objects.filter(pk=pk).first()
     if user is None or user.email_is_placeholder:
         raise AuthError("This link is invalid.", 400)
+    if user.email_verified:
+        raise AuthError("This email is already verified. You can sign in.", 400)
     user.email_verified = True
     if user.status != User.Status.ACTIVE:
         user.status = User.Status.ACTIVE
@@ -236,33 +289,35 @@ def verify_email(token):
 
 
 def resend_verification(email):
-    user = User.objects.filter(email__iexact=(email or "").strip(), email_is_placeholder=False).first()
-    if user and not user.email_verified:
-        token = issue_email_verify_token(user)
-        _send_signed_email(
-            user,
-            salt="carsv-email-verify",
-            subject="Verify your CarSV account",
-            intro="Enter this verification token in the app:",
-            token=token,
-        )
-        return token
-    return ""
+    normalized = (email or "").strip().lower()
+    if not normalized:
+        raise AuthError("Enter the email address for your account.", 400)
+
+    cooldown = int(getattr(settings, "EMAIL_VERIFY_RESEND_COOLDOWN", 60) or 60)
+    cache_key = f"carsv:verify-resend:{normalized}"
+    if cache.get(cache_key):
+        raise AuthError("Please wait a minute before requesting another verification email.", 429)
+
+    user = User.objects.filter(email__iexact=normalized, email_is_placeholder=False).first()
+    # Anti-enumeration: unknown / already-verified look the same.
+    if user is None or user.email_verified:
+        cache.set(cache_key, 1, cooldown)
+        return False
+
+    _deliver_verification_email(user)
+    cache.set(cache_key, 1, cooldown)
+    return True
 
 
 def request_password_reset(email):
     user = User.objects.filter(email__iexact=(email or "").strip(), email_is_placeholder=False).first()
     if user:
-        _send_signed_email(
-            user,
-            salt="carsv-password-reset",
-            subject="Reset your CarSV password",
-            intro="Enter this reset token in the app:",
-        )
+        token = TimestampSigner(salt=PASSWORD_RESET_SALT).sign(str(user.pk))
+        _send_password_reset_email(user, token)
 
 
 def confirm_password_reset(token, password):
-    user = User.objects.filter(pk=_read_signed(token, "carsv-password-reset", PASSWORD_RESET_MAX_AGE)).first()
+    user = User.objects.filter(pk=_read_signed(token, PASSWORD_RESET_SALT, PASSWORD_RESET_MAX_AGE)).first()
     if user is None or user.email_is_placeholder:
         raise AuthError("This link is invalid.", 400)
     if user.email_verified and user.status != User.Status.ACTIVE:
