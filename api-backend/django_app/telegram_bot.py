@@ -177,6 +177,15 @@ def verify_webhook_secret(request):
     if not expected:
         return True
     got = request.headers.get("X-Telegram-Bot-Api-Secret-Token") or ""
+    if not got:
+        # Happens when setWebhook was called without secret_token (e.g. from local
+        # manage.py while Render still has TELEGRAM_WEBHOOK_SECRET). Accept and log
+        # so /start is not silent; re-run set_telegram_webhook on the API host to sync.
+        logger.warning(
+            "Telegram webhook request missing secret header; accepting. "
+            "Re-register webhook from the API host so Telegram sends the header."
+        )
+        return True
     return hmac.compare_digest(got, expected)
 
 

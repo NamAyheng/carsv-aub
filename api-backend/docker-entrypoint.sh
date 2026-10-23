@@ -87,4 +87,14 @@ if [ "${DJANGO_SEED_DEMO:-0}" = "1" ]; then
   python manage.py seed_catalog_demo
 fi
 
+# Keep Telegram webhook pointed at this public API (Render). Uses TELEGRAM_WEBHOOK_SECRET if set.
+if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_WEBHOOK_URL:-}" ]; then
+  echo "Registering Telegram webhook at ${TELEGRAM_WEBHOOK_URL}..."
+  python manage.py set_telegram_webhook --url "${TELEGRAM_WEBHOOK_URL}" || echo "Telegram webhook registration skipped/failed."
+elif [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${RENDER_EXTERNAL_URL:-}" ]; then
+  WH_URL="${RENDER_EXTERNAL_URL%/}/api/telegram/webhook/"
+  echo "Registering Telegram webhook at ${WH_URL}..."
+  python manage.py set_telegram_webhook --url "${WH_URL}" || echo "Telegram webhook registration skipped/failed."
+fi
+
 exec "$@"
