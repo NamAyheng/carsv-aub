@@ -160,7 +160,7 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
         </div>
 
         {mobileMenuOpen && (
-          <div className="lg:hidden bg-[#202127] border-b border-white/10 px-6 py-5 space-y-4">
+          <div className="portal-header-mobile lg:hidden bg-[#202127] border-b border-white/10 px-6 py-5 space-y-4">
             <div className="flex flex-col gap-2 font-medium">
               {NAV.map((item) => (
                 <button

@@ -6,59 +6,37 @@
             <div class="carsv-hello-kicker">{{ carsv.role_desk }}</div>
             <h1>Hello, {{ carsv.first_name }}</h1>
             <p>{{ carsv.role_focus }}</p>
+            {% if carsv.email %}
+            <p class="carsv-hello-email">{{ carsv.email }}</p>
+            {% endif %}
         </div>
         <span class="carsv-chip">Signed in as {{ carsv.role_label }}</span>
     </section>
 
     <section class="carsv-kpis">
-        <a class="carsv-card carsv-kpi" href="{% url 'admin:django_app_invoice_changelist' %}">
+        {% for kpi in carsv.kpis %}
+        <a class="carsv-card carsv-kpi" href="{{ kpi.url }}">
             <div class="carsv-kpi-top">
-                <span>Total revenue</span>
-                <span class="carsv-kpi-sub ok">paid invoices</span>
-            </div>
-            <div class="carsv-kpi-value">${{ carsv.revenue|floatformat:0 }}</div>
-            <div class="carsv-kpi-sub">{{ carsv.paid_count }} payment{{ carsv.paid_count|pluralize }} recorded</div>
-        </a>
-
-        <a class="carsv-card carsv-kpi" href="{% url 'admin:django_app_repairjob_changelist' %}">
-            <div class="carsv-kpi-top">
-                <span>Active repairs</span>
-                <span class="carsv-kpi-icon">
-                    <span class="material-symbols-outlined md-18">directions_car</span>
+                <span>{{ kpi.label }}</span>
+                <span class="carsv-kpi-icon {% if kpi.tone == 'danger' %}danger{% elif kpi.tone == 'warn' %}{% endif %}">
+                    <span class="material-symbols-outlined md-18">{{ kpi.icon }}</span>
                 </span>
             </div>
-            <div class="carsv-kpi-value">{{ carsv.active_repairs|stringformat:"02d" }}</div>
-            <div class="carsv-kpi-sub blue">{{ carsv.on_hoist }} currently on hoist</div>
+            <div class="carsv-kpi-value {% if kpi.tone == 'ok' %}ok{% elif kpi.tone == 'warn' %}warn{% elif kpi.tone == 'danger' %}danger{% elif kpi.tone == 'blue' %}blue{% endif %}">{{ kpi.value }}</div>
+            <div class="carsv-kpi-sub {% if kpi.tone == 'ok' %}ok{% elif kpi.tone == 'danger' %}danger{% elif kpi.tone == 'blue' %}blue{% endif %}">{{ kpi.sub }}</div>
         </a>
-
-        <a class="carsv-card carsv-kpi" href="{% url 'admin:django_app_booking_changelist' %}">
-            <div class="carsv-kpi-top">
-                <span>Bookings</span>
-                <span class="carsv-kpi-icon">
-                    <span class="material-symbols-outlined md-18">event</span>
-                </span>
-            </div>
-            <div class="carsv-kpi-value">{{ carsv.appointments|stringformat:"02d" }}</div>
-            <div class="carsv-kpi-sub">{{ carsv.confirmed_today }} confirmed for today</div>
-        </a>
-
-        <a class="carsv-card carsv-kpi" href="{% url 'admin:django_app_sparepart_changelist' %}">
-            <div class="carsv-kpi-top">
-                <span>Low stock items</span>
-                <span class="carsv-kpi-icon danger">
-                    <span class="material-symbols-outlined md-18">warning</span>
-                </span>
-            </div>
-            <div class="carsv-kpi-value danger">{{ carsv.low_stock_count|stringformat:"02d" }}</div>
-            <div class="carsv-kpi-sub danger">Requires reordering</div>
-        </a>
+        {% empty %}
+        <div class="carsv-empty">No dashboard widgets for this role.</div>
+        {% endfor %}
     </section>
 
+    {% if carsv.show_live_jobs or carsv.show_bay %}
     <section class="carsv-mid">
+        {% if carsv.show_live_jobs %}
         <div class="carsv-card carsv-table-wrap">
             <div class="carsv-table-head">
-                <h2>Live work orders</h2>
-                <a class="carsv-link" href="{% url 'admin:django_app_repairjob_changelist' %}">View all ({{ carsv.job_total }})</a>
+                <h2>{% if carsv.role == 'MECHANIC' %}My work orders{% else %}Live work orders{% endif %}</h2>
+                <a class="carsv-link" href="{{ carsv.jobs_url }}">View all ({{ carsv.job_total }})</a>
             </div>
             {% if carsv.live_jobs %}
                 <table class="carsv-table">
@@ -89,14 +67,16 @@
                     </tbody>
                 </table>
                 <div class="carsv-table-foot">
-                    <span>Showing garage jobs from the database</span>
+                    <span>{% if carsv.role == 'MECHANIC' %}Jobs assigned to you{% else %}Showing garage jobs from the database{% endif %}</span>
                     <span>{{ carsv.active_repairs }} active</span>
                 </div>
             {% else %}
-                <div class="carsv-empty">No repair jobs yet.</div>
+                <div class="carsv-empty">{% if carsv.role == 'MECHANIC' %}No jobs assigned to you yet.{% else %}No repair jobs yet.{% endif %}</div>
             {% endif %}
         </div>
+        {% endif %}
 
+        {% if carsv.show_bay %}
         <div class="carsv-bay">
             <div class="carsv-bay-head">
                 <span>Workshop bay</span>
@@ -118,14 +98,18 @@
                 {{ carsv.vehicle_count }} vehicles · {{ carsv.customer_count }} customers
             </div>
         </div>
+        {% endif %}
     </section>
+    {% endif %}
 
+    {% if carsv.show_technicians or carsv.show_inventory or carsv.show_cta or carsv.show_cashier_cta %}
     <section class="carsv-bottom">
+        {% if carsv.show_technicians %}
         <div class="carsv-card carsv-panel">
             <div>
                 <div class="carsv-table-head" style="padding: 0 0 0.75rem; border: 0;">
                     <h3>Technician status</h3>
-                    <a class="carsv-link" href="{% url 'admin:django_app_mechanic_changelist' %}">Schedule</a>
+                    <a class="carsv-link" href="{{ carsv.mechanics_url }}">Schedule</a>
                 </div>
                 {% for tech in carsv.technicians %}
                     <div class="carsv-row">
@@ -151,12 +135,14 @@
                 <span>{{ carsv.busy_techs }} active jobs</span>
             </div>
         </div>
+        {% endif %}
 
+        {% if carsv.show_inventory %}
         <div class="carsv-card carsv-panel">
             <div>
                 <div class="carsv-table-head" style="padding: 0 0 0.75rem; border: 0;">
                     <h3>Inventory alerts</h3>
-                    <a class="carsv-link" href="{% url 'admin:django_app_sparepart_changelist' %}">Stockroom</a>
+                    <a class="carsv-link" href="{{ carsv.parts_url }}">Stockroom</a>
                 </div>
                 {% for part in carsv.low_stock %}
                     <div class="carsv-alert">
@@ -170,9 +156,13 @@
                     <div class="carsv-ok">All warehouse inventory stock levels nominal.</div>
                 {% endfor %}
             </div>
+            {% if carsv.role != 'MECHANIC' %}
             <a class="carsv-stock-btn" href="{% url 'admin:django_app_sparepart_add' %}">Order replacement parts</a>
+            {% endif %}
         </div>
+        {% endif %}
 
+        {% if carsv.show_cta %}
         <div class="carsv-cta">
             <div>
                 <span class="carsv-cta-tag">Dispatcher</span>
@@ -187,5 +177,24 @@
                 </div>
             </div>
         </div>
+        {% endif %}
+
+        {% if carsv.show_cashier_cta %}
+        <div class="carsv-cta">
+            <div>
+                <span class="carsv-cta-tag">Finance</span>
+                <h3>Quick action</h3>
+                <p>Record a payment or open unpaid invoices for today.</p>
+            </div>
+            <div>
+                <a class="carsv-cta-main" href="{% url 'admin:django_app_payment_add' %}">+ Record payment</a>
+                <div class="carsv-cta-row">
+                    <a href="{{ carsv.invoices_url }}">Open invoices</a>
+                    <a href="{{ carsv.payments_url }}">Payment list</a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </section>
+    {% endif %}
 </div>

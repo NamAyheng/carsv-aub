@@ -9,6 +9,7 @@ import { CustomerPublicBlog } from './components/customer/CustomerPublicBlog';
 import { CustomerAuthModal } from './components/customer/CustomerAuthModal';
 import { CustomerBookAppointmentModal } from './components/customer/CustomerBookAppointmentModal';
 import { VerifyEmailPage } from './components/customer/VerifyEmailPage';
+import { ResetPasswordPage } from './components/customer/ResetPasswordPage';
 import { portalPaths, sectionForPath } from './routes';
 
 function ThemeFrame({ children }: { children: React.ReactNode }) {
@@ -48,6 +49,14 @@ function PublicSite() {
   useEffect(() => {
     if (params.get('signin') === '1') setAuthOpen(true);
   }, [params]);
+
+  // Legacy password-reset links used /?reset=1&token=… — send them to the confirm page.
+  useEffect(() => {
+    if (params.get('reset') !== '1') return;
+    const token = (params.get('token') || '').trim();
+    if (!token) return;
+    navigate(`/reset-password?token=${encodeURIComponent(token)}`, { replace: true });
+  }, [params, navigate]);
 
   useEffect(() => {
     if (section === 'blog') {
@@ -152,6 +161,7 @@ function AppRoutes() {
         <Route path="/blog" element={<PublicSite />} />
         <Route path="/contact" element={<PublicSite />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/dashboard" element={<RequireCustomer><CustomerPage tab="DASHBOARD" /></RequireCustomer>} />
         <Route path="/vehicles" element={<RequireCustomer><CustomerPage tab="VEHICLES" /></RequireCustomer>} />
         <Route path="/appointments" element={<RequireCustomer><CustomerPage tab="APPOINTMENTS" /></RequireCustomer>} />

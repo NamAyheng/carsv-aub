@@ -1,0 +1,418 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Reports | {{ site_title|default:"CarSV" }}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block nav-global-side %}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-django_app model-garagereport change-list{% endblock %}
+
+{% block content %}
+<div class="carsv-customers carsv-reports">
+    <section class="cc-hero">
+        <div>
+            <div class="cc-hero-title">
+                <h1>Garage reports</h1>
+                <span class="cc-count">{{ start|date:"d M Y" }} → {{ end|date:"d M Y" }}</span>
+            </div>
+            <p>Bookings, repairs, payments, and revenue for the selected date range.</p>
+        </div>
+        <div class="cc-hero-actions">
+            <button type="button" class="cc-btn-ghost" onclick="window.print()">
+                <span class="material-symbols-outlined md-18">print</span>
+                Print / PDF
+            </button>
+        </div>
+    </section>
+
+    <section class="carsv-kpis" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+        <div class="carsv-card carsv-kpi">
+            <div class="carsv-kpi-top"><span>Bookings</span></div>
+            <div class="carsv-kpi-value">{{ summary.bookings }}</div>
+            <div class="carsv-kpi-sub">In selected range</div>
+        </div>
+        <div class="carsv-card carsv-kpi">
+            <div class="carsv-kpi-top"><span>Repairs</span></div>
+            <div class="carsv-kpi-value">{{ summary.repairs }}</div>
+            <div class="carsv-kpi-sub">Work orders in range</div>
+        </div>
+        <div class="carsv-card carsv-kpi">
+            <div class="carsv-kpi-top"><span>Verified payments</span></div>
+            <div class="carsv-kpi-value">{{ summary.payments }}</div>
+            <div class="carsv-kpi-sub">Paid receipts</div>
+        </div>
+        <div class="carsv-card carsv-kpi">
+            <div class="carsv-kpi-top"><span>Revenue</span></div>
+            <div class="carsv-kpi-value ok">${{ summary.paid_total|floatformat:2 }}</div>
+            <div class="carsv-kpi-sub">Verified payment total</div>
+        </div>
+    </section>
+
+    <section class="cc-toolbar">
+        <form method="get" class="cc-selects" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;width:100%;">
+            <label class="cc-id" style="display:flex;align-items:center;gap:0.35rem;">
+                From
+                <input type="date" name="from" value="{{ start|date:'Y-m-d' }}">
+            </label>
+            <label class="cc-id" style="display:flex;align-items:center;gap:0.35rem;">
+                To
+                <input type="date" name="to" value="{{ end|date:'Y-m-d' }}">
+            </label>
+            <select name="type">
+                <option value="summary" {% if report_type == 'summary' %}selected{% endif %}>Summary</option>
+                <option value="bookings" {% if report_type == 'bookings' %}selected{% endif %}>Bookings</option>
+                <option value="repairs" {% if report_type == 'repairs' %}selected{% endif %}>Repairs</option>
+                <option value="payments" {% if report_type == 'payments' %}selected{% endif %}>Payments</option>
+                <option value="revenue" {% if report_type == 'revenue' %}selected{% endif %}>Revenue</option>
+            </select>
+            <button type="submit" class="cc-btn-primary">Apply</button>
+        </form>
+
+        <div class="cc-pills">
+            <a href="?from={{ start|date:'Y-m-d' }}&amp;to={{ end|date:'Y-m-d' }}&amp;type=summary" class="{% if report_type == 'summary' %}is-on{% endif %}">Summary</a>
+            <a href="?from={{ start|date:'Y-m-d' }}&amp;to={{ end|date:'Y-m-d' }}&amp;type=bookings" class="{% if report_type == 'bookings' %}is-on{% endif %}">Bookings</a>
+            <a href="?from={{ start|date:'Y-m-d' }}&amp;to={{ end|date:'Y-m-d' }}&amp;type=repairs" class="{% if report_type == 'repairs' %}is-on{% endif %}">Repairs</a>
+            <a href="?from={{ start|date:'Y-m-d' }}&amp;to={{ end|date:'Y-m-d' }}&amp;type=payments" class="{% if report_type == 'payments' %}is-on{% endif %}">Payments</a>
+            <a href="?from={{ start|date:'Y-m-d' }}&amp;to={{ end|date:'Y-m-d' }}&amp;type=revenue" class="{% if report_type == 'revenue' %}is-on{% endif %}">Revenue</a>
+        </div>
+    </section>
+
+    {% if report_type == 'summary' or report_type == 'revenue' %}
+    <div class="cc-table-card">
+        <div class="cc-hero-title" style="padding:1rem 1rem 0;">
+            <h2 style="margin:0;font-size:1rem;font-weight:800;">Revenue &amp; billing snapshot</h2>
+        </div>
+        <table class="cc-table">
+            <tbody>
+                <tr>
+                    <td>Verified payment total</td>
+                    <td class="cc-id">${{ summary.paid_total|floatformat:2 }}</td>
+                </tr>
+                <tr>
+                    <td>Paid invoices (by invoice date)</td>
+                    <td class="cc-id">${{ summary.invoice_paid_total|floatformat:2 }}</td>
+                </tr>
+                <tr>
+                    <td>Pending invoices in range</td>
+                    <td>{{ summary.pending_invoices }}</td>
+                </tr>
+                <tr>
+                    <td>Low-stock parts (now)</td>
+                    <td>{{ summary.low_stock }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if report_type == 'summary' or report_type == 'bookings' %}
+    <div class="cc-table-card">
+        <div class="cc-hero-title" style="padding:1rem 1rem 0;">
+            <h2 style="margin:0;font-size:1rem;font-weight:800;">Bookings</h2>
+            <span class="cc-count">{{ booking_rows|length }} shown</span>
+        </div>
+        {% if booking_rows %}
+        <table class="cc-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Date</th>
+                    <th>Customer</th>
+                    <th>Vehicle</th>
+                    <th>Service</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in booking_rows %}
+                <tr>
+                    <td class="cc-id">BK-{{ row.id|stringformat:"04d" }}</td>
+                    <td>{{ row.booking_date }}{% if row.booking_time %} {{ row.booking_time }}{% endif %}</td>
+                    <td>{{ row.customer }}</td>
+                    <td>{{ row.vehicle.plate }}</td>
+                    <td>{% if row.service %}{{ row.service.name }}{% else %}—{% endif %}</td>
+                    <td><span class="cc-status">{{ row.get_status_display }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="cc-empty">No bookings in this range.</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if report_type == 'summary' or report_type == 'repairs' %}
+    <div class="cc-table-card">
+        <div class="cc-hero-title" style="padding:1rem 1rem 0;">
+            <h2 style="margin:0;font-size:1rem;font-weight:800;">Repair jobs</h2>
+            <span class="cc-count">{{ repair_rows|length }} shown</span>
+        </div>
+        {% if repair_rows %}
+        <table class="cc-table">
+            <thead>
+                <tr>
+                    <th>WO</th>
+                    <th>Start</th>
+                    <th>Customer</th>
+                    <th>Vehicle</th>
+                    <th>Technician</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in repair_rows %}
+                <tr>
+                    <td class="cc-id">WO-{{ row.id|stringformat:"04d" }}</td>
+                    <td>{% if row.start_date %}{{ row.start_date }}{% else %}—{% endif %}</td>
+                    <td>{{ row.customer }}</td>
+                    <td>{{ row.vehicle.plate }}</td>
+                    <td>{% if row.mechanic %}{{ row.mechanic }}{% else %}Unassigned{% endif %}</td>
+                    <td><span class="cc-status">{{ row.get_status_display }}</span></td>
+                    <td>{{ row.progress }}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="cc-empty">No repair jobs in this range.</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if report_type == 'summary' or report_type == 'payments' or report_type == 'revenue' %}
+    <div class="cc-table-card">
+        <div class="cc-hero-title" style="padding:1rem 1rem 0;">
+            <h2 style="margin:0;font-size:1rem;font-weight:800;">Payments</h2>
+            <span class="cc-count">{{ payment_rows|length }} shown</span>
+        </div>
+        {% if payment_rows %}
+        <table class="cc-table">
+            <thead>
+                <tr>
+                    <th>Payment</th>
+                    <th>Date</th>
+                    <th>Customer</th>
+                    <th>Method</th>
+                    <th>Amount</th>
+                    <th>Invoice</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in payment_rows %}
+                <tr>
+                    <td class="cc-id">{{ row.number }}</td>
+                    <td>{{ row.paid_at }}</td>
+                    <td>{{ row.customer }}</td>
+                    <td>{{ row.get_method_display }}</td>
+                    <td class="cc-id">${{ row.amount|floatformat:2 }}</td>
+                    <td class="cc-id">{% if row.invoice %}{{ row.invoice.number }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="cc-empty">No verified payments in this range.</div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+{# Same print sheet pattern as invoices (iv-sheet + CarSV brand) #}
+<div class="iv-sheet rp-print-sheet" id="garage-report-sheet">
+    <div class="iv-accent"></div>
+    <div class="iv-head">
+        <div class="iv-head-left">
+            <span class="iv-icon">
+                <span class="material-symbols-outlined">summarize</span>
+            </span>
+            <div>
+                <div class="iv-kicker">Operations</div>
+                <div class="iv-title">Garage report</div>
+            </div>
+        </div>
+        <div class="iv-head-right">
+            <div class="iv-number">{{ report_type|title }}</div>
+            <div class="iv-wo">{{ start|date:"Y-m-d" }} → {{ end|date:"Y-m-d" }}</div>
+        </div>
+    </div>
+
+    <div class="iv-body">
+        <div class="iv-brand">
+            <span class="iv-logo">
+                <span class="material-symbols-outlined">directions_car</span>
+            </span>
+            <div>
+                <div class="iv-brand-name">Car<span>SV</span></div>
+                <p class="iv-brand-line">Precision garage · St. 271, Phnom Penh · Tax ID K008-902239401</p>
+            </div>
+        </div>
+
+        <div class="iv-dates">
+            <div>Period {{ start|date:"Y-m-d" }} to {{ end|date:"Y-m-d" }}</div>
+            <div>Printed for Administrator console</div>
+        </div>
+
+        <div class="iv-cards">
+            <div class="iv-card">
+                <div class="iv-card-label">Bookings</div>
+                <div class="iv-card-title">{{ summary.bookings }}</div>
+            </div>
+            <div class="iv-card">
+                <div class="iv-card-label">Repairs</div>
+                <div class="iv-card-title">{{ summary.repairs }}</div>
+            </div>
+            <div class="iv-card">
+                <div class="iv-card-label">Verified payments</div>
+                <div class="iv-card-title">{{ summary.payments }}</div>
+            </div>
+            <div class="iv-card">
+                <div class="iv-card-label">Revenue paid</div>
+                <div class="iv-card-title">${{ summary.paid_total|floatformat:2 }}</div>
+            </div>
+        </div>
+
+        {% if report_type == 'summary' or report_type == 'revenue' %}
+        <div class="iv-section">
+            <h3>Revenue &amp; billing</h3>
+            <div class="iv-table-wrap">
+                <table class="iv-table">
+                    <tbody>
+                        <tr>
+                            <td>Verified payment total</td>
+                            <td class="mono">${{ summary.paid_total|floatformat:2 }}</td>
+                        </tr>
+                        <tr>
+                            <td>Paid invoices (invoice date)</td>
+                            <td class="mono">${{ summary.invoice_paid_total|floatformat:2 }}</td>
+                        </tr>
+                        <tr>
+                            <td>Pending invoices in range</td>
+                            <td>{{ summary.pending_invoices }}</td>
+                        </tr>
+                        <tr>
+                            <td>Low-stock parts (now)</td>
+                            <td>{{ summary.low_stock }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if report_type == 'summary' or report_type == 'bookings' %}
+        <div class="iv-section">
+            <h3>Bookings</h3>
+            <div class="iv-table-wrap">
+                <table class="iv-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Vehicle</th>
+                            <th>Service</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in booking_rows %}
+                        <tr>
+                            <td class="mono">BK-{{ row.id|stringformat:"04d" }}</td>
+                            <td>{{ row.booking_date }}</td>
+                            <td>{{ row.customer }}</td>
+                            <td>{{ row.vehicle.plate }}</td>
+                            <td>{% if row.service %}{{ row.service.name }}{% else %}—{% endif %}</td>
+                            <td>{{ row.get_status_display }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6">No bookings in this range.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if report_type == 'summary' or report_type == 'repairs' %}
+        <div class="iv-section">
+            <h3>Repair jobs</h3>
+            <div class="iv-table-wrap">
+                <table class="iv-table">
+                    <thead>
+                        <tr>
+                            <th>WO</th>
+                            <th>Start</th>
+                            <th>Customer</th>
+                            <th>Vehicle</th>
+                            <th>Technician</th>
+                            <th>Status</th>
+                            <th>Progress</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in repair_rows %}
+                        <tr>
+                            <td class="mono">WO-{{ row.id|stringformat:"04d" }}</td>
+                            <td>{% if row.start_date %}{{ row.start_date }}{% else %}—{% endif %}</td>
+                            <td>{{ row.customer }}</td>
+                            <td>{{ row.vehicle.plate }}</td>
+                            <td>{% if row.mechanic %}{{ row.mechanic }}{% else %}Unassigned{% endif %}</td>
+                            <td>{{ row.get_status_display }}</td>
+                            <td>{{ row.progress }}%</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="7">No repair jobs in this range.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if report_type == 'summary' or report_type == 'payments' or report_type == 'revenue' %}
+        <div class="iv-section">
+            <h3>Payments</h3>
+            <div class="iv-table-wrap">
+                <table class="iv-table">
+                    <thead>
+                        <tr>
+                            <th>Payment</th>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Method</th>
+                            <th>Amount</th>
+                            <th>Invoice</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in payment_rows %}
+                        <tr>
+                            <td class="mono">{{ row.number }}</td>
+                            <td>{{ row.paid_at }}</td>
+                            <td>{{ row.customer }}</td>
+                            <td>{{ row.get_method_display }}</td>
+                            <td class="mono">${{ row.amount|floatformat:2 }}</td>
+                            <td class="mono">{% if row.invoice %}{{ row.invoice.number }}{% else %}—{% endif %}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6">No verified payments in this range.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="iv-totals">
+            <div class="iv-total-row grand">
+                <span>Verified revenue</span>
+                <span class="mono">${{ summary.paid_total|floatformat:2 }}</span>
+            </div>
+        </div>
+
+        <p class="iv-note">Generated by CarSV Administrator console. Screen filters (type + date range) apply to this printout.</p>
+    </div>
+</div>
+{% endblock %}

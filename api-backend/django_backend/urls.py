@@ -3,6 +3,8 @@ from django.urls import include, path
 from django.views.generic import RedirectView
 from rest_framework import routers
 
+from django.shortcuts import redirect
+
 from django_app.auth_api import (
     GoogleLoginView,
     LinkGoogleView,
@@ -96,6 +98,11 @@ urlpatterns = [
     path(
         "admin/auth/group",
         RedirectView.as_view(pattern_name="admin:django_app_role_changelist", permanent=False),
+    ),
+    path(
+        "admin/garage-reports/",
+        lambda request: redirect("admin:django_app_garagereport_changelist"),
+        name="carsv_garage_reports",
     ),
     path("admin/", admin.site.urls),
     path("api/auth/register/", RegisterView.as_view()),

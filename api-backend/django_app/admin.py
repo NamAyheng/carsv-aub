@@ -21,12 +21,14 @@ from django.utils.timezone import localdate, now
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.forms import AdminPasswordChangeForm
 
+from django_app.role_access import RoleGatedAdminMixin, staff_role
 from django_app.models import (
     AuthProvider,
     Booking,
     Customer,
     BlogPost,
     Estimate,
+    GarageReport,
     Inspection,
     InspectionImage,
     Notification,
@@ -156,7 +158,7 @@ class CarsvDeleteMixin:
         return response
 
 
-class ModelAdmin(CarsvDeleteMixin, UnfoldModelAdmin):
+class ModelAdmin(RoleGatedAdminMixin, CarsvDeleteMixin, UnfoldModelAdmin):
     pass
 
 
@@ -4095,6 +4097,8 @@ class RepairJobAdmin(ModalFormMixin, ModelAdmin):
             .select_related("customer", "vehicle", "mechanic__user", "booking__customer", "booking__vehicle", "booking__service", "invoice", "inspection")
             .prefetch_related("booking__added_services__service")
         )
+        if staff_role(request.user) == User.Role.MECHANIC:
+            qs = qs.filter(mechanic__user=request.user)
         status = request.GET.get("status")
         if status in dict(RepairJob.Status.choices):
             qs = qs.filter(status=status)
@@ -5304,6 +5308,30 @@ class InvoiceAdmin(CarsvPageAdmin):
         }
 
 
+@admin.register(GarageReport)
+class GarageReportAdmin(RoleGatedAdminMixin, UnfoldModelAdmin):
+    """Stock & billing → Reports. Administrator + Manager."""
+
+    role_module = "reports"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        return GarageReport.objects.none()
+
+    def changelist_view(self, request, extra_context=None):
+        from django.core.exceptions import PermissionDenied
+        from django_app.reports import garage_reports
+
+        if not self.role_allows(request):
+            raise PermissionDenied("Only Administrator or Manager can open garage reports.")
+        return garage_reports(request)
+
+
 @admin.register(Payment)
 class PaymentAdmin(CarsvPageAdmin):
     form = PaymentGarageForm
@@ -5701,7 +5729,7 @@ class BlogPostAdmin(CarsvPageAdmin):
 
 
 @admin.register(Estimate)
-class EstimateAdmin(UnfoldModelAdmin):
+class EstimateAdmin(RoleGatedAdminMixin, UnfoldModelAdmin):
     list_display = ("number", "customer", "vehicle", "status", "created_at")
     list_filter = ("status",)
     search_fields = ("number", "customer__name", "vehicle__plate")
@@ -5709,7 +5737,7 @@ class EstimateAdmin(UnfoldModelAdmin):
 
 
 @admin.register(Notification)
-class NotificationAdmin(UnfoldModelAdmin):
+class NotificationAdmin(RoleGatedAdminMixin, UnfoldModelAdmin):
     list_display = ("title", "customer", "kind", "read", "created_at")
     list_filter = ("kind", "read")
     search_fields = ("title", "message", "customer__name")
@@ -5717,7 +5745,7 @@ class NotificationAdmin(UnfoldModelAdmin):
 
 
 @admin.register(AuthProvider)
-class AuthProviderAdmin(UnfoldModelAdmin):
+class AuthProviderAdmin(RoleGatedAdminMixin, UnfoldModelAdmin):
     list_display = ("user", "provider", "provider_user_id", "created_at")
     search_fields = ("user__username", "user__email", "provider_user_id")
     list_filter = ("provider",)
