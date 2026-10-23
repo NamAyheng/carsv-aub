@@ -18,3 +18,4 @@ class DjangoAppConfig(AppConfig):
 
     def ready(self):
         connection_created.connect(_configure_sqlite)
+        from django_app import signals  # noqa: F401 — register receivers

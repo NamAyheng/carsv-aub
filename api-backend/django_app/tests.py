@@ -196,6 +196,82 @@ class TelegramPhoneMatchTests(TestCase):
         customer.refresh_from_db()
         self.assertEqual(customer.telegram_chat_id, "888001")
 
+    def test_deleted_user_frees_telegram_for_same_email_reregister(self):
+        """Delete login → orphan Customer frees chat → new account same email can bind."""
+        from django_app.telegram_bot import bind_customer_chat, customer_for_chat
+
+        old = User.objects.create_user(
+            username="tg_old_email",
+            email="reuse.telegram@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+            phone="0978767679",
+        )
+        old_customer = old.customer
+        old_customer.email = "reuse.telegram@example.com"
+        old_customer.phone = "0978767679"
+        old_customer.save(update_fields=["email", "phone"])
+        bind_customer_chat(old_customer, "777001", telegram_username="reuse")
+        old_customer.refresh_from_db()
+        self.assertEqual(old_customer.telegram_chat_id, "777001")
+
+        old_pk = old_customer.pk
+        old.delete()
+        # Customer row may remain (SET_NULL) but telegram must be cleared by signal.
+        from django_app.models import Customer
+
+        leftover = Customer.objects.filter(pk=old_pk).first()
+        if leftover is not None:
+            self.assertEqual((leftover.telegram_chat_id or "").strip(), "")
+            self.assertIsNone(leftover.user_id)
+
+        self.assertIsNone(customer_for_chat("777001"))
+
+        new = User.objects.create_user(
+            username="tg_new_email",
+            email="reuse.telegram@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+            phone="0978767679",
+        )
+        new_customer = new.customer
+        new_customer.email = "reuse.telegram@example.com"
+        new_customer.phone = "0978767679"
+        new_customer.save(update_fields=["email", "phone"])
+        bind_customer_chat(new_customer, "777001", telegram_username="reuse")
+        new_customer.refresh_from_db()
+        self.assertEqual(new_customer.telegram_chat_id, "777001")
+
+    def test_orphan_customer_telegram_can_be_reclaimed_by_same_email(self):
+        """If signal missed, bind still releases orphan chat for the new account."""
+        from django_app.models import Customer
+        from django_app.telegram_bot import bind_customer_chat
+
+        orphan = Customer.objects.create(
+            user=None,
+            name="Orphan",
+            email="orphan.tg@example.com",
+            phone="0987654321",
+            telegram_chat_id="666001",
+        )
+        new = User.objects.create_user(
+            username="tg_reclaim",
+            email="orphan.tg@example.com",
+            password="TempPass123!@#",
+            role=AppUser.Role.CUSTOMER,
+            phone="0987654321",
+        )
+        claim = new.customer
+        claim.email = "orphan.tg@example.com"
+        claim.phone = "0987654321"
+        claim.save(update_fields=["email", "phone"])
+
+        bind_customer_chat(claim, "666001", telegram_username="reclaim")
+        claim.refresh_from_db()
+        orphan.refresh_from_db()
+        self.assertEqual(claim.telegram_chat_id, "666001")
+        self.assertEqual((orphan.telegram_chat_id or "").strip(), "")
+
     @override_settings(TELEGRAM_BOT_TOKEN="123:test-token")
     @patch("django_app.telegram_bot.send_message", return_value=True)
     def test_alerts_go_to_each_customers_own_telegram(self, send_message):

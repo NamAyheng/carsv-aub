@@ -396,7 +396,11 @@ def phone_match_keys(digits):
 
 
 def find_customers_by_phone(phone_raw):
-    """Return active-ish customers whose profile/user phone matches."""
+    """Return customers whose profile/user phone matches.
+
+    Prefer rows still linked to a login User. Orphan customers (user deleted)
+    are ignored when a live account with the same phone exists.
+    """
     from django_app.models import Customer
 
     target = normalize_phone_digits(phone_raw)
@@ -415,7 +419,59 @@ def find_customers_by_phone(phone_raw):
                 matches.append(customer)
                 break
     # Stable unique by pk
-    return list({c.pk: c for c in matches}.values())
+    unique = list({c.pk: c for c in matches}.values())
+    live = [c for c in unique if c.user_id]
+    return live if live else unique
+
+
+def _normalize_email(value):
+    return (value or "").strip().lower()
+
+
+def clear_telegram_link_on_customer(customer):
+    """Clear telegram fields on a customer row (no AuthProvider side-effects beyond chat)."""
+    if customer is None:
+        return
+    from django_app.models import AuthProvider
+
+    chat_id = (customer.telegram_chat_id or "").strip()
+    customer.telegram_chat_id = ""
+    customer.telegram_username = ""
+    customer.telegram_linked_at = None
+    customer.save(update_fields=["telegram_chat_id", "telegram_username", "telegram_linked_at"])
+    if chat_id:
+        AuthProvider.objects.filter(
+            provider=AuthProvider.Provider.TELEGRAM,
+            provider_user_id=chat_id,
+        ).delete()
+
+
+def release_stale_telegram_owner(owner, claiming_customer):
+    """Free a Telegram chat held by a deleted/orphan account or the same email.
+
+    Telegram follows email + phone: after the old login User is deleted, the
+    orphan Customer may still hold telegram_chat_id. A new account with the
+    same email may reclaim that chat.
+    """
+    if owner is None or claiming_customer is None:
+        return False
+    if owner.pk == claiming_customer.pk:
+        return False
+
+    # Only reclaim chats held by deleted logins (Customer.user SET_NULL).
+    # Never steal from another live login User (different email).
+    if owner.user_id:
+        return False
+
+    owner_email = _normalize_email(customer_email(owner) or owner.email)
+    logger.info(
+        "Releasing Telegram chat from orphan customer_id=%s (email=%s) for customer_id=%s",
+        owner.pk,
+        owner_email or "-",
+        claiming_customer.pk,
+    )
+    clear_telegram_link_on_customer(owner)
+    return True
 
 
 def customer_identity(customer):
@@ -510,21 +566,24 @@ def bind_customer_chat(customer, chat_id, *, telegram_username="", also_auth_pro
     owner = customer_for_chat(chat_id)
 
     if owner is not None and owner.pk != customer.pk:
-        raise TelegramBindError(
-            "\n".join(
-                [
-                    "🚫 CarSV · Connect blocked",
-                    "",
-                    "This Telegram is already linked to:",
-                    f"👤 {customer_display_name(owner)}",
-                    "",
-                    "That link stays active.",
-                    "To connect another CarSV account, use a different Telegram",
-                    "(or ask them to Disconnect in Profile first).",
-                ]
-            ),
-            owner=owner,
-        )
+        if release_stale_telegram_owner(owner, customer):
+            owner = None
+        else:
+            raise TelegramBindError(
+                "\n".join(
+                    [
+                        "🚫 CarSV · Connect blocked",
+                        "",
+                        "This Telegram is already linked to:",
+                        f"👤 {customer_display_name(owner)}",
+                        "",
+                        "That link stays active.",
+                        "To connect another CarSV account, use a different Telegram",
+                        "(or ask them to Disconnect in Profile first).",
+                    ]
+                ),
+                owner=owner,
+            )
 
     existing = (customer.telegram_chat_id or "").strip()
     if existing and existing != chat_id:
@@ -541,11 +600,22 @@ def bind_customer_chat(customer, chat_id, *, telegram_username="", also_auth_pro
         )
 
     if also_auth_provider and customer.user_id:
-        taken = AuthProvider.objects.filter(
-            provider=AuthProvider.Provider.TELEGRAM,
-            provider_user_id=chat_id,
-        ).exclude(user_id=customer.user_id)
-        if taken.exists():
+        taken = (
+            AuthProvider.objects.filter(
+                provider=AuthProvider.Provider.TELEGRAM,
+                provider_user_id=chat_id,
+            )
+            .exclude(user_id=customer.user_id)
+            .select_related("user")
+        )
+        claim_email = _normalize_email(customer_email(customer) or customer.email)
+        for link in taken:
+            other = link.user
+            other_email = _normalize_email(getattr(other, "email", "") or "") if other else ""
+            # Same email (re-registered) → drop stale provider row.
+            if other is None or (claim_email and claim_email == other_email):
+                link.delete()
+                continue
             raise TelegramBindError(
                 "\n".join(
                     [
@@ -582,13 +652,11 @@ def unbind_customer_chat(customer):
     from django_app.models import AuthProvider
 
     chat_id = (customer.telegram_chat_id or "").strip()
-    customer.telegram_chat_id = ""
-    customer.telegram_username = ""
-    customer.telegram_linked_at = None
-    customer.save(update_fields=["telegram_chat_id", "telegram_username", "telegram_linked_at"])
-    if customer.user_id:
+    user_id = customer.user_id
+    clear_telegram_link_on_customer(customer)
+    if user_id:
         qs = AuthProvider.objects.filter(
-            user_id=customer.user_id,
+            user_id=user_id,
             provider=AuthProvider.Provider.TELEGRAM,
         )
         if chat_id:
@@ -785,25 +853,28 @@ def _handle_contact(message, chat_id, from_user, tg_username):
         send_message(chat_id, "\n".join(lines), reply_markup=remove_keyboard())
         return {"ok": True, "handled": True, "linked": customer.pk}
 
-    # Telegram already belongs to someone else — keep owner, block new account.
+    # Telegram already belongs to someone else — keep owner unless stale/same email.
     if existing_here is not None and existing_here.pk != customer.pk:
-        _clear_pending(chat_id)
-        _send_bind_blocked(
-            chat_id,
-            "\n".join(
-                [
-                    "🚫 CarSV · Connect blocked",
-                    "",
-                    "This Telegram is already linked to:",
-                    f"👤 {customer_display_name(existing_here)}",
-                    "",
-                    "That link stays active.",
-                    f"To connect {customer_display_name(customer)}, use a different Telegram",
-                    "(or ask them to Disconnect in Profile first).",
-                ]
-            ),
-        )
-        return {"ok": True, "handled": True, "blocked": True}
+        if release_stale_telegram_owner(existing_here, customer):
+            existing_here = None
+        else:
+            _clear_pending(chat_id)
+            _send_bind_blocked(
+                chat_id,
+                "\n".join(
+                    [
+                        "🚫 CarSV · Connect blocked",
+                        "",
+                        "This Telegram is already linked to:",
+                        f"👤 {customer_display_name(existing_here)}",
+                        "",
+                        "That link stays active.",
+                        f"To connect {customer_display_name(customer)}, use a different Telegram",
+                        "(or ask them to Disconnect in Profile first).",
+                    ]
+                ),
+            )
+            return {"ok": True, "handled": True, "blocked": True}
 
     # CarSV account already linked to another Telegram — Disconnect first.
     if (customer.telegram_chat_id or "").strip():
