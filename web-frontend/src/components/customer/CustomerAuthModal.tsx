@@ -16,6 +16,7 @@ import {
   apiGoogleLogin,
   apiLogin,
   apiLogout,
+  apiMe,
   apiPublicAuthConfig,
   apiRegister,
   apiResendVerification,
@@ -58,9 +59,9 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   initialMode = 'LOGIN',
   onSuccessRedirect
 }) => {
-  const { addToast, openCustomerSession, requestPasswordReset } = useApp();
+  const { addToast, openCustomerSession, requestPasswordReset, saveCustomerProfile, currentUser } = useApp();
 
-  const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT' | 'CHECK_EMAIL'>(initialMode);
+  const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT' | 'CHECK_EMAIL' | 'PHONE'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
@@ -74,6 +75,8 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   const [forgotEmail, setForgotEmail] = useState('');
   const [checkEmailAddr, setCheckEmailAddr] = useState('');
+  /** Always start empty — never auto-fill from Google/profile. */
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
 
@@ -93,6 +96,11 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   if (!isOpen) return null;
 
+  const completeLoginRedirect = () => {
+    onClose();
+    onSuccessRedirect();
+  };
+
   const finishCustomerLogin = async (role: string) => {
     if (role !== 'CUSTOMER') {
       await apiLogout();
@@ -108,9 +116,40 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       addToast({ type: 'error', title: 'Sign in failed', message: 'Could not load your customer profile.' });
       return false;
     }
-    onClose();
-    onSuccessRedirect();
+    const me = await apiMe();
+    const existingPhone = typeof me?.phone === 'string' ? me.phone.trim() : '';
+    if (!existingPhone) {
+      setPhoneNumber('');
+      setMode('PHONE');
+      return true;
+    }
+    completeLoginRedirect();
     return true;
+  };
+
+  const handlePhoneSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const phone = phoneNumber.trim();
+    if (phone.replace(/\D/g, '').length < 8) {
+      addToast({
+        type: 'error',
+        title: 'Phone required',
+        message: 'Enter a valid phone number so we can link Telegram alerts later.',
+      });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const saved = await saveCustomerProfile({
+        name: currentUser?.name || '',
+        phone,
+        address: currentUser?.address || '',
+      });
+      if (!saved) return;
+      completeLoginRedirect();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleGoogleSignIn = async () => {
@@ -295,17 +334,19 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             {mode === 'REGISTER' && 'Create Customer Account'}
             {mode === 'FORGOT' && 'Reset Password'}
             {mode === 'CHECK_EMAIL' && 'Check Your Email'}
+            {mode === 'PHONE' && 'Add Your Phone'}
           </h3>
           <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
             {mode === 'LOGIN' && 'Access your vehicles, bookings, and invoices.'}
             {mode === 'REGISTER' && 'Join CarSV to track repairs and manage service history.'}
             {mode === 'FORGOT' && 'Enter your registered email to receive reset instructions.'}
             {mode === 'CHECK_EMAIL' && 'Open the verification link we sent, then sign in.'}
+            {mode === 'PHONE' && 'Enter your phone number so we can match Telegram alerts to your account.'}
           </p>
         </div>
 
         {/* Mode Tabs (Login / Register) */}
-        {mode !== 'FORGOT' && mode !== 'CHECK_EMAIL' && (
+        {mode !== 'FORGOT' && mode !== 'CHECK_EMAIL' && mode !== 'PHONE' && (
           <div className="flex border-b border-slate-800 bg-slate-950/50 p-1 m-4 rounded-xl">
             <button
               onClick={() => setMode('LOGIN')}
@@ -607,6 +648,44 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                 ← Back to Login
               </button>
             </div>
+          )}
+
+          {/* E. PHONE (after successful login when profile has no phone) */}
+          {mode === 'PHONE' && (
+            <form onSubmit={(e) => void handlePhoneSubmit(e)} className="space-y-4" autoComplete="off">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Phone Number
+                </label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                  <input
+                    type="tel"
+                    name="carsv-phone"
+                    required
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="097 876 7679"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Use the same number you will share with the CarSV Telegram bot.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg transition-all disabled:opacity-50"
+              >
+                {isSubmitting ? 'Saving…' : 'Save Phone & Continue'}
+              </button>
+            </form>
           )}
 
         </div>
