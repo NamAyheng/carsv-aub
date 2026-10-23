@@ -11,7 +11,7 @@
     <div class="cursor-pointer flex flex-row gap-3 items-center min-h-[64px] -mx-4 -my-3 px-4 py-3 hover:bg-white/5"
          x-on:click="if (!$event.target.closest('a')) { openUserLinks = !openUserLinks }"
          x-bind:class="{'bg-white/5': openUserLinks}">
-        <div class="carsv-avatar" style="background:#3b82f6;color:#fff;width:40px;height:40px;font-size:12px;">
+        <div class="carsv-avatar" style="background:#ffc400;color:#141519;width:40px;height:40px;font-size:12px;">
             {{ request.user.first_name|slice:":1"|upper }}{{ request.user.last_name|slice:":1"|upper }}
         </div>
 
