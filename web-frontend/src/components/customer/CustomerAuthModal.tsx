@@ -19,8 +19,10 @@ import {
   apiPublicAuthConfig,
   apiRegister,
   apiResendVerification,
+  apiTelegramLogin,
 } from '../../api/client';
 import { requestGoogleIdToken } from '../../utils/googleSignIn';
+import { requestTelegramLogin } from '../../utils/telegramLogin';
 
 interface CustomerAuthModalProps {
   isOpen: boolean;
@@ -76,6 +78,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   const [checkEmailAddr, setCheckEmailAddr] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [telegramBusy, setTelegramBusy] = useState(false);
 
   const openCheckEmailStep = (addr: string, detail?: string) => {
     const normalized = addr.trim();
@@ -114,7 +117,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   };
 
   const handleGoogleSignIn = async () => {
-    if (googleBusy || isSubmitting) return;
+    if (googleBusy || telegramBusy || isSubmitting) return;
     setGoogleBusy(true);
     try {
       const { google_client_id } = await apiPublicAuthConfig();
@@ -132,12 +135,31 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
   };
 
-  const googleAuthBlock = (
+  const handleTelegramSignIn = async () => {
+    if (googleBusy || telegramBusy || isSubmitting) return;
+    setTelegramBusy(true);
+    try {
+      const { telegram_bot_username } = await apiPublicAuthConfig();
+      const user = await requestTelegramLogin(telegram_bot_username);
+      const session = await apiTelegramLogin(user as unknown as Record<string, unknown>);
+      await finishCustomerLogin(session.role);
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Telegram sign-in failed',
+        message: error instanceof Error ? error.message : 'Could not sign in with Telegram.',
+      });
+    } finally {
+      setTelegramBusy(false);
+    }
+  };
+
+  const socialAuthBlock = (
     <div className="space-y-2 mb-4">
       <button
         type="button"
         onClick={() => void handleGoogleSignIn()}
-        disabled={googleBusy || isSubmitting}
+        disabled={googleBusy || telegramBusy || isSubmitting}
         className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl bg-white border border-slate-300 text-slate-800 text-sm font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50 shadow-sm"
       >
         {googleBusy ? (
@@ -149,11 +171,18 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       </button>
       <button
         type="button"
-        onClick={() => void handleGoogleSignIn()}
-        disabled={googleBusy || isSubmitting}
-        className="w-full text-center text-xs font-medium text-blue-400 hover:text-blue-300 disabled:opacity-50"
+        onClick={() => void handleTelegramSignIn()}
+        disabled={googleBusy || telegramBusy || isSubmitting}
+        className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl bg-[#229ED9] border border-[#1b8bc0] text-white text-sm font-semibold hover:bg-[#1f8fc4] transition-colors disabled:opacity-50 shadow-sm"
       >
-        Click to login through Google
+        {telegramBusy ? (
+          <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <span className="text-base leading-none" aria-hidden="true">
+            ✈
+          </span>
+        )}
+        <span>Sign in with Telegram</span>
       </button>
       <div className="relative py-2">
         <div className="absolute inset-0 flex items-center" aria-hidden="true">
@@ -326,7 +355,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
           {/* A. LOGIN FORM */}
           {mode === 'LOGIN' && (
             <form onSubmit={handleLoginSubmit} className="space-y-4">
-              {googleAuthBlock}
+              {socialAuthBlock}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                   Email Address
@@ -404,7 +433,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
           {/* B. REGISTER FORM */}
           {mode === 'REGISTER' && (
             <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
-              {googleAuthBlock}
+              {socialAuthBlock}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Full Name

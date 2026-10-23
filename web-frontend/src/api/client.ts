@@ -93,13 +93,18 @@ export async function apiLogin(identifier: string, password: string): Promise<Lo
   return data as LoginResult;
 }
 
-export async function apiPublicAuthConfig(): Promise<{ google_client_id: string }> {
+export async function apiPublicAuthConfig(): Promise<{
+  google_client_id: string;
+  telegram_bot_username: string;
+}> {
   const response = await fetch(`${API_BASE}/api/auth/public-config/`, {
     credentials: 'include',
   });
   const data = await readJson(response);
   return {
     google_client_id: typeof data.google_client_id === 'string' ? data.google_client_id : '',
+    telegram_bot_username:
+      typeof data.telegram_bot_username === 'string' ? data.telegram_bot_username.replace(/^@/, '') : '',
   };
 }
 
@@ -113,6 +118,21 @@ export async function apiGoogleLogin(credential: string): Promise<LoginResult> {
   const data = await readJson(response);
   if (!response.ok || !data.ok || typeof data.access !== 'string') {
     throw new Error(typeof data.error === 'string' ? data.error : 'Google sign-in failed.');
+  }
+  accessToken = data.access;
+  return data as LoginResult;
+}
+
+export async function apiTelegramLogin(payload: Record<string, unknown>): Promise<LoginResult> {
+  const response = await fetch(`${API_BASE}/api/auth/telegram/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await readJson(response);
+  if (!response.ok || !data.ok || typeof data.access !== 'string') {
+    throw new Error(typeof data.error === 'string' ? data.error : 'Telegram sign-in failed.');
   }
   accessToken = data.access;
   return data as LoginResult;
