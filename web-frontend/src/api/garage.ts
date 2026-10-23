@@ -58,6 +58,7 @@ export type CustomerProfile = {
   telegram_linked?: boolean;
   telegram_username?: string;
   telegram_alerts?: boolean;
+  has_password?: boolean;
 };
 
 type ApiVehicle = {
@@ -379,6 +380,7 @@ export function userFromProfile(profile: CustomerProfile): User {
     telegramLinked: Boolean(profile.telegram_linked),
     telegramUsername: (profile.telegram_username || '').replace(/^@/, ''),
     telegramAlerts: profile.telegram_alerts !== false,
+    hasPassword: profile.has_password !== false,
   };
 }
 

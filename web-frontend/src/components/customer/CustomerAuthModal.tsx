@@ -209,6 +209,20 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         );
         return;
       }
+      if (error instanceof AuthApiError && error.code === 'NO_LOCAL_PASSWORD') {
+        const addr = (error.email || email).trim();
+        setForgotEmail(addr);
+        setEmail(addr);
+        setMode('FORGOT');
+        addToast({
+          type: 'info',
+          title: 'Set a password',
+          message:
+            error.message ||
+            'This account signed in with Google and has no password yet. Use Forgot password to set one.',
+        });
+        return;
+      }
       addToast({
         type: 'error',
         title: 'Sign in failed',

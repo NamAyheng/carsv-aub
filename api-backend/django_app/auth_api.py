@@ -237,6 +237,14 @@ class LinkGoogleView(APIView):
         raw = request.data.get("id_token") or request.data.get("credential")
         try:
             identity = verify_google_id_token(raw)
+            # Require Google-verified email to match this account (no email-string takeover).
+            if not request.user.email_is_placeholder:
+                account_email = (request.user.email or "").strip().lower()
+                if not account_email or identity["email"] != account_email:
+                    raise AuthError(
+                        "That Google account email does not match this CarSV account.",
+                        400,
+                    )
             link_provider(request.user, AuthProvider.Provider.GOOGLE, identity["sub"])
         except AuthError as exc:
             return _error(exc)

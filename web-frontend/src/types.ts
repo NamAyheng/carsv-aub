@@ -20,6 +20,7 @@ export interface User {
   telegramLinked?: boolean;
   telegramUsername?: string;
   telegramAlerts?: boolean;
+  hasPassword?: boolean;
 }
 
 export interface Customer {

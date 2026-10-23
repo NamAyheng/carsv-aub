@@ -631,8 +631,8 @@ class ApiAuthTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         verify.return_value = {
             "sub": "google-sub-3",
-            "email": "other@example.com",
-            "first_name": "Other",
+            "email": "namayheng12345@gmail.com",
+            "first_name": "Ayheng",
             "last_name": "",
         }
         with override_settings(GOOGLE_CLIENT_ID="test-client"):
@@ -642,6 +642,96 @@ class ApiAuthTests(APITestCase):
         self.assertEqual(blocked.status_code, 200)
         last = self.client.post("/api/auth/unlink/", {"provider": "google"}, format="json")
         self.assertEqual(last.status_code, 400)
+
+    @patch("django_app.auth_api.verify_google_id_token")
+    def test_google_only_account_password_login_and_reset(self, verify):
+        verify.return_value = {
+            "sub": "google-sub-oauth-only",
+            "email": "oauth.only@example.com",
+            "first_name": "OAuth",
+            "last_name": "Only",
+        }
+        with override_settings(GOOGLE_CLIENT_ID="test-client"):
+            created = self.client.post("/api/auth/google/", {"credential": "fake"}, format="json")
+        self.assertEqual(created.status_code, 200)
+        user = User.objects.get(email="oauth.only@example.com")
+        self.assertFalse(user.has_usable_password())
+
+        blocked = self._login(email="oauth.only@example.com", password="Anything123!")
+        self.assertEqual(blocked.status_code, 400)
+        self.assertEqual(blocked.data.get("code"), "NO_LOCAL_PASSWORD")
+        self.assertNotIn("password", blocked.data)
+
+        mail.outbox.clear()
+        reset = self.client.post("/api/auth/password-reset/", {"email": "OAuth.Only@example.com"}, format="json")
+        self.assertEqual(reset.status_code, 200)
+        token = self._token_from_mail(mail.outbox[-1].body, path="token=")
+        confirmed = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {"token": token, "password": "LocalPass123!"},
+            format="json",
+        )
+        self.assertEqual(confirmed.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.has_usable_password())
+        login = self._login(email="oauth.only@example.com", password="LocalPass123!")
+        self.assertEqual(login.status_code, 200)
+
+    @patch("django_app.auth_api.verify_google_id_token")
+    def test_oauth_user_can_set_first_password_without_current(self, verify):
+        verify.return_value = {
+            "sub": "google-sub-set-pw",
+            "email": "set.password@example.com",
+            "first_name": "Set",
+            "last_name": "Password",
+        }
+        with override_settings(GOOGLE_CLIENT_ID="test-client"):
+            created = self.client.post("/api/auth/google/", {"credential": "fake"}, format="json")
+        self.assertEqual(created.status_code, 200)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {created.data['access']}")
+        set_pw = self.client.post(
+            "/api/auth/password/change/",
+            {"current_password": "", "password": "FirstPass123!"},
+            format="json",
+        )
+        self.assertEqual(set_pw.status_code, 200)
+        self.client.credentials()
+        login = self._login(email="set.password@example.com", password="FirstPass123!")
+        self.assertEqual(login.status_code, 200)
+
+    @patch("django_app.auth_api.verify_google_id_token")
+    def test_link_google_rejects_email_mismatch(self, verify):
+        token = self._login(email="namayheng12345@gmail.com", password="Ayheng123!@#").data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        verify.return_value = {
+            "sub": "google-sub-mismatch",
+            "email": "someone.else@example.com",
+            "first_name": "Other",
+            "last_name": "",
+        }
+        with override_settings(GOOGLE_CLIENT_ID="test-client"):
+            response = self.client.post("/api/auth/link/google/", {"id_token": "fake"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("match", response.data["error"].lower())
+
+    def test_google_id_token_requires_verified_email(self):
+        from unittest import mock
+
+        from django_app.auth_services import AuthError, verify_google_id_token
+
+        with override_settings(GOOGLE_CLIENT_ID="test-client"):
+            with mock.patch(
+                "google.oauth2.id_token.verify_oauth2_token",
+                return_value={
+                    "iss": "https://accounts.google.com",
+                    "sub": "sub-unverified",
+                    "email": "unverified@example.com",
+                    "email_verified": False,
+                },
+            ):
+                with self.assertRaises(AuthError) as ctx:
+                    verify_google_id_token("fake-token")
+        self.assertIn("not verified", str(ctx.exception.message).lower())
 
     def test_google_unconfigured(self):
         with override_settings(GOOGLE_CLIENT_ID=""):

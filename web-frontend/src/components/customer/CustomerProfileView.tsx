@@ -57,6 +57,8 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
     setShowEditModal(false);
   };
 
+  const needsCurrentPassword = currentUser?.hasPassword !== false;
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPass !== confirmPass) {
@@ -68,7 +70,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
       return;
     }
     if (liveCustomer) {
-      const changed = await changeCustomerPassword(currentPass, newPass);
+      const changed = await changeCustomerPassword(needsCurrentPassword ? currentPass : '', newPass);
       if (!changed) return;
     } else {
       addToast({
@@ -393,7 +395,9 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <h3 className="text-base font-bold text-white">Change Security Password</h3>
+              <h3 className="text-base font-bold text-white">
+                {needsCurrentPassword ? 'Change Security Password' : 'Set a Password'}
+              </h3>
               <button
                 onClick={() => setShowPasswordModal(false)}
                 className="p-1 text-slate-400 hover:text-white rounded-full bg-slate-800"
@@ -403,6 +407,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
             </div>
 
             <form onSubmit={handleChangePassword} className="space-y-4">
+              {needsCurrentPassword && (
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Current Password</label>
                 <input
@@ -413,6 +418,12 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
                   className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
                 />
               </div>
+              )}
+              {!needsCurrentPassword && (
+                <p className="text-xs text-slate-400">
+                  You signed in with Google and do not have a local password yet. Set one to also use email sign-in.
+                </p>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">New Password</label>
@@ -448,7 +459,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold shadow-lg"
                 >
-                  Update Password
+                  {needsCurrentPassword ? 'Update Password' : 'Set Password'}
                 </button>
               </div>
             </form>

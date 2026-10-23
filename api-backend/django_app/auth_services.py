@@ -98,7 +98,17 @@ def notify_telegram_signed_in(user):
 
 def password_login(identifier, password):
     user = User.objects.filter(email__iexact=identifier).first() or User.objects.filter(username__iexact=identifier).first()
-    if user is None or not user.check_password(password):
+    if user is None:
+        raise AuthError(INVALID_CREDENTIALS, 400)
+    if not user.has_usable_password():
+        # Google/Telegram-only accounts — same person, no local password yet.
+        raise AuthError(
+            "This account has no password yet. Use Forgot password to set one, or sign in with Google.",
+            400,
+            code="NO_LOCAL_PASSWORD",
+            email=public_email(user),
+        )
+    if not user.check_password(password):
         raise AuthError(INVALID_CREDENTIALS, 400)
     if user.role == User.Role.CUSTOMER and not user.email_verified:
         try:
@@ -310,7 +320,8 @@ def resend_verification(email):
 
 
 def request_password_reset(email):
-    user = User.objects.filter(email__iexact=(email or "").strip(), email_is_placeholder=False).first()
+    normalized = (email or "").strip().lower()
+    user = User.objects.filter(email__iexact=normalized, email_is_placeholder=False).first()
     if user:
         token = TimestampSigner(salt=PASSWORD_RESET_SALT).sign(str(user.pk))
         _send_password_reset_email(user, token)
@@ -335,8 +346,10 @@ def confirm_password_reset(token, password):
 
 
 def change_password(user, current_password, new_password):
-    if not user.check_password(current_password or ""):
-        raise AuthError("Current password is incorrect.", 400)
+    # OAuth-only accounts may set a first local password without a current one.
+    if user.has_usable_password():
+        if not user.check_password(current_password or ""):
+            raise AuthError("Current password is incorrect.", 400)
     try:
         validate_password(new_password, user)
     except DjangoValidationError as exc:
@@ -471,7 +484,12 @@ def _provider_login(provider, provider_user_id, build_user):
 def _activate_google_customer(user, identity):
     """Google already verified the email — activate / refresh profile for login."""
     if user.role != User.Role.CUSTOMER:
-        raise AuthError("This Google account is not linked to a customer profile.", 403)
+        raise AuthError(
+            "This Google email belongs to a staff/admin account. "
+            "Use a different Google account for the customer portal, "
+            "or ask an admin to free that email for customer use.",
+            403,
+        )
     changed = False
     if user.status != User.Status.ACTIVE:
         user.status = User.Status.ACTIVE
