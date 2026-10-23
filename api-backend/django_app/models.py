@@ -1679,6 +1679,21 @@ class TelegramLinkPending(models.Model):
         return f"pending {self.chat_id} → customer {self.customer_id}"
 
 
+class GarageReport(models.Model):
+    """Virtual admin menu entry for garage reports (no database table)."""
+
+    id = models.BigAutoField(primary_key=True)
+
+    class Meta:
+        managed = False
+        verbose_name = "report"
+        verbose_name_plural = "reports"
+        default_permissions = ("view",)
+
+    def __str__(self):
+        return "Garage report"
+
+
 JOB_STAGES = (
     RepairJob.Status.WAITING,
     RepairJob.Status.DIAGNOSING,

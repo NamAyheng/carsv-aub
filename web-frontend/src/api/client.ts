@@ -179,6 +179,23 @@ export async function apiVerifyEmail(token: string): Promise<{ detail?: string }
   return { detail: typeof data.detail === 'string' ? data.detail : undefined };
 }
 
+export async function apiConfirmPasswordReset(
+  token: string,
+  password: string,
+): Promise<{ detail?: string }> {
+  const response = await fetch(`${API_BASE}/api/auth/password-reset/confirm/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: token.trim(), password }),
+  });
+  const data = await readJson(response);
+  if (!response.ok || !data.ok) {
+    throw new Error(typeof data.error === 'string' ? data.error : 'Could not reset password.');
+  }
+  return { detail: typeof data.detail === 'string' ? data.detail : undefined };
+}
+
 export async function apiResendVerification(email: string): Promise<void> {
   const response = await fetch(`${API_BASE}/api/auth/resend-verification/`, {
     method: 'POST',

@@ -222,7 +222,7 @@ def _deliver_verification_email(user):
 
 
 def _send_password_reset_email(user, token):
-    link = f"{_frontend_base()}/?reset=1&token={quote(token, safe='')}"
+    link = f"{_frontend_base()}/reset-password?token={quote(token, safe='')}"
     body = (
         "Reset your CarSV password by opening this link (expires in 1 hour):\n"
         f"{link}\n\n"

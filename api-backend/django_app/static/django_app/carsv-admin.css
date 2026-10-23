@@ -629,6 +629,13 @@ body.carsv-admin {
   margin: 4px 0 0;
 }
 
+.carsv-hello-email {
+  font-size: 12px !important;
+  font-weight: 600;
+  color: #334155 !important;
+  margin-top: 6px !important;
+}
+
 .carsv-chip {
   font-size: 11px;
   font-weight: 700;
@@ -644,6 +651,12 @@ body.carsv-admin {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1.5rem;
+}
+
+@media (max-width: 1100px) {
+  .carsv-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .carsv-card {
@@ -4996,6 +5009,15 @@ body.carsv-delete .object-tools {
   .iv-cards {
     grid-template-columns: 1fr;
   }
+}
+
+/* Reports: printable sheet is screen-hidden; print uses .iv-sheet rules */
+.rp-print-sheet {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 210mm;
+  pointer-events: none;
 }
 
 @media print {
