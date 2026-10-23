@@ -81,4 +81,10 @@ user.save(update_fields=["role", "status", "email_verified"])
 print("Superuser bootstrap created.")
 PY
 
+# Opt-in catalog demo only. Never default-on. Idempotent; does not touch users/private data.
+if [ "${DJANGO_SEED_DEMO:-0}" = "1" ]; then
+  echo "DJANGO_SEED_DEMO=1 — running seed_catalog_demo..."
+  python manage.py seed_catalog_demo
+fi
+
 exec "$@"

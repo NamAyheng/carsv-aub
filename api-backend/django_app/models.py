@@ -142,7 +142,7 @@ class User(AbstractUser):
         previous_role = None
         if self.pk:
             previous_role = type(self).objects.filter(pk=self.pk).values_list("role", flat=True).first()
-        self.email = (self.email or "").strip()
+        self.email = (self.email or "").strip().lower()
         self.is_active = self.status == self.Status.ACTIVE
         super().save(*args, **kwargs)
         apply_role_assignment(self, previous_role=previous_role)

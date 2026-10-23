@@ -42,7 +42,9 @@ class ResendAPIBackend(BaseEmailBackend):
 
     def _send_one(self, api_key, message):
         from_email = message.from_email or getattr(settings, "DEFAULT_FROM_EMAIL", "") or ""
-        to = list(message.to or [])
+        # Lowercase recipients so Resend's test-mode allowlist matches (Gmail is
+        # case-insensitive, but Resend compares the address literally).
+        to = [(addr or "").strip().lower() for addr in list(message.to or []) if (addr or "").strip()]
         if not to:
             return
         payload = {

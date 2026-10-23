@@ -19,14 +19,15 @@ import {
   Camera
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { mediaUrl } from '../../api/garage';
 import { belongsToCurrentCustomer } from '../../utils/customerScope';
 import { softStatusBadge } from '../../utils/customerStatusTone';
 import { invoiceRemaining, remindersFromVehicles } from '../../utils/garageLogic';
 
-const brakePadsImg = '/media/parts/2026/09/part-ceramic-brake-pads.jpg';
-const engineOilImg = '/media/parts/2026/09/part-synthetic-motor-oil.jpg';
-const carBatteryImg = '/media/parts/2026/09/part-car-battery-agm.jpg';
-const sparkPlugsImg = '/media/parts/part-spark-plugs-set.jpg';
+const brakePadsImg = mediaUrl('/media/parts/part-ceramic-brake-pads.jpg');
+const engineOilImg = mediaUrl('/media/parts/part-synthetic-motor-oil.jpg');
+const carBatteryImg = mediaUrl('/media/parts/part-car-battery-agm.jpg');
+const sparkPlugsImg = mediaUrl('/media/parts/part-spark-plugs-set.jpg');
 
 
 

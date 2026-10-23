@@ -495,6 +495,36 @@ class ApiAuthTests(APITestCase):
             self.assertEqual(allowed.status_code, 200)
             self.assertEqual(allowed.getvalue(), b"secret-bytes")
 
+    def test_seed_catalog_demo_is_idempotent_and_skips_users(self):
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        from django.core.management import call_command
+        from django.test import override_settings
+
+        catalog = Path(__file__).resolve().parents[1] / "catalog_media"
+        self.assertTrue((catalog / "services" / "service-oil-change.jpg").is_file())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            media_root = Path(tmp)
+            for prefix in ("services", "parts", "blog", "products"):
+                src = catalog / prefix
+                if src.is_dir():
+                    shutil.copytree(src, media_root / prefix)
+            users_before = User.objects.count()
+            with override_settings(MEDIA_ROOT=str(media_root)):
+                call_command("seed_catalog_demo")
+                first_services = Service.objects.count()
+                first_parts = SparePart.objects.count()
+                self.assertGreaterEqual(first_services, 1)
+                self.assertGreaterEqual(first_parts, 1)
+                call_command("seed_catalog_demo")
+                self.assertEqual(Service.objects.count(), first_services)
+                self.assertEqual(SparePart.objects.count(), first_parts)
+            self.assertEqual(User.objects.count(), users_before)
+            self.assertFalse(Vehicle.objects.filter(notes__startswith="sample-garage").exists())
+
     def test_resend_api_backend_posts_over_https(self):
         from unittest import mock
 

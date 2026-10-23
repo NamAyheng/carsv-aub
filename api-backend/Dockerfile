@@ -14,8 +14,10 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY . .
+# Bake public catalog only (services/parts/blog/products). Private uploads stay out of Git/image.
 RUN chmod +x /app/docker-entrypoint.sh \
-    && mkdir -p /app/media /app/staticfiles
+    && mkdir -p /app/media /app/staticfiles \
+    && if [ -d /app/catalog_media ]; then cp -a /app/catalog_media/. /app/media/; fi
 
 EXPOSE 8000
 

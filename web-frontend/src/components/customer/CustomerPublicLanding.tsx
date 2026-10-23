@@ -30,9 +30,18 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { mediaUrl } from '../../api/garage';
 import { pathForSection } from '../../routes';
 import { loadPublicBlog, PublicBlogPost } from '../../api/blog';
 import { CustomerPublicShell } from './CustomerPublicShell';
+
+const FALLBACK_SERVICE_IMG = mediaUrl('/media/services/service-oil-change.jpg');
+const HERO_WORKSHOP_IMG = mediaUrl('/media/blog/bmw-wheel-impact-wrench-service.jpg');
+const FACILITY_BAYS_IMG = mediaUrl('/media/services/service-oil-change.jpg');
+/** Public catalog only — never private /media/vehicles/ uploads. */
+const FACILITY_ALIGNMENT_IMG = mediaUrl('/media/services/service-wheel-alignment.jpg');
+const FACILITY_DIAGNOSTICS_IMG = mediaUrl('/media/services/service-engine-diagnostic.jpg');
+const FACILITY_LOUNGE_IMG = mediaUrl('/media/blog/cafe-interior-broel.jpg');
 
 
 interface CustomerPublicLandingProps {
@@ -195,7 +204,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
             <div className="lg:col-span-5 relative">
               <div className="relative rounded-2xl overflow-hidden border border-slate-700/80 shadow-2xl bg-slate-900 group">
                 <img
-                  src="/media/blog/bmw-wheel-impact-wrench-service.jpg"
+                  src={HERO_WORKSHOP_IMG}
                   alt="CarSV High-Tech Workshop Bay"
                   className="w-full h-[460px] object-cover group-hover:scale-105 transition-transform duration-700"
                 />
@@ -460,12 +469,12 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                 {/* Real Service Photography Header */}
                 <div className="relative h-48 w-full bg-slate-950 overflow-hidden">
                   <img
-                    src={service.imageUrl || '/media/services/service-oil-change.jpg'}
+                    src={service.imageUrl || FALLBACK_SERVICE_IMG}
                     alt={service.name}
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = '/media/services/service-oil-change.jpg';
+                      (e.target as HTMLImageElement).src = FALLBACK_SERVICE_IMG;
                     }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/30 to-transparent" />
@@ -724,7 +733,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="/media/services/service-oil-change.jpg"
+                src={FACILITY_BAYS_IMG}
                 alt="Hydraulic Lifts"
                 className="w-full h-44 object-cover"
               />
@@ -738,7 +747,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="/media/vehicles/white-audi-suv-snow-road.jpg"
+                src={FACILITY_ALIGNMENT_IMG}
                 alt="3D Laser Alignment"
                 className="w-full h-44 object-cover"
               />
@@ -752,7 +761,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="/media/vehicles/silver-bmw-coupe-sunset.jpg"
+                src={FACILITY_DIAGNOSTICS_IMG}
                 alt="OBD Diagnostics"
                 className="w-full h-44 object-cover"
               />
@@ -766,7 +775,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
 
             <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
               <img
-                src="/media/blog/cafe-interior-broel.jpg"
+                src={FACILITY_LOUNGE_IMG}
                 alt="Customer Lounge"
                 className="w-full h-44 object-cover"
               />
