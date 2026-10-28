@@ -25,13 +25,16 @@ from django_app.role_access import RoleGatedAdminMixin, staff_role
 from django_app.models import (
     AuthProvider,
     Booking,
+    BookingService,
     Customer,
     BlogPost,
     Estimate,
     GarageReport,
     Inspection,
     InspectionImage,
+    InspectionRecommendation,
     Notification,
+    save_inspection_recommendations,
     Invoice,
     Mechanic,
     PartRequest,
@@ -939,6 +942,20 @@ class InspectionGarageForm(GarageModelForm):
         ),
         help_text="JPG, PNG, WEBP, or GIF. 5 MB each. Choose more than one photo if you need to.",
     )
+    recommend_services = forms.ModelMultipleChoiceField(
+        required=False,
+        queryset=Service.objects.none(),
+        # Must stay visible so modal_form_fields.html can replace the widget UI.
+        # MultipleHiddenInput is excluded from visible_fields and never rendered.
+        widget=forms.CheckboxSelectMultiple,
+        label="Recommended services",
+    )
+    recommend_parts = forms.ModelMultipleChoiceField(
+        required=False,
+        queryset=SparePart.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        label="Recommended parts",
+    )
 
     class Meta:
         model = Inspection
@@ -958,7 +975,9 @@ class InspectionGarageForm(GarageModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        jobs = RepairJob.objects.select_related("customer", "vehicle").order_by("-id")
+        jobs = RepairJob.objects.select_related(
+            "customer", "vehicle", "booking", "booking__service"
+        ).order_by("-id")
         if self.instance.pk and self.instance.repair_job_id:
             jobs = jobs.filter(Q(inspection__isnull=True) | Q(pk=self.instance.repair_job_id))
         else:
@@ -1008,6 +1027,87 @@ class InspectionGarageForm(GarageModelForm):
         if posted:
             chosen = jobs.filter(pk=posted).first() or chosen
         self.fields["complaint"].initial = chosen.problem if chosen is not None else ""
+
+        booked_service_ids = set()
+        booked_service_labels = []
+        booked_part_ids = set()
+        booked_part_labels = []
+        if chosen is not None and chosen.booking_id:
+            booking = chosen.booking
+            if booking.service_id:
+                booked_service_ids.add(booking.service_id)
+                booked_service_labels.append(booking.service.name)
+            for extra in booking.added_services.exclude(source=BookingService.Source.INSPECTOR).select_related(
+                "service"
+            ):
+                booked_service_ids.add(extra.service_id)
+                if extra.service and extra.service.name not in booked_service_labels:
+                    booked_service_labels.append(extra.service.name)
+            for request_row in (
+                PartRequest.objects.filter(booking=booking)
+                .exclude(status=PartRequest.Status.CANCELLED)
+                .exclude(source=PartRequest.Source.INSPECTOR)
+                .select_related("spare_part")
+            ):
+                booked_part_ids.add(request_row.spare_part_id)
+                label = request_row.spare_part.name if request_row.spare_part_id else ""
+                if label and label not in booked_part_labels:
+                    booked_part_labels.append(label)
+
+        active_services = (
+            Service.objects.filter(status="ACTIVE")
+            .exclude(pk__in=booked_service_ids)
+            .select_related("category")
+            .order_by("name")
+        )
+        active_parts = (
+            SparePart.objects.filter(status=SparePart.Status.ACTIVE, quantity__gt=0)
+            .exclude(pk__in=booked_part_ids)
+            .order_by("name")
+        )
+        self.fields["recommend_services"].queryset = active_services
+        self.fields["recommend_parts"].queryset = active_parts
+        self.booked_service_ids = booked_service_ids
+        self.booked_part_ids = booked_part_ids
+
+        existing_recs = list(self.instance.recommendations.all()) if self.instance.pk else []
+        selected_services = [
+            rec.service_id
+            for rec in existing_recs
+            if rec.kind == InspectionRecommendation.Kind.SERVICE
+            and rec.service_id
+            and rec.service_id not in booked_service_ids
+            and not rec.customer_declined
+        ]
+        selected_parts = [
+            rec.spare_part_id
+            for rec in existing_recs
+            if rec.kind == InspectionRecommendation.Kind.PART
+            and rec.spare_part_id
+            and rec.spare_part_id not in booked_part_ids
+            and not rec.customer_declined
+        ]
+        if self.is_bound:
+            selected_services = [
+                int(v)
+                for v in self.data.getlist("recommend_services")
+                if str(v).isdigit() and int(v) not in booked_service_ids
+            ]
+            selected_parts = [
+                int(v)
+                for v in self.data.getlist("recommend_parts")
+                if str(v).isdigit() and int(v) not in booked_part_ids
+            ]
+        self.fields["recommend_services"].initial = selected_services
+        self.fields["recommend_parts"].initial = selected_parts
+        self.recommendation_rows = self._build_recommendation_rows(
+            existing_recs,
+            selected_services,
+            selected_parts,
+            booked_service_labels,
+            booked_part_labels,
+        )
+
         self.order_fields(
             [
                 "repair_job",
@@ -1020,11 +1120,63 @@ class InspectionGarageForm(GarageModelForm):
                 "staff",
                 "complaint",
                 "condition",
+                "recommend_services",
+                "recommend_parts",
                 "damage",
                 "note",
                 "images",
             ]
         )
+
+    def _build_recommendation_rows(
+        self, existing_recs, selected_services, selected_parts, booked_service_labels, booked_part_labels
+    ):
+        notes = {rec.service_id: rec.note for rec in existing_recs if rec.service_id}
+        part_meta = {
+            rec.spare_part_id: {"note": rec.note, "quantity": rec.quantity}
+            for rec in existing_recs
+            if rec.spare_part_id
+        }
+        service_rows = []
+        for service in list(self.fields["recommend_services"].queryset[:60]):
+            note = notes.get(service.id, "")
+            if self.is_bound:
+                note = self.data.get(f"rec_service_note_{service.id}", note)
+            service_rows.append(
+                {
+                    "id": service.id,
+                    "name": service.name,
+                    "price": f"{service.price}",
+                    "checked": service.id in selected_services,
+                    "note": note or "",
+                }
+            )
+        part_rows = []
+        for part in list(self.fields["recommend_parts"].queryset[:60]):
+            meta = part_meta.get(part.id) or {"note": "", "quantity": 1}
+            note = meta.get("note") or ""
+            qty = meta.get("quantity") or 1
+            if self.is_bound:
+                note = self.data.get(f"rec_part_note_{part.id}", note)
+                qty = self.data.get(f"rec_part_qty_{part.id}", qty)
+            part_rows.append(
+                {
+                    "id": part.id,
+                    "name": part.name,
+                    "sku": part.part_number,
+                    "price": f"{part.unit_price}",
+                    "stock": part.quantity,
+                    "checked": part.id in selected_parts,
+                    "note": note or "",
+                    "quantity": qty or 1,
+                }
+            )
+        return {
+            "services": service_rows,
+            "parts": part_rows,
+            "booked_services": booked_service_labels,
+            "booked_parts": booked_part_labels,
+        }
 
     def clean(self):
         cleaned = super().clean()
@@ -1041,6 +1193,41 @@ class InspectionGarageForm(GarageModelForm):
             )
             if not has_photos:
                 self.add_error("images", "Add at least one photo to complete the inspection.")
+
+        booked_service_ids = getattr(self, "booked_service_ids", set()) or set()
+        booked_part_ids = getattr(self, "booked_part_ids", set()) or set()
+        service_items = []
+        for service in cleaned.get("recommend_services") or []:
+            if service.id in booked_service_ids:
+                self.add_error(
+                    "recommend_services",
+                    f"{service.name} is already on the customer booking and cannot be recommended again.",
+                )
+                continue
+            service_items.append({"service": service, "note": ""})
+        part_items = []
+        for part in cleaned.get("recommend_parts") or []:
+            if part.id in booked_part_ids:
+                self.add_error(
+                    "recommend_parts",
+                    f"{part.name} is already on the customer booking and cannot be recommended again.",
+                )
+                continue
+            raw_qty = self.data.get(f"rec_part_qty_{part.id}") or "1"
+            try:
+                qty = max(int(raw_qty), 1)
+            except (TypeError, ValueError):
+                self.add_error("recommend_parts", f"Quantity for {part.name} must be a whole number.")
+                continue
+            if qty > (part.quantity or 0):
+                self.add_error(
+                    "recommend_parts",
+                    f"{part.name}: only {part.quantity} in stock (requested {qty}).",
+                )
+                continue
+            part_items.append({"spare_part": part, "quantity": qty, "note": ""})
+        cleaned["recommendation_service_items"] = service_items
+        cleaned["recommendation_part_items"] = part_items
         return cleaned
 
     def save(self, commit=True):
@@ -1053,7 +1240,18 @@ class InspectionGarageForm(GarageModelForm):
 
             for uploaded in self.cleaned_data.get("images") or []:
                 InspectionImage.objects.create(inspection=inspection, image=uploaded)
+            self._persist_recommendations(inspection)
         return inspection
+
+    def _persist_recommendations(self, inspection):
+        try:
+            save_inspection_recommendations(
+                inspection,
+                service_items=self.cleaned_data.get("recommendation_service_items") or [],
+                part_items=self.cleaned_data.get("recommendation_part_items") or [],
+            )
+        except ValidationError as exc:
+            raise forms.ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages)
 
 class RepairJobGarageForm(GarageModelForm):
     class Meta:
@@ -3760,7 +3958,7 @@ class InspectionAdmin(CarsvPageAdmin):
     list_display = ("id", "repair_job", "status", "mileage", "staff", "checked_in_at")
     modal_title_add = "Add Inspection"
     modal_title_edit = "Edit Inspection"
-    modal_subtitle = "Check the car for this work order. The complaint comes from the work order."
+    modal_subtitle = "Check the car, then optionally recommend extra services and parts for the quote."
     modal_save_add = "Save Inspection"
     STATUS_BADGE = {
         Inspection.Status.PENDING: "pending",
@@ -3796,13 +3994,24 @@ class InspectionAdmin(CarsvPageAdmin):
         super().save_model(request, obj, form, change)
         for uploaded in form.cleaned_data.get("images") or []:
             InspectionImage.objects.create(inspection=obj, image=uploaded)
+        # Recommendations must run here — form.save(commit=True) is never used by ModelAdmin.
+        if hasattr(form, "_persist_recommendations"):
+            try:
+                form._persist_recommendations(obj)
+            except forms.ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc))
+            except ValidationError as exc:
+                messages.error(
+                    request,
+                    "; ".join(exc.messages) if getattr(exc, "messages", None) else str(exc),
+                )
 
     def get_queryset(self, request):
         return (
             super()
             .get_queryset(request)
             .select_related("repair_job__customer", "repair_job__vehicle", "staff__user")
-            .prefetch_related("images")
+            .prefetch_related("images", "recommendations")
         )
 
     def changelist_view(self, request, extra_context=None):

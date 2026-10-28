@@ -1445,6 +1445,157 @@ class CustomerApiTests(APITestCase):
         self.assertEqual(sheet.data["service_name"], "Requested part")
         self.assertEqual(sheet.data["parts"][0]["part_number"], "OF-NEW")
 
+    def test_inspector_recommendations_appear_on_quote_and_can_be_declined(self):
+        from django_app.models import (
+            InspectionRecommendation,
+            save_inspection_recommendations,
+            decline_inspection_recommendation,
+        )
+
+        booking = Booking.objects.create(
+            customer=self.owner.customer,
+            vehicle=self.own_vehicle,
+            service=self.service,
+            booking_date=date(2026, 12, 15),
+            booking_time="09:00",
+            status=Booking.Status.WAITING_APPROVAL,
+        )
+        job = RepairJob.objects.create(
+            booking=booking,
+            customer=self.owner.customer,
+            vehicle=self.own_vehicle,
+            problem="Noise after booking",
+            status=RepairJob.Status.WAITING_APPROVAL,
+            progress=40,
+        )
+        inspection = Inspection.objects.create(
+            repair_job=job,
+            status=Inspection.Status.COMPLETED,
+            mileage=42000,
+            fuel_level=Inspection.Fuel.HALF,
+            front_brake_mm="6.0",
+            rear_brake_mm="5.5",
+            tire_tread_mm="4.0",
+            condition="Fair",
+            damage="Worn pads",
+            note="Recommend extras",
+        )
+        upgrade = Service.objects.create(
+            category=self.service.category,
+            name="Alignment check",
+            price="35.00",
+            status="ACTIVE",
+        )
+        category = SparePartCategory.objects.create(name="Rec pads")
+        part = SparePart.objects.create(
+            part_number="PAD-REC",
+            name="Pad set",
+            category=category,
+            unit_price="22.00",
+            quantity=5,
+            status=SparePart.Status.ACTIVE,
+        )
+        save_inspection_recommendations(
+            inspection,
+            service_items=[{"service": upgrade, "note": "Pulling to the left"}],
+            part_items=[{"spare_part": part, "quantity": 2, "note": "Front axle wear"}],
+        )
+        booking.refresh_from_db()
+        self.assertEqual(booking.added_services.count(), 1)
+        extra = booking.added_services.get()
+        self.assertEqual(extra.source, BookingService.Source.INSPECTOR)
+        self.assertEqual(extra.note, "Pulling to the left")
+        request_row = PartRequest.objects.get(booking=booking, spare_part=part)
+        self.assertEqual(request_row.source, PartRequest.Source.INSPECTOR)
+        self.assertEqual(request_row.quantity, 2)
+        self.assertEqual(request_row.notes, "Front axle wear")
+        part.refresh_from_db()
+        self.assertEqual(part.quantity, 5)
+
+        repairs = self.client.get("/api/customer/repairs/")
+        self.assertEqual(repairs.status_code, 200)
+        services = repairs.data[0]["services"]
+        self.assertEqual(
+            [row["name"] for row in services],
+            ["Pad replacement", "Alignment check"],
+        )
+        self.assertEqual(services[1]["source"], "INSPECTOR")
+
+        rec = InspectionRecommendation.objects.get(inspection=inspection, service=upgrade)
+        decline_inspection_recommendation(rec)
+        booking.refresh_from_db()
+        self.assertEqual(booking.added_services.count(), 0)
+        rec.refresh_from_db()
+        self.assertTrue(rec.customer_declined)
+        self.assertTrue(InspectionRecommendation.objects.filter(pk=rec.pk).exists())
+
+    def test_booking_create_accepts_multiple_services_and_parts(self):
+        upgrade = Service.objects.create(
+            category=self.service.category,
+            name="Cabin clean",
+            price="25.00",
+            status="ACTIVE",
+        )
+        category = SparePartCategory.objects.create(name="Booking kit filters")
+        part = SparePart.objects.create(
+            part_number="OF-BOOK",
+            name="Booking filter",
+            category=category,
+            unit_price="8.50",
+            quantity=4,
+            status=SparePart.Status.ACTIVE,
+        )
+        out_of_stock = SparePart.objects.create(
+            part_number="OF-EMPTY",
+            name="Empty filter",
+            category=category,
+            unit_price="1.00",
+            quantity=0,
+            status=SparePart.Status.ACTIVE,
+        )
+        denied = self.client.post(
+            "/api/customer/bookings/",
+            {
+                "vehicle": self.own_vehicle.id,
+                "service": self.service.id,
+                "booking_date": "2026-12-10",
+                "booking_time": "10:00",
+                "problem": "Multi line items",
+                "extra_services": [upgrade.id],
+                "parts": [out_of_stock.id],
+            },
+            format="json",
+        )
+        self.assertEqual(denied.status_code, 400, denied.data)
+        self.assertEqual(Booking.objects.filter(vehicle=self.own_vehicle, booking_date=date(2026, 12, 10)).count(), 0)
+
+        created = self.client.post(
+            "/api/customer/bookings/",
+            {
+                "vehicle": self.own_vehicle.id,
+                "service": self.service.id,
+                "booking_date": "2026-12-10",
+                "booking_time": "10:00",
+                "problem": "Multi line items",
+                "extra_services": [upgrade.id, self.service.id],
+                "parts": [part.id],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+        self.assertEqual(
+            [row["name"] for row in created.data["services"]],
+            ["Pad replacement", "Cabin clean"],
+        )
+        booking = Booking.objects.get(pk=created.data["id"])
+        self.assertEqual(booking.added_services.count(), 1)
+        requests = PartRequest.objects.filter(booking=booking)
+        self.assertEqual(requests.count(), 1)
+        self.assertEqual(requests.first().spare_part_id, part.id)
+        self.assertEqual(requests.first().fulfillment, PartRequest.Fulfillment.INSTALL)
+        part.refresh_from_db()
+        self.assertEqual(part.quantity, 4)
+
     def test_extra_service_and_part_stay_on_the_same_visit_until_check_in(self):
         created = self.client.post(
             "/api/customer/bookings/",

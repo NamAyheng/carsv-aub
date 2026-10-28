@@ -346,9 +346,23 @@ class Booking(models.Model):
 class BookingService(models.Model):
     """A service added onto a visit after the original booking."""
 
+    class Source(models.TextChoices):
+        BOOKING = "BOOKING", "Booked by customer"
+        CUSTOMER = "CUSTOMER", "Added by customer"
+        INSPECTOR = "INSPECTOR", "Recommended by inspector"
+
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name="added_services")
     service = models.ForeignKey(Service, on_delete=models.PROTECT, related_name="booking_additions")
     price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.CUSTOMER)
+    note = models.TextField(blank=True)
+    inspection = models.ForeignKey(
+        "Inspection",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="recommended_services",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -446,6 +460,65 @@ class InspectionImage(models.Model):
 
     def __str__(self):
         return self.image.name
+
+
+class InspectionRecommendation(models.Model):
+    """Inspector suggestion kept even if the customer declines it on the quote."""
+
+    class Kind(models.TextChoices):
+        SERVICE = "SERVICE", "Service"
+        PART = "PART", "Part"
+
+    inspection = models.ForeignKey(Inspection, on_delete=models.CASCADE, related_name="recommendations")
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    service = models.ForeignKey(
+        Service, null=True, blank=True, on_delete=models.PROTECT, related_name="inspection_recommendations"
+    )
+    spare_part = models.ForeignKey(
+        "SparePart", null=True, blank=True, on_delete=models.PROTECT, related_name="inspection_recommendations"
+    )
+    quantity = models.PositiveIntegerField(default=1)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    note = models.TextField(blank=True)
+    customer_declined = models.BooleanField(default=False)
+    declined_at = models.DateTimeField(null=True, blank=True)
+    booking_service = models.OneToOneField(
+        BookingService,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="inspection_recommendation",
+    )
+    part_request = models.OneToOneField(
+        "PartRequest",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="inspection_recommendation",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["inspection", "service"],
+                condition=models.Q(kind="SERVICE", service__isnull=False),
+                name="unique_inspection_recommended_service",
+            ),
+            models.UniqueConstraint(
+                fields=["inspection", "spare_part"],
+                condition=models.Q(kind="PART", spare_part__isnull=False),
+                name="unique_inspection_recommended_part",
+            ),
+        ]
+
+    def __str__(self):
+        if self.kind == self.Kind.SERVICE and self.service_id:
+            return f"Rec service · {self.service}"
+        if self.kind == self.Kind.PART and self.spare_part_id:
+            return f"Rec part · {self.spare_part} x{self.quantity}"
+        return f"Recommendation {self.pk}"
 
 
 class Mechanic(models.Model):
@@ -848,7 +921,8 @@ def sync_invoice_costs(job):
     issued = job.parts_used.aggregate(total=Sum("total"))["total"] or Decimal("0")
     pending = Decimal("0")
     for request_row in visit_open_part_requests(job):
-        pending += Decimal(request_row.spare_part.unit_price or 0)
+        qty = max(int(request_row.quantity or 1), 1)
+        pending += Decimal(request_row.spare_part.unit_price or 0) * qty
     invoice.parts_cost = issued + pending
     booking = job.booking if job.booking_id else None
     if booking is not None and not (booking.note or "").startswith("Opened from"):
@@ -1035,6 +1109,11 @@ class PartRequest(models.Model):
         CONFIRMED = "CONFIRMED", "Confirmed"
         CANCELLED = "CANCELLED", "Cancelled"
 
+    class Source(models.TextChoices):
+        BOOKING = "BOOKING", "Booked by customer"
+        CUSTOMER = "CUSTOMER", "Added by customer"
+        INSPECTOR = "INSPECTOR", "Recommended by inspector"
+
     number = models.CharField(max_length=40, unique=True, null=True, blank=True)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="part_requests")
     vehicle = models.ForeignKey(
@@ -1051,6 +1130,15 @@ class PartRequest(models.Model):
         "PartsUsage", null=True, blank=True, on_delete=models.SET_NULL, related_name="part_request"
     )
     fulfillment = models.CharField(max_length=32, choices=Fulfillment.choices, default=Fulfillment.INSTALL)
+    quantity = models.PositiveIntegerField(default=1)
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.CUSTOMER)
+    inspection = models.ForeignKey(
+        Inspection,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="recommended_parts",
+    )
     notes = models.TextField(blank=True)
     cancel_reason = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
@@ -1990,7 +2078,39 @@ def visit_service_total(booking):
     return total + Decimal(extra)
 
 
-def add_booking_service(booking, service):
+def attach_booking_catalog_items(booking, extra_services=None, spare_parts=None):
+    """
+    Attach extra catalog services and workshop-install part requests to a new booking.
+    Stock is not deducted here — it stays on the shelf until the garage issues parts.
+    """
+    extras = list(extra_services or [])
+    parts = list(spare_parts or [])
+    for service in extras:
+        if service is None:
+            continue
+        if booking.service_id == service.id:
+            continue
+        add_booking_service(booking, service, source=BookingService.Source.BOOKING)
+    for part in parts:
+        if part is None:
+            continue
+        if part.status != SparePart.Status.ACTIVE:
+            raise ValidationError({"parts": f"{part.name} is not available."})
+        if (part.quantity or 0) < 1:
+            raise ValidationError({"parts": f"{part.name} is out of stock."})
+        PartRequest.objects.create(
+            customer=booking.customer,
+            vehicle=booking.vehicle,
+            booking=booking,
+            spare_part=part,
+            fulfillment=PartRequest.Fulfillment.INSTALL,
+            quantity=1,
+            source=PartRequest.Source.BOOKING,
+        )
+    return booking
+
+
+def add_booking_service(booking, service, *, source=None, note="", inspection=None):
     """Keep an extra service on the same visit. A closed visit is left unchanged."""
     if booking.status in (Booking.Status.COMPLETED, Booking.Status.CANCELLED):
         raise ValidationError({"service": "This visit is already closed."})
@@ -1998,13 +2118,20 @@ def add_booking_service(booking, service):
         raise ValidationError({"service": "This service is not available."})
     if booking.service_id == service.id or booking.added_services.filter(service=service).exists():
         raise ValidationError({"service": "That service is already on this visit."})
-    row = BookingService.objects.create(booking=booking, service=service, price=service.price)
+    row = BookingService.objects.create(
+        booking=booking,
+        service=service,
+        price=Decimal(service.price or 0),
+        source=source or BookingService.Source.CUSTOMER,
+        note=note or "",
+        inspection=inspection,
+    )
     try:
         invoice = booking.repair_job.invoice
     except (RepairJob.DoesNotExist, Invoice.DoesNotExist):
         invoice = None
     if invoice is not None and invoice.status != Invoice.Status.CANCELLED:
-        invoice.service_cost = Decimal(invoice.service_cost or 0) + row.price
+        invoice.service_cost = Decimal(invoice.service_cost or 0) + Decimal(row.price or 0)
         invoice.save()
         refresh_invoice_status(invoice)
     from django_app.telegram_bot import booking_detail_fields, format_customer_alert
@@ -2031,6 +2158,199 @@ def visit_quote_is_open(booking):
     return booking is not None and booking.status == Booking.Status.WAITING_APPROVAL
 
 
+def apply_inspection_recommendation(rec):
+    """Materialize an accepted inspector recommendation onto the visit quote lines."""
+    if rec is None or rec.customer_declined:
+        return rec
+    inspection = rec.inspection
+    if inspection is None or not inspection.repair_job_id:
+        return rec
+    booking = inspection.repair_job.booking if inspection.repair_job_id else None
+    if booking is None:
+        return rec
+    if rec.kind == InspectionRecommendation.Kind.SERVICE:
+        if not rec.service_id:
+            return rec
+        if booking.service_id == rec.service_id:
+            return rec
+        existing = booking.added_services.filter(service_id=rec.service_id).first()
+        if existing is not None:
+            if rec.booking_service_id != existing.id:
+                rec.booking_service = existing
+                rec.save(update_fields=["booking_service"])
+            return rec
+        row = add_booking_service(
+            booking,
+            rec.service,
+            source=BookingService.Source.INSPECTOR,
+            note=rec.note or "",
+            inspection=inspection,
+        )
+        rec.booking_service = row
+        rec.unit_price = row.price
+        rec.save(update_fields=["booking_service", "unit_price"])
+        return rec
+    if rec.kind == InspectionRecommendation.Kind.PART:
+        if not rec.spare_part_id:
+            return rec
+        part = rec.spare_part
+        qty = max(int(rec.quantity or 1), 1)
+        if part.status != SparePart.Status.ACTIVE:
+            raise ValidationError({"parts": f"{part.name} is not available."})
+        if (part.quantity or 0) < qty:
+            raise ValidationError({"parts": f"{part.name} needs {qty} in stock (have {part.quantity})."})
+        existing = (
+            PartRequest.objects.filter(
+                booking=booking,
+                spare_part=part,
+                source=PartRequest.Source.INSPECTOR,
+            )
+            .exclude(status=PartRequest.Status.CANCELLED)
+            .first()
+        )
+        if existing is not None:
+            if rec.part_request_id != existing.id:
+                rec.part_request = existing
+                rec.save(update_fields=["part_request"])
+            return rec
+        request_row = PartRequest.objects.create(
+            customer=booking.customer,
+            vehicle=booking.vehicle,
+            booking=booking,
+            spare_part=part,
+            fulfillment=PartRequest.Fulfillment.INSTALL,
+            quantity=qty,
+            source=PartRequest.Source.INSPECTOR,
+            inspection=inspection,
+            notes=rec.note or "",
+        )
+        rec.part_request = request_row
+        rec.unit_price = part.unit_price
+        rec.save(update_fields=["part_request", "unit_price"])
+        try:
+            job = booking.repair_job
+        except RepairJob.DoesNotExist:
+            job = None
+        if job is not None:
+            sync_invoice_costs(job)
+        return rec
+    return rec
+
+
+def save_inspection_recommendations(inspection, service_items=None, part_items=None):
+    """
+    Persist inspector picks for this inspection and attach accepted ones to the visit quote.
+    service_items: [{service, note}]
+    part_items: [{spare_part, quantity, note}]
+    """
+    service_items = list(service_items or [])
+    part_items = list(part_items or [])
+    keep_service_ids = set()
+    keep_part_ids = set()
+    with transaction.atomic():
+        for item in service_items:
+            service = item.get("service")
+            if service is None:
+                continue
+            if service.status != "ACTIVE":
+                raise ValidationError({"recommend_services": f"{service.name} is not available."})
+            note = (item.get("note") or "").strip()
+            rec, _created = InspectionRecommendation.objects.update_or_create(
+                inspection=inspection,
+                kind=InspectionRecommendation.Kind.SERVICE,
+                service=service,
+                defaults={
+                    "spare_part": None,
+                    "quantity": 1,
+                    "unit_price": service.price,
+                    "note": note,
+                },
+            )
+            if rec.customer_declined:
+                keep_service_ids.add(service.id)
+                continue
+            apply_inspection_recommendation(rec)
+            keep_service_ids.add(service.id)
+        for item in part_items:
+            part = item.get("spare_part")
+            if part is None:
+                continue
+            qty = max(int(item.get("quantity") or 1), 1)
+            if part.status != SparePart.Status.ACTIVE:
+                raise ValidationError({"recommend_parts": f"{part.name} is not available."})
+            if (part.quantity or 0) < qty:
+                raise ValidationError(
+                    {"recommend_parts": f"{part.name} needs {qty} in stock (have {part.quantity})."}
+                )
+            note = (item.get("note") or "").strip()
+            rec, _created = InspectionRecommendation.objects.update_or_create(
+                inspection=inspection,
+                kind=InspectionRecommendation.Kind.PART,
+                spare_part=part,
+                defaults={
+                    "service": None,
+                    "quantity": qty,
+                    "unit_price": part.unit_price,
+                    "note": note,
+                },
+            )
+            if rec.customer_declined:
+                keep_part_ids.add(part.id)
+                continue
+            apply_inspection_recommendation(rec)
+            keep_part_ids.add(part.id)
+
+        # Drop recommendations the inspector cleared (only if customer has not already declined).
+        stale = inspection.recommendations.filter(customer_declined=False)
+        for rec in stale:
+            if rec.kind == InspectionRecommendation.Kind.SERVICE and rec.service_id not in keep_service_ids:
+                if rec.booking_service_id:
+                    BookingService.objects.filter(pk=rec.booking_service_id).delete()
+                rec.delete()
+            elif rec.kind == InspectionRecommendation.Kind.PART and rec.spare_part_id not in keep_part_ids:
+                if rec.part_request_id:
+                    PartRequest.objects.filter(pk=rec.part_request_id).exclude(
+                        status=PartRequest.Status.CANCELLED
+                    ).delete()
+                rec.delete()
+        try:
+            job = inspection.repair_job
+        except RepairJob.DoesNotExist:
+            job = None
+        if job is not None:
+            sync_invoice_costs(job)
+    return inspection
+
+
+def decline_inspection_recommendation(rec):
+    """Customer declines a recommended item on the open quote; inspection history stays."""
+    if rec is None:
+        raise ValidationError("Recommendation not found.")
+    booking = None
+    if rec.inspection_id and rec.inspection.repair_job_id:
+        booking = rec.inspection.repair_job.booking
+    if booking is not None and not visit_quote_is_open(booking):
+        raise ValidationError("Extras can only be removed while the quote is waiting for approval.")
+    with transaction.atomic():
+        if rec.booking_service_id:
+            BookingService.objects.filter(pk=rec.booking_service_id).delete()
+            rec.booking_service = None
+        if rec.part_request_id:
+            request_row = PartRequest.objects.filter(pk=rec.part_request_id).first()
+            if request_row is not None and request_row.parts_usage_id is None:
+                request_row.delete()
+            rec.part_request = None
+        rec.customer_declined = True
+        rec.declined_at = timezone.now()
+        rec.save(update_fields=["customer_declined", "declined_at", "booking_service", "part_request"])
+        if booking is not None:
+            try:
+                sync_invoice_costs(booking.repair_job)
+            except RepairJob.DoesNotExist:
+                pass
+    return rec
+
+
 def remove_booking_extra_service(booking, booking_service_id):
     """Drop an extra service while the visit is waiting on the quote. Primary service stays."""
     if not visit_quote_is_open(booking):
@@ -2038,8 +2358,16 @@ def remove_booking_extra_service(booking, booking_service_id):
     row = booking.added_services.filter(pk=booking_service_id).select_related("service").first()
     if row is None:
         raise ValidationError({"service": "That extra service is not on this visit."})
+    if row.source == BookingService.Source.BOOKING:
+        raise ValidationError({"service": "Original booked services stay on the visit."})
     price = Decimal(row.price or 0)
     name = row.service.name
+    rec = getattr(row, "inspection_recommendation", None)
+    if rec is None:
+        rec = InspectionRecommendation.objects.filter(booking_service=row).first()
+    if rec is not None:
+        decline_inspection_recommendation(rec)
+        return
     row.delete()
     try:
         invoice = booking.repair_job.invoice
@@ -2076,6 +2404,8 @@ def part_request_can_withdraw(part_request):
         return False
     if part_request.status in (PartRequest.Status.CONFIRMED, PartRequest.Status.CANCELLED):
         return False
+    if part_request.source == PartRequest.Source.BOOKING:
+        return False
     booking = part_request.booking
     if booking is not None:
         return visit_quote_is_open(booking)
@@ -2089,6 +2419,10 @@ def withdraw_part_request(part_request):
     """Customer removes a pending part from the quote or cancels a parts-only request."""
     if not part_request_can_withdraw(part_request):
         raise ValidationError("This part request can no longer be removed.")
+    rec = InspectionRecommendation.objects.filter(part_request=part_request).first()
+    if rec is not None:
+        decline_inspection_recommendation(rec)
+        return None
     job = part_request.repair_job
     if job is None and part_request.booking_id:
         try:
@@ -2309,10 +2643,13 @@ def _staff_for(user):
 
 def _issue_part_on_job(part_request, job, part, user=None):
     staff = _staff_for(user)
+    needed = max(int(getattr(part_request, "quantity", 1) or 1), 1)
+    if part.quantity < needed:
+        raise ValidationError({"spare_part": f"Need {needed} of {part.name}, but only {part.quantity} are in stock."})
     usage = PartsUsage(
         repair_job=job,
         spare_part=part,
-        quantity=1,
+        quantity=needed,
         unit_price=part.unit_price,
         recorded_by=staff,
     )
@@ -2474,7 +2811,8 @@ def check_in_booking(booking, user=None):
         )
         for request_row in waiting:
             part = SparePart.objects.select_for_update().get(pk=request_row.spare_part_id)
-            if part.quantity < 1:
+            needed = max(int(request_row.quantity or 1), 1)
+            if part.quantity < needed:
                 continue
             _issue_part_on_job(request_row, job, part, user)
         return booking

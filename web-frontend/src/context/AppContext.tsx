@@ -155,7 +155,10 @@ interface AppContextType {
   saveCustomerVehicle: (vehicleId: string, veh: Omit<Vehicle, 'id' | 'lastServiceDate'> & { imageFile?: File | null }) => Promise<Vehicle | null>;
   removeCustomerVehicle: (vehicleId: string) => Promise<boolean>;
   updateCustomerVehiclePhoto: (vehicleId: string, photo: File) => Promise<Vehicle | null>;
-  persistCustomerBooking: (apt: Omit<Appointment, 'id'>) => Promise<Appointment | null>;
+  persistCustomerBooking: (
+    apt: Omit<Appointment, 'id'>,
+    options?: { extraServiceIds?: string[]; partIds?: string[] }
+  ) => Promise<Appointment | null>;
   refreshCustomerPortal: () => Promise<void>;
   saveCustomerProfile: (fields: { name: string; phone: string; address: string; photo?: File | null }) => Promise<boolean>;
   changeCustomerPassword: (currentPassword: string, nextPassword: string) => Promise<boolean>;
@@ -1588,7 +1591,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const persistCustomerBooking = async (apt: Omit<Appointment, 'id'>) => {
+  const persistCustomerBooking = async (
+    apt: Omit<Appointment, 'id'>,
+    options?: { extraServiceIds?: string[]; partIds?: string[] }
+  ) => {
     try {
       const created = await createCustomerBooking({
         vehicleId: apt.vehicleId,
@@ -1597,6 +1603,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         time: apt.time,
         problem: apt.problemDescription,
         notes: apt.notes,
+        extraServiceIds: options?.extraServiceIds,
+        partIds: options?.partIds,
       });
       const portal = await loadCustomerPortal(profileFromUser());
       setAppointments(portal.appointments);

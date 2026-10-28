@@ -5237,3 +5237,190 @@ body.carsv-delete .object-tools {
     grid-template-columns: 1fr;
   }
 }
+
+/* Inspection recommendations — sit with Condition in the modal 2-col grid */
+.cf-fields > .cf-rec-field {
+  order: 2;
+  margin-bottom: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cf-fields > .cf-rec-booked {
+  order: 2;
+  margin-bottom: 0;
+  min-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cf-rec-booked .cf-rec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+}
+
+.cf-rec-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.cf-rec-chip.is-part {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.cf-rec-field .cf-help {
+  margin: 0 0 0.4rem;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cf-rec-col {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.cf-rec-scroll {
+  max-height: 148px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.3rem;
+  box-sizing: border-box;
+}
+
+.cf-rec-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 8px;
+  padding: 0.3rem 0.45rem;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.cf-rec-item:hover {
+  background: #f8fafc;
+}
+
+.cf-rec-item.is-open {
+  background: #fff8e1;
+  box-shadow: inset 0 0 0 1px #ffe082;
+}
+
+/* Sample: checkbox | name
+                      | price  (checkbox vertically centered on the text column)
+   Must beat `.cf-field label { display: block }` or checkbox stacks above the text. */
+.cf-field label.cf-rec-check {
+  display: inline-flex;
+  gap: 0.55rem;
+  align-items: center;
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+  color: inherit;
+}
+
+.cf-field label.cf-rec-check input {
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: #ffc400;
+}
+
+.cf-rec-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.cf-rec-name {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+.cf-rec-meta {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 400;
+  font-family: inherit;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.cf-rec-item > .cf-rec-qty {
+  display: none;
+  flex: 0 0 52px;
+  width: 52px;
+  min-width: 52px;
+  max-width: 52px;
+  box-sizing: border-box;
+  min-height: 26px;
+  height: 26px;
+  padding: 0.1rem 0.25rem;
+  font-size: 11px;
+  border-radius: 8px;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cf-rec-item.is-open > .cf-rec-qty {
+  display: block;
+}
+
+.cf-rec-empty {
+  margin: 0.5rem;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+@media (max-width: 820px) {
+  .cf-rec-scroll {
+    max-height: 128px;
+  }
+}

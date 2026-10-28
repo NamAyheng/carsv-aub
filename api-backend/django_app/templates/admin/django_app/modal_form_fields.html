@@ -91,7 +91,83 @@
 </style>
 <div class="cf-fields">
     {% for field in adminform.form.visible_fields %}
-        {% if field.field.widget.input_type == "checkbox" %}
+        {% if field.name == "recommend_services" %}
+            {% if adminform.form.recommendation_rows.booked_services or adminform.form.recommendation_rows.booked_parts %}
+                <div class="cf-field cf-span cf-rec-booked">
+                    <label>Already booked (locked)</label>
+                    <div class="cf-rec-chips">
+                        {% for name in adminform.form.recommendation_rows.booked_services %}
+                            <span class="cf-rec-chip" title="Customer service">{{ name }}</span>
+                        {% endfor %}
+                        {% for name in adminform.form.recommendation_rows.booked_parts %}
+                            <span class="cf-rec-chip is-part" title="Customer part">{{ name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+            <div class="cf-field cf-rec-field">
+                <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+                {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
+                <div class="cf-rec-col">
+                    <div class="cf-rec-scroll">
+                        {% for row in adminform.form.recommendation_rows.services %}
+                            <div class="cf-rec-item {% if row.checked %}is-open{% endif %}">
+                                <label class="cf-rec-check">
+                                    <input type="checkbox" name="recommend_services" value="{{ row.id }}" {% if row.checked %}checked{% endif %} data-rec-toggle>
+                                    <span class="cf-rec-body">
+                                        <span class="cf-rec-name">{{ row.name }}</span>
+                                        <span class="cf-rec-meta">${{ row.price }}</span>
+                                    </span>
+                                </label>
+                            </div>
+                        {% empty %}
+                            <p class="cf-rec-empty">No recommendable services left.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                {{ field.errors }}
+            </div>
+            <script>
+            (function () {
+                if (window.__carsvRecToggleBound) return;
+                window.__carsvRecToggleBound = true;
+                document.addEventListener("change", function (event) {
+                    var box = event.target;
+                    if (!box || !box.matches || !box.matches("[data-rec-toggle]")) return;
+                    var item = box.closest(".cf-rec-item");
+                    if (!item) return;
+                    item.classList.toggle("is-open", box.checked);
+                    item.querySelectorAll("input.cf-input").forEach(function (input) {
+                        input.disabled = !box.checked;
+                    });
+                });
+            })();
+            </script>
+        {% elif field.name == "recommend_parts" %}
+            <div class="cf-field cf-rec-field">
+                <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+                {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
+                <div class="cf-rec-col">
+                    <div class="cf-rec-scroll">
+                        {% for row in adminform.form.recommendation_rows.parts %}
+                            <div class="cf-rec-item {% if row.checked %}is-open{% endif %}">
+                                <label class="cf-rec-check">
+                                    <input type="checkbox" name="recommend_parts" value="{{ row.id }}" {% if row.checked %}checked{% endif %} data-rec-toggle>
+                                    <span class="cf-rec-body">
+                                        <span class="cf-rec-name">{{ row.name }}</span>
+                                        <span class="cf-rec-meta">${{ row.price }} · {{ row.stock }} left</span>
+                                    </span>
+                                </label>
+                                <input class="cf-input cf-rec-qty" type="number" min="1" max="{{ row.stock }}" name="rec_part_qty_{{ row.id }}" value="{{ row.quantity }}" title="Qty" {% if not row.checked %}disabled{% endif %}>
+                            </div>
+                        {% empty %}
+                            <p class="cf-rec-empty">No in-stock parts left to recommend.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                {{ field.errors }}
+            </div>
+        {% elif field.field.widget.input_type == "checkbox" %}
             <div class="cf-check cf-span {% if field.field.disabled %}is-locked{% endif %}">
                 {{ field }}
                 <label for="{{ field.id_for_label }}">{{ field.label }}</label>

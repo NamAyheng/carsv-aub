@@ -99,7 +99,14 @@ type ApiBooking = {
   note: string;
   status: string;
   cancel_reason: string;
-  services?: { id?: number | null; name: string; price: string; primary: boolean }[];
+  services?: {
+    id?: number | null;
+    name: string;
+    price: string;
+    primary: boolean;
+    source?: string;
+    note?: string;
+  }[];
   work_order_number?: string;
   work_order_status?: string;
   mechanic_name?: string;
@@ -141,7 +148,14 @@ type ApiRepair = {
   mechanic_name: string;
   mechanic_photo: string;
   parts_used: { id: number; part_name: string; part_number: string; quantity: number; unit_price: string; total: string }[];
-  services?: { id?: number | null; name: string; price: string | number; primary: boolean }[];
+  services?: {
+    id?: number | null;
+    name: string;
+    price: string | number;
+    primary: boolean;
+    source?: string;
+    note?: string;
+  }[];
   invoice_number?: string;
   labor_cost?: string | number;
   service_cost?: string | number;
@@ -489,6 +503,8 @@ function mapBooking(
       name: item.name,
       price: Number(item.price) || 0,
       primary: Boolean(item.primary),
+      source: item.source || (item.primary ? 'BOOKING' : 'CUSTOMER'),
+      note: item.note || '',
     })),
     workOrderNumber: row.work_order_number || '',
     workOrderStatus: row.work_order_status || '',
@@ -583,6 +599,8 @@ function mapRepair(row: ApiRepair, profile: CustomerProfile, vehicles: Vehicle[]
       name: item.name,
       price: money(item.price),
       primary: Boolean(item.primary),
+      source: item.source || (item.primary ? 'BOOKING' : 'CUSTOMER'),
+      note: item.note || '',
     })),
     tasks: [task],
     partsUsed: (row.parts_used || []).map((part) => ({
@@ -1068,6 +1086,8 @@ export async function createCustomerBooking(input: {
   time: string;
   problem: string;
   notes?: string;
+  extraServiceIds?: string[];
+  partIds?: string[];
 }): Promise<ApiBooking> {
   const response = await apiRequest('/api/customer/bookings/', {
     method: 'POST',
@@ -1078,6 +1098,8 @@ export async function createCustomerBooking(input: {
       booking_time: input.time || null,
       problem: input.problem,
       note: input.notes || '',
+      extra_services: (input.extraServiceIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id)),
+      parts: (input.partIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id)),
     }),
   });
   if (!response.ok) throw new Error(await apiErrorMessage(response));
@@ -1147,6 +1169,9 @@ type ApiPartRequest = {
   part_name: string;
   part_number: string;
   unit_price: string;
+  line_total?: string;
+  quantity?: number;
+  source?: string;
   vehicle: number | null;
   booking: number | null;
   vehicle_plate: string;
@@ -1171,6 +1196,8 @@ export type CustomerPartRequestRow = {
   productName: string;
   sku: string;
   price: number;
+  quantity: number;
+  source: string;
   carBrand: string;
   vehiclePlate: string;
   bookingId: string;
@@ -1189,12 +1216,16 @@ export type CustomerPartRequestRow = {
 };
 
 function mapPartRequest(row: ApiPartRequest): CustomerPartRequestRow {
+  const quantity = Math.max(Number(row.quantity) || 1, 1);
+  const unit = money(row.unit_price);
   return {
     id: String(row.id),
     number: row.number,
     productName: row.part_name,
     sku: row.part_number,
-    price: money(row.unit_price),
+    price: row.line_total != null ? money(row.line_total) : unit * quantity,
+    quantity,
+    source: row.source || 'CUSTOMER',
     carBrand: row.vehicle_title || 'Unregistered vehicle',
     vehiclePlate: row.vehicle_plate || '',
     bookingId: row.booking ? String(row.booking) : '',
