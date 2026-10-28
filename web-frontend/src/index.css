@@ -599,6 +599,16 @@ html:not(.dark) .customer-theme-root .portal-brand-header .text-white\/70 {
   color: #c4c4c4 !important;
 }
 
+/* "SV" brand letters — same #ffc400 in light and dark (header stays charcoal) */
+.portal-brand-header .text-blue-400,
+.portal-brand-header .text-blue-300,
+.portal-brand-header .text-blue-500,
+html:not(.dark) .customer-theme-root .portal-brand-header .text-blue-400,
+html:not(.dark) .customer-theme-root .portal-brand-header .text-blue-300,
+html:not(.dark) .customer-theme-root .portal-brand-header .text-blue-500 {
+  color: #ffc400 !important;
+}
+
 /* Yellow CTA / logo mark on portal header */
 .portal-brand-header .portal-brand-logo-mark,
 html:not(.dark) .customer-theme-root .portal-brand-header .portal-brand-logo-mark {

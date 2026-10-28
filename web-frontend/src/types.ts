@@ -76,7 +76,14 @@ export interface Appointment {
   vehicleInfo: string; // e.g. "Toyota Camry (PP-1234)"
   serviceName: string;
   serviceId: string;
-  services?: { id?: number | null; name: string; price: number; primary: boolean }[];
+  services?: {
+    id?: number | null;
+    name: string;
+    price: number;
+    primary: boolean;
+    source?: string;
+    note?: string;
+  }[];
   workOrderNumber?: string;
   workOrderStatus?: string;
   statusLabel?: string;
@@ -206,7 +213,14 @@ export interface WorkOrder {
   laborHoursEstimated: number;
   laborHoursActual: number;
   services: string[];
-  visitServices?: { id?: number | null; name: string; price: number; primary: boolean }[];
+  visitServices?: {
+    id?: number | null;
+    name: string;
+    price: number;
+    primary: boolean;
+    source?: string;
+    note?: string;
+  }[];
   tasks: RepairTask[];
   partsUsed: WorkOrderPart[];
   beforePhotos: string[];

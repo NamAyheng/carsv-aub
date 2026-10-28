@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers, status, viewsets
@@ -15,7 +16,9 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from django_app.models import (
     BlogPost,
     Booking,
+    BookingService,
     add_booking_service,
+    attach_booking_catalog_items,
     booking_slot_taken,
     cancel_booking,
     claimed_payment_total,
@@ -220,6 +223,18 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
     work_order_status = serializers.SerializerMethodField()
     mechanic_name = serializers.SerializerMethodField()
     status_label = serializers.CharField(source="get_status_display", read_only=True)
+    extra_services = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Service.objects.filter(status="ACTIVE"),
+        required=False,
+        write_only=True,
+    )
+    parts = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=SparePart.objects.filter(status=SparePart.Status.ACTIVE),
+        required=False,
+        write_only=True,
+    )
 
     class Meta:
         model = Booking
@@ -239,6 +254,8 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
             "work_order_status",
             "mechanic_name",
             "status_label",
+            "extra_services",
+            "parts",
         ]
         read_only_fields = [
             "status",
@@ -266,7 +283,45 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"service": "This service is not available."})
         if vehicle and booking_date and _conflict(vehicle, booking_date, booking_time, ignore_pk=getattr(self.instance, "pk", None)):
             raise serializers.ValidationError({"booking_time": "That vehicle already has a booking at this time."})
+
+        extras = attrs.get("extra_services") or []
+        if extras:
+            seen = set()
+            cleaned = []
+            for item in extras:
+                if service and item.id == service.id:
+                    continue
+                if item.id in seen:
+                    continue
+                if item.status != "ACTIVE":
+                    raise serializers.ValidationError({"extra_services": f"{item.name} is not available."})
+                seen.add(item.id)
+                cleaned.append(item)
+            attrs["extra_services"] = cleaned
+
+        parts = attrs.get("parts") or []
+        if parts:
+            seen_parts = set()
+            cleaned_parts = []
+            for part in parts:
+                if part.id in seen_parts:
+                    continue
+                if part.status != SparePart.Status.ACTIVE:
+                    raise serializers.ValidationError({"parts": f"{part.name} is not available."})
+                if (part.quantity or 0) < 1:
+                    raise serializers.ValidationError({"parts": f"{part.name} is out of stock."})
+                seen_parts.add(part.id)
+                cleaned_parts.append(part)
+            attrs["parts"] = cleaned_parts
         return attrs
+
+    def create(self, validated_data):
+        extras = validated_data.pop("extra_services", [])
+        parts = validated_data.pop("parts", [])
+        with transaction.atomic():
+            booking = super().create(validated_data)
+            attach_booking_catalog_items(booking, extra_services=extras, spare_parts=parts)
+        return booking
 
     def get_services(self, booking):
         rows = []
@@ -277,6 +332,8 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
                     "name": booking.service.name,
                     "price": booking.service.price,
                     "primary": True,
+                    "source": "BOOKING",
+                    "note": "",
                 }
             )
         for extra in booking.added_services.all():
@@ -286,6 +343,8 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
                     "name": extra.service.name,
                     "price": extra.price,
                     "primary": False,
+                    "source": extra.source or BookingService.Source.CUSTOMER,
+                    "note": extra.note or "",
                 }
             )
         return rows
@@ -609,6 +668,8 @@ class CustomerRepairSerializer(serializers.ModelSerializer):
                     "name": booking.service.name,
                     "price": booking.service.price,
                     "primary": True,
+                    "source": "BOOKING",
+                    "note": "",
                 }
             )
         for extra in booking.added_services.all():
@@ -618,6 +679,8 @@ class CustomerRepairSerializer(serializers.ModelSerializer):
                     "name": extra.service.name,
                     "price": extra.price,
                     "primary": False,
+                    "source": extra.source or BookingService.Source.CUSTOMER,
+                    "note": extra.note or "",
                 }
             )
         return rows
@@ -1172,6 +1235,7 @@ class CustomerPartRequestSerializer(serializers.ModelSerializer):
     part_name = serializers.CharField(source="spare_part.name", read_only=True)
     part_number = serializers.CharField(source="spare_part.part_number", read_only=True)
     unit_price = serializers.DecimalField(source="spare_part.unit_price", max_digits=12, decimal_places=2, read_only=True)
+    line_total = serializers.SerializerMethodField()
     vehicle_plate = serializers.SerializerMethodField()
     vehicle_title = serializers.SerializerMethodField()
     work_order_number = serializers.SerializerMethodField()
@@ -1191,6 +1255,9 @@ class CustomerPartRequestSerializer(serializers.ModelSerializer):
             "part_name",
             "part_number",
             "unit_price",
+            "line_total",
+            "quantity",
+            "source",
             "vehicle",
             "booking",
             "vehicle_plate",
@@ -1213,6 +1280,8 @@ class CustomerPartRequestSerializer(serializers.ModelSerializer):
             "part_name",
             "part_number",
             "unit_price",
+            "line_total",
+            "source",
             "vehicle_plate",
             "vehicle_title",
             "cancel_reason",
@@ -1230,7 +1299,12 @@ class CustomerPartRequestSerializer(serializers.ModelSerializer):
             "vehicle": {"required": False, "allow_null": True},
             "booking": {"required": False, "allow_null": True},
             "notes": {"required": False, "allow_blank": True},
+            "quantity": {"required": False},
         }
+
+    def get_line_total(self, request_row):
+        qty = max(int(request_row.quantity or 1), 1)
+        return Decimal(request_row.spare_part.unit_price or 0) * qty
 
     def get_vehicle_plate(self, request_row):
         return request_row.vehicle.plate if request_row.vehicle_id else ""
@@ -1301,13 +1375,26 @@ class CustomerPartRequestSerializer(serializers.ModelSerializer):
     def validate_spare_part(self, part):
         if part.status != SparePart.Status.ACTIVE:
             raise serializers.ValidationError("That part is not available.")
+        if (part.quantity or 0) < 1:
+            raise serializers.ValidationError("That part is out of stock.")
         return part
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        part = attrs.get("spare_part")
+        qty = max(int(attrs.get("quantity") or 1), 1)
+        attrs["quantity"] = qty
+        if part is not None and (part.quantity or 0) < qty:
+            raise serializers.ValidationError({"quantity": f"Only {part.quantity} of {part.name} are in stock."})
+        return attrs
 
     def create(self, validated_data):
         customer = self.context["request"].user.customer
         vehicle = validated_data.get("vehicle")
         booking = validated_data.get("booking")
         fulfillment = validated_data.get("fulfillment") or PartRequest.Fulfillment.INSTALL
+        validated_data["source"] = PartRequest.Source.CUSTOMER
+        validated_data["quantity"] = max(int(validated_data.get("quantity") or 1), 1)
         if booking is not None and vehicle is None:
             validated_data["vehicle"] = booking.vehicle
             vehicle = booking.vehicle

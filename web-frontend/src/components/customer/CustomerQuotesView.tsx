@@ -38,7 +38,18 @@ function money(value: number) {
 
 function serviceLinesFor(order: WorkOrder) {
   if ((order.visitServices || []).length > 0) return order.visitServices || [];
-  return order.services.map((name) => ({ name, price: 0, primary: true }));
+  return order.services.map((name) => ({
+    name,
+    price: 0,
+    primary: true,
+    source: 'BOOKING',
+    note: '',
+  }));
+}
+
+function serviceSource(row: { primary?: boolean; source?: string }) {
+  if (row.primary) return 'BOOKING';
+  return row.source || 'CUSTOMER';
 }
 
 function quoteTotals(order: WorkOrder, visitParts: CustomerPartRequestRow[]) {
@@ -596,10 +607,15 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
     billedParts,
     quoteTotal,
   } = quoteTotals(order, visitParts);
-  const primaryServices = serviceLines.filter((row) => row.primary);
-  const extraServices = serviceLines.filter((row) => !row.primary);
-  const bookedServices =
-    primaryServices.length > 0 ? primaryServices : extraServices.length === 0 ? serviceLines : [];
+  const bookedServices = serviceLines.filter((row) => {
+    const source = serviceSource(row);
+    return row.primary || source === 'BOOKING';
+  });
+  const recommendedServices = serviceLines.filter((row) => serviceSource(row) === 'INSPECTOR');
+  const customerExtraServices = serviceLines.filter((row) => serviceSource(row) === 'CUSTOMER');
+  const bookedParts = visitParts.filter((row) => row.source === 'BOOKING');
+  const recommendedParts = visitParts.filter((row) => row.source === 'INSPECTOR');
+  const customerExtraParts = visitParts.filter((row) => row.source !== 'BOOKING' && row.source !== 'INSPECTOR');
 
   return (
     <div className="space-y-6">
@@ -652,14 +668,14 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
               {order.reportedProblem || inspection?.complaint || 'No complaint recorded.'}
             </p>
             <div className="space-y-2">
-              <div className="text-[10px] uppercase text-slate-500">Booked service</div>
+              <div className="text-[10px] uppercase text-slate-500">Original booked services</div>
               {bookedServices.length === 0 ? (
                 <p className="text-xs text-slate-500">No service on this booking yet.</p>
               ) : (
                 <ul className="space-y-1.5">
                   {bookedServices.map((row, index) => (
                     <li
-                      key={`${row.name}-primary-${index}`}
+                      key={`${row.name}-booked-${index}`}
                       className="flex justify-between gap-3 text-xs text-slate-700 bg-slate-50 rounded-xl px-3 py-2 border border-slate-100"
                     >
                       <span>{row.name}</span>
@@ -670,14 +686,14 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
               )}
             </div>
             <div className="space-y-2">
-              <div className="text-[10px] uppercase text-slate-500">Extra services on this visit</div>
-              {extraServices.length === 0 ? (
-                <p className="text-xs text-slate-500">No extra service added yet.</p>
+              <div className="text-[10px] uppercase text-slate-500">Your added services</div>
+              {customerExtraServices.length === 0 ? (
+                <p className="text-xs text-slate-500">No extra service added by you yet.</p>
               ) : (
                 <ul className="space-y-1.5">
-                  {extraServices.map((row, index) => (
+                  {customerExtraServices.map((row, index) => (
                     <li
-                      key={`${row.name}-extra-${index}`}
+                      key={`${row.name}-customer-${index}`}
                       className="flex justify-between gap-3 text-xs text-slate-700 bg-slate-50 rounded-xl px-3 py-2 border border-slate-100"
                     >
                       <span>{row.name}</span>
@@ -700,6 +716,168 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
               )}
             </div>
           </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-sm">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-blue-700 flex items-center gap-1.5">
+              <Package className="w-3.5 h-3.5" />
+              Parts on this visit
+            </h3>
+            {bookedParts.length === 0 && customerExtraParts.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                No shelf part on this booking yet. Use Add a part to open the Parts page — Workshop Install stays on this
+                quote. Inspector recommendations appear in their own section below.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {bookedParts.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] uppercase text-slate-500">Original booked parts</div>
+                    <ul className="space-y-1.5">
+                      {bookedParts.map((row) => (
+                        <li
+                          key={`booked-part-${row.id}`}
+                          className="flex items-center justify-between gap-3 text-xs text-slate-700 bg-slate-50 rounded-xl px-3 py-2.5 border border-slate-100"
+                        >
+                          <span className="min-w-0">
+                            {row.productName}
+                            <span className="block text-[10px] text-slate-500 font-mono">
+                              {row.sku} · qty {row.quantity}
+                            </span>
+                          </span>
+                          <span className="font-mono text-slate-500">{money(row.price || 0)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {customerExtraParts.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] uppercase text-slate-500">Your added parts</div>
+                    <ul className="space-y-1.5">
+                      {customerExtraParts.map((row) => (
+                        <li
+                          key={row.id}
+                          className="flex items-center justify-between gap-3 text-xs text-slate-700 bg-slate-50 rounded-xl px-3 py-2.5 border border-slate-100"
+                        >
+                          <span className="min-w-0">
+                            {row.productName}
+                            <span className="block text-[10px] text-slate-500 font-mono">
+                              {row.number} · qty {row.quantity} · {row.status}
+                            </span>
+                          </span>
+                          <span className="flex items-center gap-2 shrink-0">
+                            <span className="font-mono text-slate-500">{money(row.price || 0)}</span>
+                            {row.canWithdraw ? (
+                              <button
+                                type="button"
+                                disabled={busyId === row.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void removePart(row);
+                                }}
+                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 disabled:opacity-60"
+                              >
+                                Remove
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-slate-400" title="Already issued — ask the garage">
+                                Locked
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+            {billedParts > 0 && (
+              <p className="text-[11px] text-slate-500">Issued parts already on the invoice: {money(billedParts)}.</p>
+            )}
+          </section>
+
+          {(recommendedServices.length > 0 || recommendedParts.length > 0) && (
+            <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 space-y-3 shadow-sm">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-amber-800 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Recommended Extra Services & Parts
+              </h3>
+              <p className="text-[11px] text-amber-900/80">
+                Suggested by the inspector after checking your car. Removing an item updates this quote only — the
+                inspection record stays.
+              </p>
+              {recommendedServices.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase text-amber-800/70">Services</div>
+                  <ul className="space-y-1.5">
+                    {recommendedServices.map((row, index) => (
+                      <li
+                        key={`${row.name}-rec-svc-${index}`}
+                        className="flex justify-between gap-3 text-xs text-slate-800 bg-white rounded-xl px-3 py-2 border border-amber-100"
+                      >
+                        <span className="min-w-0">
+                          {row.name}
+                          {row.note ? (
+                            <span className="block text-[10px] text-slate-500 mt-0.5">{row.note}</span>
+                          ) : null}
+                        </span>
+                        <span className="flex items-center gap-2 shrink-0">
+                          <span className="font-mono text-slate-500">{money(row.price || 0)}</span>
+                          {row.id != null && (
+                            <button
+                              type="button"
+                              disabled={busyId === `${order.id}-svc-${row.id}`}
+                              onClick={() => void removeExtra(order, row.id as number, row.name)}
+                              className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {recommendedParts.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase text-amber-800/70">Parts</div>
+                  <ul className="space-y-1.5">
+                    {recommendedParts.map((row) => (
+                      <li
+                        key={`rec-part-${row.id}`}
+                        className="flex justify-between gap-3 text-xs text-slate-800 bg-white rounded-xl px-3 py-2.5 border border-amber-100"
+                      >
+                        <span className="min-w-0">
+                          {row.productName}
+                          <span className="block font-mono text-[10px] text-slate-500">
+                            {row.sku} · qty {row.quantity}
+                          </span>
+                          {row.customerNotes ? (
+                            <span className="block text-[10px] text-slate-500 mt-0.5">{row.customerNotes}</span>
+                          ) : null}
+                        </span>
+                        <span className="flex items-center gap-2 shrink-0">
+                          <span className="font-mono text-slate-500">{money(row.price || 0)}</span>
+                          {row.canWithdraw && (
+                            <button
+                              type="button"
+                              disabled={busyId === `${order.id}-part-${row.id}`}
+                              onClick={() => void removePart(row)}
+                              className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-sm">
             <h3 className="text-xs font-bold uppercase tracking-wide text-blue-700">Inspection</h3>
@@ -736,58 +914,6 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
                   />
                 ))}
               </div>
-            )}
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-sm">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-blue-700 flex items-center gap-1.5">
-              <Package className="w-3.5 h-3.5" />
-              Parts on this visit
-            </h3>
-            {visitParts.length === 0 ? (
-              <p className="text-xs text-slate-500">
-                No shelf part on this booking yet. Use Add a part to open the Parts page — Workshop Install stays on this
-                quote.
-              </p>
-            ) : (
-              <ul className="space-y-1.5">
-                {visitParts.map((row) => (
-                  <li
-                    key={row.id}
-                    className="flex items-center justify-between gap-3 text-xs text-slate-700 bg-slate-50 rounded-xl px-3 py-2.5 border border-slate-100"
-                  >
-                    <span className="min-w-0">
-                      {row.productName}
-                      <span className="block text-[10px] text-slate-500 font-mono">
-                        {row.number} · {row.status}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-2 shrink-0">
-                      <span className="font-mono text-slate-500">{money(row.price || 0)}</span>
-                      {row.canWithdraw ? (
-                        <button
-                          type="button"
-                          disabled={busyId === row.id}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void removePart(row);
-                          }}
-                          className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 disabled:opacity-60"
-                        >
-                          Remove
-                        </button>
-                      ) : (
-                        <span className="text-[10px] text-slate-400" title="Already issued — ask the garage">
-                          Locked
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {billedParts > 0 && (
-              <p className="text-[11px] text-slate-500">Issued parts already on the invoice: {money(billedParts)}.</p>
             )}
           </section>
 

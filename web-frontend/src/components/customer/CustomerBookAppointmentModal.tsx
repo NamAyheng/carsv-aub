@@ -6,7 +6,6 @@ import {
   Car,
   Wrench,
   CheckCircle2,
-  AlertCircle,
   ArrowRight,
   ArrowLeft,
   Sparkles,
@@ -18,8 +17,6 @@ import { belongsToCurrentCustomer, demoCustomerId } from '../../utils/customerSc
 import { findDuplicateVehicle, isValidVehiclePlate, normalizeVehiclePlate } from '../../utils/garageLogic';
 import { Appointment } from '../../types';
 import { ThemedDatePicker } from '../common/ThemedDatePicker';
-import { addBookingService, createCustomerPartRequest } from '../../api/garage';
-
 interface CustomerBookAppointmentModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -53,9 +50,11 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
   // Wizard Step: 1 -> 2 -> 3 -> 4 -> 5 -> 6 (Success)
   const [step, setStep] = useState<number>(1);
 
-  // Form states
+  // Form states — Stage 2 holds multi services + inventory parts; Stage 5 reviews them.
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
-  const [selectedServiceId, setSelectedServiceId] = useState<string>(preselectedServiceId || '');
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>(
+    preselectedServiceId ? [preselectedServiceId] : []
+  );
   const [appointmentDate, setAppointmentDate] = useState<string>(
     new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0]
   );
@@ -63,12 +62,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
   const [problemDescription, setProblemDescription] = useState<string>('');
   const [priority, setPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
   const [additionalNotes, setAdditionalNotes] = useState<string>('');
-  const [draftExtraServiceIds, setDraftExtraServiceIds] = useState<string[]>([]);
   const [serviceQuery, setServiceQuery] = useState('');
-  const [showServicesPicker, setShowServicesPicker] = useState(false);
   const [draftPartIds, setDraftPartIds] = useState<string[]>([]);
   const [partQuery, setPartQuery] = useState('');
-  const [showPartsPicker, setShowPartsPicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Quick New Vehicle Inline Modal/State
@@ -91,7 +87,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
 
   useEffect(() => {
     if (preselectedServiceId) {
-      setSelectedServiceId(preselectedServiceId);
+      setSelectedServiceIds((ids) =>
+        ids.includes(preselectedServiceId) ? ids : [preselectedServiceId, ...ids]
+      );
       setStep(1); // Keep on step 1 so they verify vehicle
     }
   }, [preselectedServiceId]);
@@ -113,7 +111,17 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
     );
 
   const selectedVehicle = (vehicles || []).find((v) => v.id === selectedVehicleId) || customerVehicles[0];
-  const selectedService = (services || []).find((s) => s.id === selectedServiceId) || (services || [])[0];
+  const selectedServices = selectedServiceIds
+    .map((id) => (services || []).find((s) => s.id === id))
+    .filter((s): s is NonNullable<typeof s> => Boolean(s));
+  const primaryService = selectedServices[0] || null;
+  const extraServices = selectedServices.slice(1);
+
+  const toggleService = (serviceId: string) => {
+    setSelectedServiceIds((ids) =>
+      ids.includes(serviceId) ? ids.filter((id) => id !== serviceId) : [...ids, serviceId]
+    );
+  };
 
   const handleCreateVehicleInline = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,17 +170,16 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
     setNewPhotoPreview('');
   };
 
-  const draftExtraServices = (services || []).filter(
-    (item) => draftExtraServiceIds.includes(item.id) && item.id !== selectedServiceId
-  );
-  const availableExtraServices = (services || [])
-    .filter((item) => item.status === 'ACTIVE')
-    .filter((item) => item.id !== selectedServiceId && !draftExtraServiceIds.includes(item.id))
-    .filter((item) => {
-      const query = serviceQuery.trim().toLowerCase();
-      if (!query) return true;
-      return item.name.toLowerCase().includes(query);
-    });
+  const catalogServices = (services || []).filter((item) => item.status === 'ACTIVE');
+  const filteredCatalogServices = catalogServices.filter((item) => {
+    const query = serviceQuery.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      item.name.toLowerCase().includes(query) ||
+      (item.category || '').toLowerCase().includes(query) ||
+      (item.description || '').toLowerCase().includes(query)
+    );
+  });
   const draftParts = (inventory || []).filter((part) => draftPartIds.includes(part.id));
   const shelfParts = (inventory || [])
     .filter((part) => part.stockQuantity > 0 && !draftPartIds.includes(part.id))
@@ -181,30 +188,55 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
       if (!query) return true;
       return part.name.toLowerCase().includes(query) || part.sku.toLowerCase().includes(query);
     });
-  const extrasTotal = draftExtraServices.reduce((sum, item) => sum + (item.basePrice || 0), 0);
+  const servicesTotal = selectedServices.reduce((sum, item) => sum + (item.basePrice || 0), 0);
   const partsTotal = draftParts.reduce((sum, part) => sum + (part.unitPrice || 0), 0);
-  const bookingTotal = (selectedService?.basePrice || 0) + extrasTotal + partsTotal;
+  const bookingTotal = servicesTotal + partsTotal;
+  const estimatedHours = selectedServices.reduce(
+    (sum, item) => sum + (item.estimatedDurationHours || 0),
+    0
+  );
+
+  const canContinueFromStep = (fromStep: number) => {
+    if (fromStep === 1 && !selectedVehicleId) {
+      addToast({ type: 'error', title: 'Select a vehicle', message: 'Choose which vehicle to bring in.' });
+      return false;
+    }
+    if (fromStep === 2 && selectedServiceIds.length === 0) {
+      addToast({
+        type: 'error',
+        title: 'Select at least one service',
+        message: 'Pick one or more services from the catalog. Parts are optional.',
+      });
+      return false;
+    }
+    return true;
+  };
 
   const handleConfirmAppointment = async () => {
-    if (!selectedVehicleId || !selectedServiceId) {
-      addToast({ type: 'error', title: 'Incomplete Booking', message: 'Please select both a vehicle and a service.' });
+    if (!selectedVehicleId || !primaryService) {
+      addToast({
+        type: 'error',
+        title: 'Incomplete Booking',
+        message: 'Please select a vehicle and at least one service.',
+      });
       return;
     }
 
+    const serviceLabel = selectedServices.map((item) => item.name).join(', ');
     const newAppointment: Omit<Appointment, 'id'> = {
       customerId: demoCustomerId(currentUser),
       customerName: currentUser.name,
       customerPhone: currentUser.phone || '',
       vehicleId: selectedVehicle?.id || 'veh-1',
       vehicleInfo: selectedVehicle ? `${selectedVehicle.brand} ${selectedVehicle.model} (${selectedVehicle.licensePlate})` : '',
-      serviceName: selectedService?.name || 'Full Vehicle Service',
-      serviceId: selectedService?.id || 'srv-1',
+      serviceName: serviceLabel || primaryService.name,
+      serviceId: primaryService.id,
       date: appointmentDate,
       time: appointmentTime,
       problemDescription: problemDescription,
       priority,
       status: 'SCHEDULED',
-      estimatedDurationHours: selectedService?.estimatedDurationHours || 1.5,
+      estimatedDurationHours: estimatedHours || primaryService.estimatedDurationHours || 1.5,
       notes: additionalNotes
     };
 
@@ -220,54 +252,37 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
     if (liveCustomer) {
       setSubmitting(true);
       try {
-        const saved = await persistCustomerBooking(newAppointment);
+        const saved = await persistCustomerBooking(newAppointment, {
+          extraServiceIds: extraServices.map((item) => item.id),
+          partIds: draftParts.map((part) => part.id),
+        });
         if (!saved) return;
-        for (const extra of draftExtraServices) {
-          await addBookingService(saved.id, extra.id);
-        }
-        for (const part of draftParts) {
-          await createCustomerPartRequest({
-            sparePartId: part.id,
-            vehicleId: saved.vehicleId,
-            bookingId: saved.id,
-            fulfillment: 'INSTALL_IN_WORKSHOP',
-          });
-        }
-        // Refresh portal so Appointments view has services + parts immediately.
         await refreshCustomerPortal();
-        if (draftExtraServices.length > 0) {
+        if (extraServices.length > 0 || draftParts.length > 0) {
           addToast({
             type: 'success',
-            title: 'Extra services attached',
-            message: `${draftExtraServices.length} extra service${draftExtraServices.length === 1 ? '' : 's'} added to this visit.`,
+            title: 'Visit items saved',
+            message: [
+              extraServices.length
+                ? `${extraServices.length + 1} services on this visit`
+                : '1 service on this visit',
+              draftParts.length
+                ? `${draftParts.length} workshop part${draftParts.length === 1 ? '' : 's'} requested (stock stays until issued)`
+                : null,
+            ]
+              .filter(Boolean)
+              .join('. '),
           });
         }
-        if (draftParts.length > 0) {
-          addToast({
-            type: 'success',
-            title: 'Parts attached to this booking',
-            message: `${draftParts.length} workshop part${draftParts.length === 1 ? '' : 's'} will show on the visit quote. Stock stays on the shelf until the garage issues them.`,
-          });
-        }
-        setDraftExtraServiceIds([]);
         setServiceQuery('');
-        setShowServicesPicker(false);
-        setDraftPartIds([]);
         setPartQuery('');
-        setShowPartsPicker(false);
         setStep(6);
       } catch (error) {
         addToast({
           type: 'error',
-          title: 'Extras were not fully attached',
-          message: error instanceof Error ? error.message : 'The booking was created, but a service or part failed.',
+          title: 'Could not finish booking',
+          message: error instanceof Error ? error.message : 'Booking failed.',
         });
-        try {
-          await refreshCustomerPortal();
-        } catch {
-          /* ignore */
-        }
-        setStep(6);
       } finally {
         setSubmitting(false);
       }
@@ -280,12 +295,10 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
 
   const handleResetAndClose = () => {
     setStep(1);
-    setDraftExtraServiceIds([]);
+    setSelectedServiceIds(preselectedServiceId ? [preselectedServiceId] : []);
     setServiceQuery('');
-    setShowServicesPicker(false);
     setDraftPartIds([]);
     setPartQuery('');
-    setShowPartsPicker(false);
     onClose();
   };
 
@@ -464,43 +477,166 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
             </div>
           )}
 
-          {/* STEP 2: SELECT SERVICE */}
+          {/* STEP 2: SELECT SERVICES + PARTS */}
           {step === 2 && (
             <div className="space-y-4">
               <div>
-                <h4 className="text-base font-bold text-white">Step 2: Select Service</h4>
-                <p className="text-xs text-slate-400">Choose from our certified automotive maintenance & repair catalog.</p>
+                <h4 className="text-base font-bold text-white">Step 2: Services & Parts</h4>
+                <p className="text-xs text-slate-400">
+                  Select one or more services. Optionally add workshop parts from inventory. You can adjust both again in Step 5.
+                </p>
               </div>
 
-              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                {(services || []).map((s) => (
-                  <div
-                    key={s.id}
-                    onClick={() => setSelectedServiceId(s.id)}
-                    className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                      selectedServiceId === s.id
-                        ? 'bg-blue-600/15 border-blue-500 ring-1 ring-blue-500'
-                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-white text-sm">{s.name}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold">
-                          {s.category}
-                        </span>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <Wrench className="w-3.5 h-3.5 text-blue-400" />
+                    Services ({selectedServiceIds.length} selected)
+                  </label>
+                  {selectedServiceIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedServiceIds([])}
+                      className="text-[10px] font-bold text-slate-500 hover:text-rose-300"
+                    >
+                      Clear services
+                    </button>
+                  )}
+                </div>
+                <input
+                  value={serviceQuery}
+                  onChange={(event) => setServiceQuery(event.target.value)}
+                  placeholder="Search services"
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white"
+                />
+                <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+                  {filteredCatalogServices.map((s) => {
+                    const selected = selectedServiceIds.includes(s.id);
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => toggleService(s.id)}
+                        className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                          selected
+                            ? 'bg-blue-600/15 border-blue-500 ring-1 ring-blue-500'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="space-y-0.5 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-sm">{s.name}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold">
+                              {s.category}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 line-clamp-1">{s.description}</p>
+                        </div>
+                        <div className="text-right shrink-0 ml-4 flex items-center gap-3">
+                          <div>
+                            <div className="text-base font-black text-white">${s.basePrice.toFixed(2)}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              ~{s.estimatedDurationHours ? s.estimatedDurationHours * 60 : 45} mins
+                            </div>
+                          </div>
+                          {selected ? (
+                            <CheckCircle2 className="w-5 h-5 text-blue-400" />
+                          ) : (
+                            <Plus className="w-5 h-5 text-slate-600" />
+                          )}
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-400 line-clamp-1">{s.description}</p>
-                    </div>
+                    );
+                  })}
+                  {filteredCatalogServices.length === 0 && (
+                    <p className="text-[11px] text-slate-500 px-1">No matching services.</p>
+                  )}
+                </div>
+              </div>
 
-                    <div className="text-right shrink-0 ml-4">
-                      <div className="text-base font-black text-white">${s.basePrice.toFixed(2)}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">
-                        ~{s.estimatedDurationHours ? s.estimatedDurationHours * 60 : 45} mins
-                      </div>
-                    </div>
+              <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                    <Package className="w-3.5 h-3.5 text-blue-400" />
+                    Workshop parts ({draftPartIds.length}) — optional
                   </div>
-                ))}
+                  {draftPartIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setDraftPartIds([])}
+                      className="text-[10px] font-bold text-slate-500 hover:text-rose-300"
+                    >
+                      Clear parts
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Parts stay on the shelf until the garage issues them. Only in-stock inventory is listed.
+                </p>
+                {draftParts.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {draftParts.map((part) => (
+                      <li
+                        key={part.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                      >
+                        <span>
+                          {part.name}
+                          <span className="block font-mono text-[10px] text-slate-500">
+                            {part.sku} · stock {part.stockQuantity}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="font-mono text-slate-400">${part.unitPrice.toFixed(2)}</span>
+                          <button
+                            type="button"
+                            onClick={() => setDraftPartIds((ids) => ids.filter((id) => id !== part.id))}
+                            className="text-[10px] font-bold text-rose-300"
+                          >
+                            Remove
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <input
+                  value={partQuery}
+                  onChange={(event) => setPartQuery(event.target.value)}
+                  placeholder="Search shelf parts"
+                  className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
+                />
+                <ul className="max-h-40 overflow-y-auto space-y-1">
+                  {shelfParts.map((part) => (
+                    <li key={part.id}>
+                      <button
+                        type="button"
+                        onClick={() => setDraftPartIds((ids) => [...ids, part.id])}
+                        className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 hover:bg-blue-50 hover:text-slate-900"
+                      >
+                        <span>
+                          {part.name}
+                          <span className="block font-mono text-[10px] text-slate-500">
+                            stock {part.stockQuantity}
+                          </span>
+                        </span>
+                        <span className="font-mono text-slate-500">
+                          {part.sku} · ${part.unitPrice.toFixed(2)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {shelfParts.length === 0 && (
+                    <li className="text-[11px] text-slate-500">No matching part in stock.</li>
+                  )}
+                </ul>
+              </div>
+
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs flex items-center justify-between">
+                <span className="text-slate-400">
+                  Estimated total · {selectedServices.length} service{selectedServices.length === 1 ? '' : 's'}
+                  {draftParts.length > 0 ? ` · ${draftParts.length} part${draftParts.length === 1 ? '' : 's'}` : ''}
+                </span>
+                <span className="text-blue-400 font-mono font-bold">${bookingTotal.toFixed(2)}</span>
               </div>
             </div>
           )}
@@ -580,15 +716,134 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
             </div>
           )}
 
-          {/* STEP 5: DESCRIBE PROBLEM & CONFIRM */}
+          {/* STEP 5: REVIEW SERVICES/PARTS + SYMPTOMS & CONFIRM */}
           {step === 5 && (
             <div className="space-y-4">
               <div>
-                <h4 className="text-base font-bold text-white">Step 5: Symptoms & Problem Description</h4>
-                <p className="text-xs text-slate-400">Help our technicians prepare the right diagnostic scanners and tools.</p>
+                <h4 className="text-base font-bold text-white">Step 5: Review & Confirm</h4>
+                <p className="text-xs text-slate-400">
+                  Adjust services and parts if needed, then describe symptoms and confirm the booking.
+                </p>
               </div>
 
               <div className="space-y-3.5">
+                <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                    <Wrench className="w-3.5 h-3.5 text-blue-400" />
+                    Selected services
+                  </div>
+                  {selectedServices.length === 0 ? (
+                    <p className="text-[11px] text-rose-300">Select at least one service before confirming.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {selectedServices.map((item, index) => (
+                        <li
+                          key={item.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                        >
+                          <span>
+                            {item.name}
+                            {index === 0 && (
+                              <span className="ml-2 text-[10px] uppercase tracking-wide text-blue-400">Primary</span>
+                            )}
+                          </span>
+                          <span className="flex items-center gap-2">
+                            <span className="font-mono text-slate-400">${item.basePrice.toFixed(2)}</span>
+                            <button
+                              type="button"
+                              onClick={() => toggleService(item.id)}
+                              className="text-[10px] font-bold text-rose-300"
+                            >
+                              Remove
+                            </button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <input
+                    value={serviceQuery}
+                    onChange={(event) => setServiceQuery(event.target.value)}
+                    placeholder="Add another service"
+                    className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
+                  />
+                  <ul className="max-h-36 overflow-y-auto space-y-1">
+                    {filteredCatalogServices
+                      .filter((item) => !selectedServiceIds.includes(item.id))
+                      .map((item) => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() => toggleService(item.id)}
+                            className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 hover:bg-blue-50 hover:text-slate-900"
+                          >
+                            <span>{item.name}</span>
+                            <span className="font-mono text-slate-500">${item.basePrice.toFixed(2)}</span>
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+
+                <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                    <Package className="w-3.5 h-3.5 text-blue-400" />
+                    Workshop parts
+                  </div>
+                  {draftParts.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {draftParts.map((part) => (
+                        <li
+                          key={part.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                        >
+                          <span>
+                            {part.name}
+                            <span className="block font-mono text-[10px] text-slate-500">{part.sku}</span>
+                          </span>
+                          <span className="flex items-center gap-2">
+                            <span className="font-mono text-slate-400">${part.unitPrice.toFixed(2)}</span>
+                            <button
+                              type="button"
+                              onClick={() => setDraftPartIds((ids) => ids.filter((id) => id !== part.id))}
+                              className="text-[10px] font-bold text-rose-300"
+                            >
+                              Remove
+                            </button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[11px] text-slate-500">No parts selected. Optional — add from stock below.</p>
+                  )}
+                  <input
+                    value={partQuery}
+                    onChange={(event) => setPartQuery(event.target.value)}
+                    placeholder="Search shelf part"
+                    className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
+                  />
+                  <ul className="max-h-40 overflow-y-auto space-y-1">
+                    {shelfParts.map((part) => (
+                      <li key={part.id}>
+                        <button
+                          type="button"
+                          onClick={() => setDraftPartIds((ids) => [...ids, part.id])}
+                          className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 hover:bg-blue-50 hover:text-slate-900"
+                        >
+                          <span>{part.name}</span>
+                          <span className="font-mono text-slate-500">
+                            {part.sku} · ${part.unitPrice.toFixed(2)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                    {shelfParts.length === 0 && (
+                      <li className="text-[11px] text-slate-500">No matching part in stock.</li>
+                    )}
+                  </ul>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     What symptoms are you experiencing?
@@ -629,192 +884,6 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  {!showServicesPicker && draftExtraServices.length === 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowServicesPicker(true)}
-                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-dashed border-slate-700 bg-slate-950 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:border-slate-500"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add another service (optional)
-                    </button>
-                  ) : (
-                    <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                          <Wrench className="w-3.5 h-3.5 text-blue-400" />
-                          Extra services for this booking
-                        </div>
-                        {draftExtraServices.length === 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowServicesPicker(false);
-                              setServiceQuery('');
-                            }}
-                            className="text-[10px] font-bold text-slate-500 hover:text-slate-300"
-                          >
-                            Hide
-                          </button>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Optional. Main service stays <strong className="text-slate-300">{selectedService?.name}</strong>.
-                        Add more services to the same visit.
-                      </p>
-                      {draftExtraServices.length > 0 && (
-                        <ul className="space-y-1.5">
-                          {draftExtraServices.map((item) => (
-                            <li
-                              key={item.id}
-                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-200"
-                            >
-                              <span>{item.name}</span>
-                              <span className="flex items-center gap-2">
-                                <span className="font-mono text-slate-400">${item.basePrice.toFixed(2)}</span>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setDraftExtraServiceIds((ids) => ids.filter((id) => id !== item.id))
-                                  }
-                                  className="text-[10px] font-bold text-rose-300"
-                                >
-                                  Remove
-                                </button>
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {(showServicesPicker || draftExtraServices.length > 0) && (
-                        <>
-                          <input
-                            value={serviceQuery}
-                            onChange={(event) => setServiceQuery(event.target.value)}
-                            placeholder="Search service"
-                            className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
-                          />
-                          <ul className="max-h-40 overflow-y-auto space-y-1">
-                            {availableExtraServices.map((item) => (
-                              <li key={item.id}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setDraftExtraServiceIds((ids) => [...ids, item.id]);
-                                    setShowServicesPicker(true);
-                                  }}
-                                  className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 hover:bg-blue-50 hover:text-slate-900"
-                                >
-                                  <span>{item.name}</span>
-                                  <span className="font-mono text-slate-500">${item.basePrice.toFixed(2)}</span>
-                                </button>
-                              </li>
-                            ))}
-                            {availableExtraServices.length === 0 && (
-                              <li className="text-[11px] text-slate-500">No other services available.</li>
-                            )}
-                          </ul>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  {!showPartsPicker && draftParts.length === 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowPartsPicker(true)}
-                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-dashed border-slate-700 bg-slate-950 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:border-slate-500"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add workshop parts (optional)
-                    </button>
-                  ) : (
-                    <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                          <Package className="w-3.5 h-3.5 text-blue-400" />
-                          Workshop parts for this booking
-                        </div>
-                        {draftParts.length === 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowPartsPicker(false);
-                              setPartQuery('');
-                            }}
-                            className="text-[10px] font-bold text-slate-500 hover:text-slate-300"
-                          >
-                            Hide
-                          </button>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Optional. You can remove these before you submit. After submit, changes wait until the quote.
-                      </p>
-                      {draftParts.length > 0 && (
-                        <ul className="space-y-1.5">
-                          {draftParts.map((part) => (
-                            <li
-                              key={part.id}
-                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-200"
-                            >
-                              <span>
-                                {part.name}
-                                <span className="block font-mono text-[10px] text-slate-500">{part.sku}</span>
-                              </span>
-                              <span className="flex items-center gap-2">
-                                <span className="font-mono text-slate-400">${part.unitPrice.toFixed(2)}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setDraftPartIds((ids) => ids.filter((id) => id !== part.id))}
-                                  className="text-[10px] font-bold text-rose-300"
-                                >
-                                  Remove
-                                </button>
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {(showPartsPicker || draftParts.length > 0) && (
-                        <>
-                          <input
-                            value={partQuery}
-                            onChange={(event) => setPartQuery(event.target.value)}
-                            placeholder="Search shelf part"
-                            className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
-                          />
-                          <ul className="max-h-56 overflow-y-auto space-y-1">
-                            {shelfParts.map((part) => (
-                              <li key={part.id}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setDraftPartIds((ids) => [...ids, part.id]);
-                                    setShowPartsPicker(true);
-                                  }}
-                                  className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 hover:bg-blue-50 hover:text-slate-900"
-                                >
-                                  <span>{part.name}</span>
-                                  <span className="font-mono text-slate-500">
-                                    {part.sku} · ${part.unitPrice.toFixed(2)}
-                                  </span>
-                                </button>
-                              </li>
-                            ))}
-                            {shelfParts.length === 0 && (
-                              <li className="text-[11px] text-slate-500">No matching part in stock.</li>
-                            )}
-                          </ul>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-
                 {/* Summary Box */}
                 <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2 text-xs">
                   <div className="font-bold text-white flex items-center justify-between">
@@ -822,22 +891,23 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                     <span className="text-blue-400 font-mono">${bookingTotal.toFixed(2)}</span>
                   </div>
                   <div className="text-slate-300">
-                    Vehicle: <strong className="text-white">{selectedVehicle?.brand} {selectedVehicle?.model} ({selectedVehicle?.licensePlate})</strong>
+                    Vehicle:{' '}
+                    <strong className="text-white">
+                      {selectedVehicle?.brand} {selectedVehicle?.model} ({selectedVehicle?.licensePlate})
+                    </strong>
                   </div>
                   <div className="text-slate-300">
-                    Main service: <strong className="text-white">{selectedService?.name}</strong>
+                    Services:{' '}
+                    <strong className="text-white">
+                      {selectedServices.map((item) => item.name).join(', ') || 'None selected'}
+                    </strong>
                   </div>
-                  {draftExtraServices.length > 0 && (
-                    <div className="text-slate-300">
-                      Extra services:{' '}
-                      <strong className="text-white">
-                        {draftExtraServices.map((item) => item.name).join(', ')}
-                      </strong>
-                    </div>
-                  )}
                   {draftParts.length > 0 && (
                     <div className="text-slate-300">
-                      Parts: <strong className="text-white">{draftParts.length} workshop install</strong>
+                      Parts:{' '}
+                      <strong className="text-white">
+                        {draftParts.map((part) => part.name).join(', ')}
+                      </strong>
                     </div>
                   )}
                   <div className="text-slate-300">
@@ -874,9 +944,7 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                 <div className="flex justify-between gap-3">
                   <span className="text-slate-400 shrink-0">Services:</span>
                   <span className="text-white font-bold text-right">
-                    {[selectedService?.name, ...draftExtraServices.map((item) => item.name)]
-                      .filter(Boolean)
-                      .join(', ')}
+                    {selectedServices.map((item) => item.name).join(', ')}
                   </span>
                 </div>
                 {draftParts.length > 0 && (
@@ -931,7 +999,10 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
             {step < 5 ? (
               <button
                 type="button"
-                onClick={() => setStep(step + 1)}
+                onClick={() => {
+                  if (!canContinueFromStep(step)) return;
+                  setStep(step + 1);
+                }}
                 className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <span>Continue</span>
@@ -949,7 +1020,7 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                 </button>
                 <button
                   type="button"
-                  disabled={submitting}
+                  disabled={submitting || selectedServiceIds.length === 0}
                   onClick={() => void handleConfirmAppointment()}
                   className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
                 >
