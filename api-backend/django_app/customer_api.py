@@ -281,6 +281,13 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"vehicle": "This vehicle is not on your account."})
         if service and service.status != "ACTIVE":
             raise serializers.ValidationError({"service": "This service is not available."})
+        if service:
+            from django_app.models import service_is_bookable
+
+            if not service_is_bookable(service):
+                raise serializers.ValidationError(
+                    {"service": f"{service.name} is out of stock (package parts unavailable)."}
+                )
         if vehicle and booking_date and _conflict(vehicle, booking_date, booking_time, ignore_pk=getattr(self.instance, "pk", None)):
             raise serializers.ValidationError({"booking_time": "That vehicle already has a booking at this time."})
 
@@ -288,6 +295,8 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
         if extras:
             seen = set()
             cleaned = []
+            from django_app.models import service_is_bookable
+
             for item in extras:
                 if service and item.id == service.id:
                     continue
@@ -295,6 +304,10 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
                     continue
                 if item.status != "ACTIVE":
                     raise serializers.ValidationError({"extra_services": f"{item.name} is not available."})
+                if not service_is_bookable(item):
+                    raise serializers.ValidationError(
+                        {"extra_services": f"{item.name} is out of stock (package parts unavailable)."}
+                    )
                 seen.add(item.id)
                 cleaned.append(item)
             attrs["extra_services"] = cleaned
@@ -781,13 +794,82 @@ def absolute_media_url(serializer, field):
 class CustomerServiceSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
     image_url = serializers.SerializerMethodField()
+    available_packages = serializers.SerializerMethodField()
+    bookable = serializers.SerializerMethodField()
+    labor_price = serializers.SerializerMethodField()
+    parts_total = serializers.SerializerMethodField()
+    estimated_total = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()
+    package_parts = serializers.SerializerMethodField()
 
     class Meta:
         model = Service
-        fields = ["id", "name", "description", "price", "duration_minutes", "category", "category_name", "image_url"]
+        fields = [
+            "id",
+            "name",
+            "description",
+            "price",
+            "labor_price",
+            "duration_minutes",
+            "category",
+            "category_name",
+            "image_url",
+            "available_packages",
+            "bookable",
+            "parts_total",
+            "estimated_total",
+            "package_parts",
+        ]
 
     def get_image_url(self, service):
         return absolute_media_url(self, service.image)
+
+    def get_available_packages(self, service):
+        from django_app.models import service_package_capacity
+
+        return service_package_capacity(service)
+
+    def get_bookable(self, service):
+        from django_app.models import service_is_bookable
+
+        return service_is_bookable(service)
+
+    def get_labor_price(self, service):
+        return service.price or 0
+
+    def get_parts_total(self, service):
+        from django_app.models import service_package_parts_total
+
+        return service_package_parts_total(service)
+
+    def get_estimated_total(self, service):
+        from django_app.models import service_package_parts_total
+
+        return (service.price or 0) + service_package_parts_total(service)
+
+    def get_price(self, service):
+        """Catalog display price = labor + package parts (not labor alone)."""
+        return self.get_estimated_total(service)
+
+    def get_package_parts(self, service):
+        from django_app.models import service_package_items
+
+        rows = []
+        for item in service_package_items(service):
+            part = item.spare_part
+            qty = max(int(item.quantity or 1), 1)
+            rows.append(
+                {
+                    "id": part.id,
+                    "name": part.name,
+                    "sku": part.part_number,
+                    "quantity": qty,
+                    "unit_price": part.unit_price,
+                    "line_total": (part.unit_price or 0) * qty,
+                    "stock": part.quantity,
+                }
+            )
+        return rows
 
 
 class CustomerServiceViewSet(CustomerApiMixin, viewsets.ReadOnlyModelViewSet):
@@ -795,7 +877,12 @@ class CustomerServiceViewSet(CustomerApiMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Service.objects.none()
 
     def get_queryset(self):
-        return Service.objects.filter(status="ACTIVE").select_related("category").order_by("name")
+        return (
+            Service.objects.filter(status="ACTIVE")
+            .select_related("category")
+            .prefetch_related("package_items__spare_part")
+            .order_by("name")
+        )
 
 
 class PublicServiceList(APIView):
@@ -805,7 +892,12 @@ class PublicServiceList(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        rows = Service.objects.filter(status="ACTIVE").select_related("category").order_by("name")
+        rows = (
+            Service.objects.filter(status="ACTIVE")
+            .select_related("category")
+            .prefetch_related("package_items__spare_part")
+            .order_by("name")
+        )
         return Response(CustomerServiceSerializer(rows, many=True, context={"request": request}).data)
 
 

@@ -167,6 +167,124 @@
                 </div>
                 {{ field.errors }}
             </div>
+        {% elif field.name == "package_parts" %}
+            <div class="cf-field cf-rec-field cf-span" id="service-package-panel" data-service-package="1">
+                <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+                {% if field.help_text %}<p class="cf-help">{{ field.help_text }}</p>{% endif %}
+                <div class="cf-rec-col">
+                    <div class="cf-rec-scroll">
+                        {% for row in adminform.form.package_rows.parts %}
+                            <div class="cf-rec-item {% if row.checked %}is-open{% endif %}" data-unit-price="{{ row.unit_price }}" data-stock="{{ row.stock }}">
+                                <label class="cf-rec-check">
+                                    <input type="checkbox" name="package_parts" value="{{ row.id }}" {% if row.checked %}checked{% endif %} data-rec-toggle data-pkg-part>
+                                    <span class="cf-rec-body">
+                                        <span class="cf-rec-name">{{ row.name }}</span>
+                                        <span class="cf-rec-meta">${{ row.price }} · {{ row.stock }} left</span>
+                                    </span>
+                                </label>
+                                <input class="cf-input cf-rec-qty" type="number" min="1" name="pkg_part_qty_{{ row.id }}" value="{{ row.quantity }}" title="Qty" data-pkg-qty {% if not row.checked %}disabled{% endif %}>
+                            </div>
+                        {% empty %}
+                            <p class="cf-rec-empty">No active parts in inventory yet.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="cf-pkg-totals" style="margin-top:12px;padding:12px 14px;border:1px solid var(--border-color, #e5e7eb);border-radius:12px;background:var(--cf-locked-bg, #f8fafc);display:grid;gap:8px;">
+                    <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;">
+                        <span>Service price</span>
+                        <strong id="pkg-service-price">${{ adminform.form.package_rows.labor }}</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;">
+                        <span>Parts subtotal</span>
+                        <strong id="pkg-parts-subtotal">${{ adminform.form.package_rows.parts_total }}</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;">
+                        <span>Packages available</span>
+                        <strong id="pkg-capacity">{% if adminform.form.package_rows.capacity == None %}Labor only{% else %}{{ adminform.form.package_rows.capacity }}{% endif %}</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;font-size:14px;padding-top:8px;border-top:1px solid var(--border-color, #e5e7eb);">
+                        <span>Total price <span style="font-size:11px;opacity:.7;">(read-only)</span></span>
+                        <strong id="pkg-total-price" style="font-size:18px;">${{ adminform.form.package_rows.total }}</strong>
+                    </div>
+                </div>
+                {{ field.errors }}
+            </div>
+            <script>
+            (function () {
+                if (window.__carsvRecToggleBound) {
+                    /* still bind package price calc once */
+                } else {
+                    window.__carsvRecToggleBound = true;
+                    document.addEventListener("change", function (event) {
+                        var box = event.target;
+                        if (!box || !box.matches || !box.matches("[data-rec-toggle]")) return;
+                        var item = box.closest(".cf-rec-item");
+                        if (!item) return;
+                        item.classList.toggle("is-open", box.checked);
+                        item.querySelectorAll("input.cf-input").forEach(function (input) {
+                            input.disabled = !box.checked;
+                        });
+                    });
+                }
+                if (window.__carsvPkgPriceBound) return;
+                window.__carsvPkgPriceBound = true;
+                function money(n) {
+                    return "$" + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+                }
+                function recalcPackageTotals() {
+                    var panel = document.getElementById("service-package-panel");
+                    if (!panel) return;
+                    var laborInput = document.getElementById("id_price");
+                    var labor = laborInput ? parseFloat(laborInput.value) : 0;
+                    if (!isFinite(labor)) labor = 0;
+                    var partsTotal = 0;
+                    var capacity = null;
+                    var any = false;
+                    panel.querySelectorAll(".cf-rec-item").forEach(function (item) {
+                        var box = item.querySelector("[data-pkg-part]");
+                        var qtyInput = item.querySelector("[data-pkg-qty]");
+                        if (!box || !box.checked) return;
+                        any = true;
+                        var unit = parseFloat(item.getAttribute("data-unit-price") || "0");
+                        var stock = parseInt(item.getAttribute("data-stock") || "0", 10);
+                        var qty = parseInt(qtyInput && qtyInput.value ? qtyInput.value : "1", 10);
+                        if (!isFinite(qty) || qty < 1) qty = 1;
+                        if (!isFinite(unit)) unit = 0;
+                        partsTotal += unit * qty;
+                        var packs = qty > 0 ? Math.floor((isFinite(stock) ? stock : 0) / qty) : 0;
+                        capacity = capacity == null ? packs : Math.min(capacity, packs);
+                    });
+                    var total = labor + partsTotal;
+                    var elService = document.getElementById("pkg-service-price");
+                    var elParts = document.getElementById("pkg-parts-subtotal");
+                    var elCap = document.getElementById("pkg-capacity");
+                    var elTotal = document.getElementById("pkg-total-price");
+                    if (elService) elService.textContent = money(labor);
+                    if (elParts) elParts.textContent = money(partsTotal);
+                    if (elCap) elCap.textContent = any ? String(capacity == null ? 0 : capacity) : "Labor only";
+                    if (elTotal) elTotal.textContent = money(total);
+                }
+                document.addEventListener("change", function (event) {
+                    var t = event.target;
+                    if (!t) return;
+                    if (t.matches && (t.matches("#id_price") || t.matches("[data-pkg-part]") || t.matches("[data-pkg-qty]"))) {
+                        recalcPackageTotals();
+                    }
+                });
+                document.addEventListener("input", function (event) {
+                    var t = event.target;
+                    if (!t) return;
+                    if (t.matches && (t.matches("#id_price") || t.matches("[data-pkg-qty]"))) {
+                        recalcPackageTotals();
+                    }
+                });
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", recalcPackageTotals);
+                } else {
+                    recalcPackageTotals();
+                }
+            })();
+            </script>
         {% elif field.field.widget.input_type == "checkbox" %}
             <div class="cf-check cf-span {% if field.field.disabled %}is-locked{% endif %}">
                 {{ field }}

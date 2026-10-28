@@ -106,7 +106,15 @@ export interface ServiceItem {
   name: string;
   category: 'Maintenance' | 'Engine' | 'Brakes' | 'Electrical' | 'Transmission' | 'Tires' | 'AC & Heating' | 'Body';
   description: string;
+  /** Catalog total shown to customers (labor + package parts). */
   basePrice: number;
+  /** Package parts subtotal (unit × qty). */
+  partsTotal?: number;
+  /** Same as basePrice for packaged services (labor + parts). */
+  estimatedTotal?: number;
+  /** null = labor-only (unlimited). */
+  availablePackages?: number | null;
+  bookable?: boolean;
   estimatedDurationHours: number;
   requiredParts: string[];
   status: 'ACTIVE' | 'INACTIVE';

@@ -319,7 +319,7 @@ export const CustomerInvoicesView: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="tab-scroll">
           {(
             [
               { id: 'ALL', label: 'All invoices', icon: Receipt },
@@ -331,7 +331,7 @@ export const CustomerInvoicesView: React.FC = () => {
               key={tab.id}
               type="button"
               onClick={() => setKindFilter(tab.id)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all shrink-0 whitespace-nowrap ${
                 kindFilter === tab.id
                   ? tab.id === 'PARTS_SALE'
                     ? 'bg-slate-800 text-amber-300 border-slate-600'
@@ -347,7 +347,7 @@ export const CustomerInvoicesView: React.FC = () => {
           ))}
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="tab-scroll">
           {(
             [
               { id: 'ALL', label: 'All payments', on: 'bg-slate-700 text-white border-slate-600' },
@@ -361,7 +361,7 @@ export const CustomerInvoicesView: React.FC = () => {
               key={tab.id}
               type="button"
               onClick={() => setPayFilter(tab.id)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all shrink-0 whitespace-nowrap ${
                 payFilter === tab.id
                   ? tab.on
                   : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-600'
@@ -437,11 +437,11 @@ export const CustomerInvoicesView: React.FC = () => {
                     <span className="text-xs text-slate-400">{payStateHint(activeState)}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleDownload(active.invoiceNumber)}
-                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5"
+                    className="px-3.5 py-2 min-h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5"
                   >
                     <Download className="w-3.5 h-3.5" />
                     PDF
@@ -449,7 +449,7 @@ export const CustomerInvoicesView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => window.print()}
-                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5"
+                    className="px-3.5 py-2 min-h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 flex items-center gap-1.5"
                   >
                     <Printer className="w-3.5 h-3.5" />
                     Print
@@ -595,9 +595,9 @@ export const CustomerInvoicesView: React.FC = () => {
       </div>
 
       {showPendingView && active && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
-          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl shadow-2xl p-4 sm:p-6 space-y-4 max-h-[min(92dvh,90vh)] overflow-y-auto overscroll-contain">
+            <div className="flex justify-between items-center gap-3 pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Eye className="w-5 h-5 text-orange-400" />
                 <h3 className="text-base font-bold text-white">Pending payment</h3>
@@ -657,12 +657,12 @@ export const CustomerInvoicesView: React.FC = () => {
       )}
 
       {showPayModal && active && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
-          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-blue-400" />
-                <h3 className="text-base font-bold text-white">Pay {active.invoiceNumber}</h3>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl shadow-2xl p-4 sm:p-6 space-y-5 max-h-[min(92dvh,90vh)] overflow-y-auto overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div className="flex justify-between items-center gap-3 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2 min-w-0">
+                <CreditCard className="w-5 h-5 text-blue-400 shrink-0" />
+                <h3 className="text-base font-bold text-white truncate">Pay {active.invoiceNumber}</h3>
               </div>
               <button type="button" onClick={() => setShowPayModal(false)} className="p-1 text-slate-400 hover:text-white rounded-full bg-slate-800">
                 <X className="w-4 h-4" />
@@ -673,7 +673,7 @@ export const CustomerInvoicesView: React.FC = () => {
               Submitting creates a <span className="text-orange-400 font-semibold">Pending</span> claim. Staff must Verify in
               admin before the invoice is Paid.
             </p>
-            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-center text-[10px] sm:text-xs min-w-0">
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
                 <div className="text-slate-500">Grand total</div>
                 <div className="font-mono font-bold text-white">${active.totalAmount.toFixed(2)}</div>
@@ -885,9 +885,9 @@ export const CustomerInvoicesView: React.FC = () => {
       )}
 
       {receiptToView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
-          <div className="print-sheet relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-            <div className="flex justify-between items-center">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/85 backdrop-blur-md">
+          <div className="print-sheet relative w-full max-w-md bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl p-4 sm:p-6 space-y-4 max-h-[min(92dvh,90vh)] overflow-y-auto">
+            <div className="flex justify-between items-center gap-3">
               <h3 className="text-base font-bold text-white">Payment receipt</h3>
               <button type="button" onClick={() => setReceiptToView(null)} className="p-1 text-slate-400 rounded-full bg-slate-800">
                 <X className="w-4 h-4" />

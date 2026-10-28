@@ -178,8 +178,16 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
         isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      <header className="portal-brand-header sticky top-0 z-40 border-b border-white/10 text-white shadow-md shadow-black/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+      <header className="portal-brand-header sticky top-0 z-40 relative border-b border-white/10 text-white shadow-md shadow-black/40">
+        {mobileMenuOpen && (
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+        )}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-40">
           <div className="h-16 flex items-center justify-between gap-4">
             <button
               type="button"
@@ -395,6 +403,9 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="portal-mobile-nav"
+                aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
                 className="lg:hidden h-9 w-9 rounded-full flex items-center justify-center border bg-white/15 border-white/25 text-white hover:bg-white/25"
               >
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -402,7 +413,7 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
             </div>
           </div>
 
-          <nav className="hidden lg:flex items-center gap-1 pb-2.5 -mx-1 overflow-x-auto text-white/80">
+          <nav className="hidden lg:flex items-center gap-1 pb-2.5 -mx-1 overflow-x-auto text-white/80 scrollbar-none">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
@@ -429,7 +440,14 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
         </div>
 
         {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-white/10 bg-slate-900/80 px-4 py-3 space-y-1">
+          <div
+            id="portal-mobile-nav"
+            className={`portal-mobile-nav absolute left-0 right-0 top-full z-50 lg:hidden border-t px-4 py-3 space-y-1 shadow-xl ${
+              isDark
+                ? 'border-white/10 bg-[#202127] keep-on-dark'
+                : 'border-slate-200 bg-white'
+            }`}
+          >
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
@@ -438,13 +456,19 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
                   key={item.id}
                   type="button"
                   onClick={() => handleTabChange(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 min-h-11 rounded-xl text-sm font-semibold transition-colors ${
                     active
                       ? 'bg-blue-600 text-slate-950'
-                      : 'text-white/90 hover:bg-white/10'
+                      : isDark
+                        ? 'text-white hover:bg-white/10'
+                        : 'text-slate-800 hover:bg-slate-100'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon
+                    className={`w-4 h-4 ${
+                      active ? 'text-slate-950' : isDark ? 'text-white' : 'text-slate-700'
+                    }`}
+                  />
                   {item.label}
                   {tabTone(item.id) && (
                     <span className={`ml-auto w-1.5 h-1.5 rounded-full ${alertBadgeClass(tabTone(item.id) as AlertTone)}`} />
@@ -467,7 +491,7 @@ export const CustomerPortalApp: React.FC<CustomerPortalAppProps> = ({
       </header>
 
       {/* 2. MAIN WORKSPACE CONTAINER */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-5 sm:py-8 min-w-0">
         {activeTab === 'DASHBOARD' && (
           <CustomerDashboardHome
             onNavigateTab={(tab) => handleTabChange(tab)}

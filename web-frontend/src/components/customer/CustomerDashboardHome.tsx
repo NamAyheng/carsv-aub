@@ -85,13 +85,13 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
   return (
     <div className="space-y-8">
       {/* Welcome header — origin portal card style */}
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-slate-900 p-6 rounded-3xl border border-slate-800">
-        <div>
-          <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
-            <Sparkles className="w-6 h-6 text-blue-500" />
-            <span>Hello, {currentUser?.name || 'there'}</span>
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-800 min-w-0">
+        <div className="min-w-0">
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-start sm:items-center gap-2.5">
+            <Sparkles className="w-6 h-6 text-blue-500 shrink-0 mt-0.5 sm:mt-0" />
+            <span className="break-words">Hello, {currentUser?.name || 'there'}</span>
           </h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
+          <p className="text-xs text-slate-400 mt-1 max-w-xl break-words">
             {pickupJobs[0]
               ? `${pickupJobs[0].vehicleInfo} is ready for pickup.`
               : pendingQuotes[0]
@@ -236,7 +236,7 @@ export const CustomerDashboardHome: React.FC<CustomerDashboardHomeProps> = ({
       </div>
 
       {/* 5 KPI Cards Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* KPI 1: My Vehicles */}
         <div
           onClick={() => onNavigateTab('VEHICLES')}

@@ -189,7 +189,7 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-slate-900 p-6 rounded-3xl border border-slate-800">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-800 min-w-0">
         <div>
           <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
             <Calendar className="w-6 h-6 text-blue-500" />
@@ -210,20 +210,20 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
       </div>
 
       {/* Tabs Filter */}
-      <div className="flex flex-wrap border-b border-slate-800 bg-slate-900/60 p-1.5 rounded-2xl gap-2">
+      <div className="tab-scroll border border-slate-800 bg-slate-900/60 p-1.5 rounded-2xl">
         {(
           [
+            { id: 'ALL', label: 'All' },
             { id: 'UPCOMING', label: 'Upcoming' },
             { id: 'TODAY', label: 'Today' },
             { id: 'COMPLETED', label: 'Completed' },
             { id: 'CANCELLED', label: 'Cancelled' },
-            { id: 'ALL', label: 'All' },
           ] as const
         ).map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap ${
               activeTab === tab.id
                 ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -284,15 +284,15 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                 </p>
               </div>
 
-              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+              <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
                 <button
                   onClick={() => openAppointmentDetails(apt)}
-                  className="text-xs text-slate-400 hover:text-white font-semibold py-1 px-2.5 rounded-lg hover:bg-slate-800 transition-colors"
+                  className="text-xs text-slate-400 hover:text-white font-semibold py-2 px-2.5 min-h-9 rounded-lg hover:bg-slate-800 transition-colors"
                 >
                   View Details
                 </button>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   {canTrack(apt) && onTrackWorkOrder && (
                     <button
                       type="button"
@@ -337,10 +337,10 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
       )}
 
       {cancelTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
           <form
             onSubmit={handleCancelAppointment}
-            className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-6 space-y-4"
+            className="relative w-full max-w-md bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl shadow-2xl p-4 sm:p-6 space-y-4 max-h-[min(92dvh,90vh)] overflow-y-auto"
           >
             <div className="flex justify-between items-center">
               <h3 className="text-base font-bold text-white">Cancel booking</h3>
@@ -373,9 +373,9 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
 
       {/* MODAL 1: RESCHEDULE APPOINTMENT */}
       {rescheduleAppointment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-6 space-y-4">
-            <div className="flex justify-between items-center">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl shadow-2xl p-4 sm:p-6 space-y-4 max-h-[min(92dvh,90vh)] overflow-y-auto">
+            <div className="flex justify-between items-center gap-3">
               <h3 className="text-base font-bold text-white">Reschedule Appointment</h3>
               <button
                 onClick={() => setRescheduleAppointment(null)}
@@ -524,7 +524,7 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                       >
                         <option value="">Choose a service</option>
                         {(services || [])
-                          .filter((item) => item.status === 'ACTIVE')
+                          .filter((item) => item.status === 'ACTIVE' && item.bookable !== false)
                           .filter((item) => item.id !== selectedAppointmentDetails.serviceId)
                           .filter(
                             (item) =>
@@ -533,7 +533,9 @@ export const CustomerAppointmentsView: React.FC<CustomerAppointmentsViewProps> =
                               )
                           )
                           .map((item) => (
-                            <option key={item.id} value={item.id}>{item.name} · ${item.basePrice.toFixed(2)}</option>
+                            <option key={item.id} value={item.id}>
+                              {item.name} · ${(item.estimatedTotal ?? item.basePrice).toFixed(2)}
+                            </option>
                           ))}
                       </select>
                       <button type="submit" disabled={addingService} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold">

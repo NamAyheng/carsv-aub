@@ -1011,6 +1011,23 @@ class SparePart(models.Model):
         return f"{self.part_number} — {self.name}"
 
 
+class ServicePackageItem(models.Model):
+    """Parts recipe for a catalog service. Capacity comes from SparePart stock."""
+
+    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="package_items")
+    spare_part = models.ForeignKey(SparePart, on_delete=models.PROTECT, related_name="service_packages")
+    quantity = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["service", "spare_part"], name="unique_part_on_service_package"),
+        ]
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.service} · {self.spare_part} x{self.quantity}"
+
+
 class PartsUsage(models.Model):
     repair_job = models.ForeignKey(RepairJob, on_delete=models.CASCADE, related_name="parts_used")
     spare_part = models.ForeignKey(SparePart, on_delete=models.PROTECT, related_name="usages")
@@ -1113,6 +1130,7 @@ class PartRequest(models.Model):
         BOOKING = "BOOKING", "Booked by customer"
         CUSTOMER = "CUSTOMER", "Added by customer"
         INSPECTOR = "INSPECTOR", "Recommended by inspector"
+        SERVICE_PACKAGE = "SERVICE_PACKAGE", "From service package"
 
     number = models.CharField(max_length=40, unique=True, null=True, blank=True)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="part_requests")
@@ -1132,6 +1150,14 @@ class PartRequest(models.Model):
     fulfillment = models.CharField(max_length=32, choices=Fulfillment.choices, default=Fulfillment.INSTALL)
     quantity = models.PositiveIntegerField(default=1)
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.CUSTOMER)
+    from_service = models.ForeignKey(
+        Service,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="spawned_part_requests",
+        help_text="Catalog service whose package created this request.",
+    )
     inspection = models.ForeignKey(
         Inspection,
         null=True,
@@ -2078,11 +2104,156 @@ def visit_service_total(booking):
     return total + Decimal(extra)
 
 
+def service_package_items(service):
+    """Active package lines for a catalog service."""
+    if service is None:
+        return []
+    return list(
+        ServicePackageItem.objects.filter(service_id=service.pk)
+        .select_related("spare_part", "spare_part__category")
+        .order_by("id")
+    )
+
+
+def service_package_parts_total(service):
+    """Sum of package part unit prices × qty (service labor price is separate)."""
+    total = Decimal("0")
+    for item in service_package_items(service):
+        qty = max(int(item.quantity or 1), 1)
+        total += Decimal(item.spare_part.unit_price or 0) * qty
+    return total
+
+
+def service_package_capacity(service):
+    """
+    How many complete packages can still be sold from current shelf stock.
+    None = labor-only (no package parts) — treat as unlimited for booking checks.
+    """
+    items = service_package_items(service)
+    if not items:
+        return None
+    capacity = None
+    for item in items:
+        part = item.spare_part
+        qty = max(int(item.quantity or 1), 1)
+        if part is None or part.status != SparePart.Status.ACTIVE:
+            return 0
+        available = max(int(part.quantity or 0), 0)
+        packages = available // qty
+        capacity = packages if capacity is None else min(capacity, packages)
+    return 0 if capacity is None else capacity
+
+
+def service_is_bookable(service):
+    """Active catalog services with empty packages, or packaged services with capacity > 0."""
+    if service is None or service.status != "ACTIVE":
+        return False
+    capacity = service_package_capacity(service)
+    return capacity is None or capacity > 0
+
+
+def ensure_service_package_capacity(service, *, field="service"):
+    """Raise if a packaged service cannot be sold from current stock."""
+    if service is None:
+        return
+    if service.status != "ACTIVE":
+        raise ValidationError({field: f"{service.name} is not available."})
+    capacity = service_package_capacity(service)
+    if capacity is not None and capacity < 1:
+        raise ValidationError(
+            {field: f"{service.name} is out of stock (package parts unavailable)."}
+        )
+
+
+def attach_service_package_parts(booking, service, *, source=None):
+    """
+    Create workshop PartRequest rows for a service package.
+    Stock is not deducted here — confirm/issue does that.
+    """
+    if booking is None or service is None:
+        return []
+    ensure_service_package_capacity(service, field="service")
+    created = []
+    request_source = source or PartRequest.Source.SERVICE_PACKAGE
+    for item in service_package_items(service):
+        part = item.spare_part
+        qty = max(int(item.quantity or 1), 1)
+        if part is None or part.status != SparePart.Status.ACTIVE:
+            raise ValidationError({"service": f"{service.name}: package part is not available."})
+        if (part.quantity or 0) < qty:
+            raise ValidationError(
+                {"service": f"{service.name}: need {qty}× {part.name}, only {part.quantity} in stock."}
+            )
+        existing = (
+            PartRequest.objects.filter(booking=booking, spare_part=part)
+            .exclude(status=PartRequest.Status.CANCELLED)
+            .order_by("id")
+            .first()
+        )
+        if existing is not None:
+            updates = []
+            if existing.quantity < qty:
+                existing.quantity = qty
+                updates.append("quantity")
+            if not existing.from_service_id:
+                existing.from_service = service
+                updates.append("from_service")
+            if updates:
+                existing.save(update_fields=updates)
+            continue
+        row = PartRequest.objects.create(
+            customer=booking.customer,
+            vehicle=booking.vehicle,
+            booking=booking,
+            spare_part=part,
+            fulfillment=PartRequest.Fulfillment.INSTALL,
+            quantity=qty,
+            source=request_source,
+            from_service=service,
+            notes=f"Service package · {service.name}",
+        )
+        created.append(row)
+    return created
+
+
+def withdraw_service_package_parts(booking, service):
+    """Cancel unissued package PartRequests for a service removed from the visit."""
+    if booking is None or service is None:
+        return
+    keep_part_ids = set()
+    remaining = []
+    if booking.service_id and booking.service_id != service.id:
+        remaining.append(booking.service)
+    for extra in booking.added_services.select_related("service"):
+        if extra.service_id and extra.service_id != service.id:
+            remaining.append(extra.service)
+    for other in remaining:
+        for item in service_package_items(other):
+            keep_part_ids.add(item.spare_part_id)
+
+    for row in PartRequest.objects.filter(
+        booking=booking,
+        from_service=service,
+        status__in=(PartRequest.Status.PENDING, PartRequest.Status.NOTED),
+        parts_usage__isnull=True,
+    ):
+        if row.spare_part_id in keep_part_ids:
+            # Still needed by another service on this visit — clear package link only.
+            PartRequest.objects.filter(pk=row.pk).update(from_service=None)
+            continue
+        row.status = PartRequest.Status.CANCELLED
+        row.cancel_reason = f"Removed with service {service.name}"
+        row.save(update_fields=["status", "cancel_reason"])
+
+
 def attach_booking_catalog_items(booking, extra_services=None, spare_parts=None):
     """
     Attach extra catalog services and workshop-install part requests to a new booking.
     Stock is not deducted here — it stays on the shelf until the garage issues parts.
     """
+    if booking.service_id:
+        ensure_service_package_capacity(booking.service, field="service")
+        attach_service_package_parts(booking, booking.service, source=PartRequest.Source.SERVICE_PACKAGE)
     extras = list(extra_services or [])
     parts = list(spare_parts or [])
     for service in extras:
@@ -2116,6 +2287,7 @@ def add_booking_service(booking, service, *, source=None, note="", inspection=No
         raise ValidationError({"service": "This visit is already closed."})
     if service.status != "ACTIVE":
         raise ValidationError({"service": "This service is not available."})
+    ensure_service_package_capacity(service, field="service")
     if booking.service_id == service.id or booking.added_services.filter(service=service).exists():
         raise ValidationError({"service": "That service is already on this visit."})
     row = BookingService.objects.create(
@@ -2126,6 +2298,7 @@ def add_booking_service(booking, service, *, source=None, note="", inspection=No
         note=note or "",
         inspection=inspection,
     )
+    attach_service_package_parts(booking, service, source=PartRequest.Source.SERVICE_PACKAGE)
     try:
         invoice = booking.repair_job.invoice
     except (RepairJob.DoesNotExist, Invoice.DoesNotExist):
@@ -2362,13 +2535,16 @@ def remove_booking_extra_service(booking, booking_service_id):
         raise ValidationError({"service": "Original booked services stay on the visit."})
     price = Decimal(row.price or 0)
     name = row.service.name
+    package_service = row.service
     rec = getattr(row, "inspection_recommendation", None)
     if rec is None:
         rec = InspectionRecommendation.objects.filter(booking_service=row).first()
     if rec is not None:
         decline_inspection_recommendation(rec)
+        withdraw_service_package_parts(booking, package_service)
         return
     row.delete()
+    withdraw_service_package_parts(booking, package_service)
     try:
         invoice = booking.repair_job.invoice
     except (RepairJob.DoesNotExist, Invoice.DoesNotExist):
@@ -2404,7 +2580,7 @@ def part_request_can_withdraw(part_request):
         return False
     if part_request.status in (PartRequest.Status.CONFIRMED, PartRequest.Status.CANCELLED):
         return False
-    if part_request.source == PartRequest.Source.BOOKING:
+    if part_request.source in (PartRequest.Source.BOOKING, PartRequest.Source.SERVICE_PACKAGE):
         return False
     booking = part_request.booking
     if booking is not None:
@@ -2835,8 +3011,16 @@ def confirm_part_request(part_request, user=None):
         part = SparePart.objects.select_for_update().get(pk=part_request.spare_part_id)
         if part.status != SparePart.Status.ACTIVE:
             raise ValidationError({"spare_part": "That part is not available."})
-        if part.quantity < 1:
-            raise ValidationError({"spare_part": "That part is out of stock, so it cannot be issued. Cancel the request and say why."})
+        needed = max(int(part_request.quantity or 1), 1)
+        if part.quantity < needed:
+            raise ValidationError(
+                {
+                    "spare_part": (
+                        f"Need {needed} of {part.name}, but only {part.quantity} are in stock. "
+                        "Cancel the request and say why, or restock first."
+                    )
+                }
+            )
 
         visit = part_request.booking
         if visit is not None and visit.status == Booking.Status.CANCELLED:
@@ -2948,6 +3132,22 @@ def confirm_customer_repair(job):
         raise ValidationError("This visit is not waiting for approval.")
     if not inspection_is_complete(job):
         raise ValidationError("The inspection is not finished.")
+    booking = job.booking
+    if booking is not None:
+        pending_parts = (
+            PartRequest.objects.filter(
+                booking=booking,
+                fulfillment=PartRequest.Fulfillment.INSTALL,
+                status__in=(PartRequest.Status.PENDING, PartRequest.Status.NOTED),
+                parts_usage__isnull=True,
+            )
+            .exclude(status=PartRequest.Status.CANCELLED)
+            .exists()
+        )
+        if pending_parts:
+            raise ValidationError(
+                "Confirm all parts on this visit (including service package parts) before confirming the repair."
+            )
     job.status = RepairJob.Status.REPAIRING
     job.save(update_fields=["status"])
     sync_invoice_costs(job)

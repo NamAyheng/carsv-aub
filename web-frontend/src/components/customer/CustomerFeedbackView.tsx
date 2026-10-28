@@ -78,7 +78,7 @@ export const CustomerFeedbackView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className={`p-6 rounded-3xl border ${card}`}>
+      <div className={`p-4 sm:p-6 rounded-3xl border min-w-0 ${card}`}>
         <h2 className={`text-2xl font-bold tracking-tight flex items-center gap-2.5 ${title}`}>
           <MessageSquare className="w-6 h-6 text-blue-500" />
           <span>Customer Reviews &amp; Feedback</span>

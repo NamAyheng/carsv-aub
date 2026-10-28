@@ -322,22 +322,23 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden max-h-[min(92dvh,90vh)] flex flex-col">
         {/* Close Button */}
         <button
           onClick={onClose}
+          aria-label="Close"
           className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-full bg-slate-800/80 hover:bg-slate-700 transition-colors z-10"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Modal Header */}
-        <div className="px-6 pt-8 pb-4 text-center border-b border-slate-800/80 bg-slate-900/60">
+        <div className="px-5 sm:px-6 pt-8 pb-4 text-center border-b border-slate-800/80 bg-slate-900/60 shrink-0">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/30 mb-3 shadow-inner">
             <Car className="w-6 h-6 text-blue-500" />
           </div>
-          <h3 className="text-2xl font-black text-white tracking-tight">
+          <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight px-6">
             {mode === 'LOGIN' && 'Sign In to CarSV'}
             {mode === 'REGISTER' && 'Create Customer Account'}
             {mode === 'FORGOT' && 'Reset Password'}
@@ -379,7 +380,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
           </div>
         )}
 
-        <div className="p-6 pt-2">
+        <div className="p-5 sm:p-6 pt-2 overflow-y-auto overscroll-contain min-h-0 flex-1 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {/* A. LOGIN FORM */}
           {mode === 'LOGIN' && (
             <form onSubmit={handleLoginSubmit} className="space-y-4">

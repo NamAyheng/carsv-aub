@@ -436,38 +436,40 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
           </div>
 
           {myVehicles.length > 0 && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-slate-400 font-medium">My Vehicles:</span>
-              <button
-                type="button"
-                onClick={() => selectVehicle('ALL')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  !selectedVehicle
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-500'
-                    : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
-                }`}
-              >
-                Full shelf
-              </button>
-              {myVehicles.map((veh) => {
-                const isSelected = selectedVehicle?.id === veh.id;
-                return (
-                  <button
-                    key={veh.id}
-                    type="button"
-                    onClick={() => selectVehicle(veh.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                      isSelected
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-500'
-                        : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
-                    }`}
-                  >
-                    <Car className="w-3.5 h-3.5" />
-                    <span>{veh.brand}</span>
-                    <span className="text-[10px] opacity-75">({veh.model})</span>
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs text-slate-400 font-medium shrink-0">My Vehicles:</span>
+              <div className="tab-scroll min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => selectVehicle('ALL')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+                    !selectedVehicle
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-500'
+                      : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  Full shelf
+                </button>
+                {myVehicles.map((veh) => {
+                  const isSelected = selectedVehicle?.id === veh.id;
+                  return (
+                    <button
+                      key={veh.id}
+                      type="button"
+                      onClick={() => selectVehicle(veh.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap ${
+                        isSelected
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-500'
+                          : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
+                      }`}
+                    >
+                      <Car className="w-3.5 h-3.5" />
+                      <span>{veh.brand}</span>
+                      <span className="text-[10px] opacity-75">({veh.model})</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -493,11 +495,11 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-slate-900 p-1 rounded-xl border border-slate-800 shrink-0">
+            <div className="tab-scroll bg-slate-900 p-1 rounded-xl border border-slate-800 shrink-0 max-w-full">
               <button
                 type="button"
                 onClick={() => setShelfMode('USED')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                   shelfMode === 'USED' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -506,7 +508,7 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShelfMode('ALL_STOCK')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                   shelfMode === 'ALL_STOCK' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -557,12 +559,12 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
         </div>
 
         {/* Category Filter Chips */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none text-xs font-semibold">
+        <div className="tab-scroll pb-1 text-xs font-semibold">
           {categoryChoices.map((cat) => (
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3.5 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer ${
                 selectedCategory === cat
                   ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30'
                   : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
@@ -776,14 +778,14 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
 
       {/* 5. REQUEST / APPROVE PART MODAL */}
       {requestProduct && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl space-y-6">
-            <div className="flex items-start justify-between pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-blue-600/20 border border-blue-500/30 text-blue-400">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl max-w-lg w-full p-4 sm:p-7 shadow-2xl space-y-6 max-h-[min(92dvh,90vh)] overflow-y-auto overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2.5 rounded-2xl bg-blue-600/20 border border-blue-500/30 text-blue-400 shrink-0">
                   <Wrench className="w-6 h-6" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-lg font-bold text-white">Request Part / Product</h3>
                   <p className="text-xs text-slate-400">
                     Allocate this component to your garage record or service visit
@@ -1187,12 +1189,12 @@ export const CustomerProductsView: React.FC<CustomerProductsViewProps> = ({
       {/* 7. MY REQUESTED PARTS SLIDE-OVER DRAWER */}
       {showRequestsDrawer && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end animate-in fade-in duration-200">
-          <div className="bg-slate-900 border-l border-slate-800 w-full max-w-md h-full p-6 space-y-6 flex flex-col justify-between overflow-y-auto">
-            <div className="space-y-5">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <div className="flex items-center gap-2.5">
-                  <ShoppingBag className="w-5 h-5 text-blue-400" />
-                  <h3 className="text-base font-bold text-white">My Requested Parts</h3>
+          <div className="bg-slate-900 border-l border-slate-800 w-full max-w-md h-full max-h-[100dvh] p-4 sm:p-6 space-y-6 flex flex-col justify-between overflow-y-auto overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div className="space-y-5 min-w-0">
+              <div className="flex items-center justify-between gap-3 pb-4 border-b border-slate-800">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <ShoppingBag className="w-5 h-5 text-blue-400 shrink-0" />
+                  <h3 className="text-base font-bold text-white truncate">My Requested Parts</h3>
                 </div>
                 <button
                   onClick={() => setShowRequestsDrawer(false)}

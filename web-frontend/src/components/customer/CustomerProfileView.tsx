@@ -87,7 +87,7 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 flex justify-between items-center">
+      <div className="bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-800 flex flex-col sm:flex-row justify-between sm:items-center gap-3 min-w-0">
         <div>
           <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
             <User className="w-6 h-6 text-blue-500" />
@@ -308,8 +308,8 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
 
       {/* MODAL 1: EDIT PROFILE */}
       {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl p-4 sm:p-6 space-y-4 shadow-2xl max-h-[min(92dvh,90vh)] overflow-y-auto">
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
               <h3 className="text-base font-bold text-white">Edit Profile Details</h3>
               <button
@@ -392,8 +392,8 @@ export const CustomerProfileView: React.FC<CustomerProfileViewProps> = ({ onLogo
 
       {/* MODAL 2: CHANGE PASSWORD */}
       {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl p-4 sm:p-6 space-y-4 shadow-2xl max-h-[min(92dvh,90vh)] overflow-y-auto">
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
               <h3 className="text-base font-bold text-white">
                 {needsCurrentPassword ? 'Change Security Password' : 'Set a Password'}

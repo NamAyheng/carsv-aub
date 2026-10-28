@@ -62,6 +62,29 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Horizontal filter/tab rows: one line + scroll instead of wrapping */
+@utility scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility tab-scroll {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Theme transitions */
 html {
   transition: background-color 0.2s ease, color 0.2s ease;
@@ -641,6 +664,50 @@ html:not(.dark) .customer-theme-root .portal-brand-header .bg-white\/25 {
 html:not(.dark) .customer-theme-root .portal-brand-header .border-white\/25,
 html:not(.dark) .customer-theme-root .portal-brand-header .border-white\/15 {
   border-color: rgb(255 255 255 / 0.14) !important;
+}
+
+/* Portal mobile/tablet nav: white drawer in light mode, charcoal in dark; yellow active stays */
+html:not(.dark) .customer-theme-root .portal-brand-header #portal-mobile-nav.portal-mobile-nav {
+  background-color: #ffffff !important;
+  color: #141519 !important;
+  border-top-color: #e5e5e5 !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header #portal-mobile-nav button:not(.bg-blue-600) {
+  color: #1e293b !important;
+}
+
+html:not(.dark) .customer-theme-root .portal-brand-header #portal-mobile-nav button:not(.bg-blue-600):hover {
+  background-color: #f1f5f9 !important;
+}
+
+html.dark .portal-brand-header #portal-mobile-nav.portal-mobile-nav {
+  background-color: #202127 !important;
+  color: #ffffff !important;
+  border-top-color: rgb(255 255 255 / 0.1) !important;
+}
+
+html.dark .portal-brand-header #portal-mobile-nav button:not(.bg-blue-600) {
+  color: #ffffff !important;
+}
+
+html.dark .portal-brand-header #portal-mobile-nav button:not(.bg-blue-600):hover {
+  background-color: rgb(255 255 255 / 0.1) !important;
+}
+
+.portal-brand-header #portal-mobile-nav button.bg-blue-600,
+html:not(.dark) .customer-theme-root .portal-brand-header #portal-mobile-nav button.bg-blue-600,
+html.dark .portal-brand-header #portal-mobile-nav button.bg-blue-600,
+.portal-brand-header #portal-mobile-nav button.bg-blue-600 * {
+  background-color: #ffc400 !important;
+  color: #141519 !important;
+}
+
+/* Public site mobile nav stays charcoal */
+#public-mobile-nav.portal-mobile-nav,
+html:not(.dark) .customer-theme-root #public-mobile-nav.portal-mobile-nav {
+  background-color: #202127 !important;
+  color: #ffffff !important;
 }
 
 /* Dropdowns under dark header — readable light cards */

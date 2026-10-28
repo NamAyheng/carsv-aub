@@ -44,8 +44,10 @@ from django_app.models import (
     Role,
     Service,
     ServiceCategory,
+    ServicePackageItem,
     SparePart,
     SparePartCategory,
+    service_package_capacity,
     Staff,
     User,
     Vehicle,
@@ -747,9 +749,128 @@ def garage_form(model, fields):
 
 
 ServiceCategoryGarageForm = garage_form(ServiceCategory, ("name", "status"))
-ServiceGarageForm = garage_form(
-    Service, ("category", "name", "description", "price", "duration_minutes", "status", "image")
-)
+
+
+class ServiceGarageForm(GarageModelForm):
+    """Service labor fields plus inspection-style package parts checklist."""
+
+    package_parts = forms.ModelMultipleChoiceField(
+        required=False,
+        queryset=SparePart.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        label="Package parts",
+        help_text="Parts used by this service. Capacity follows shelf stock. Leave empty for labor-only.",
+    )
+
+    class Meta:
+        model = Service
+        fields = ("category", "name", "description", "price", "duration_minutes", "status", "image")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        active_parts = SparePart.objects.filter(status=SparePart.Status.ACTIVE).order_by("name")
+        self.fields["package_parts"].queryset = active_parts
+        self.fields["price"].label = "Service price"
+        self.fields["price"].help_text = (
+            "Labor / service charge only. Total price below is service price + selected package parts."
+        )
+
+        existing = {
+            item.spare_part_id: item.quantity
+            for item in (
+                self.instance.package_items.all() if self.instance.pk else ServicePackageItem.objects.none()
+            )
+        }
+        selected = list(existing.keys())
+        if self.is_bound:
+            selected = [int(v) for v in self.data.getlist("package_parts") if str(v).isdigit()]
+        self.fields["package_parts"].initial = selected
+
+        rows = []
+        parts_total = Decimal("0")
+        capacity = None
+        for part in list(active_parts[:80]):
+            qty = existing.get(part.id, 1)
+            if self.is_bound:
+                qty = self.data.get(f"pkg_part_qty_{part.id}", qty)
+            try:
+                qty_int = max(int(qty or 1), 1)
+            except (TypeError, ValueError):
+                qty_int = 1
+            unit = Decimal(part.unit_price or 0)
+            checked = part.id in selected
+            if checked:
+                parts_total += unit * qty_int
+                stock = max(int(part.quantity or 0), 0)
+                packages = stock // qty_int if qty_int else 0
+                capacity = packages if capacity is None else min(capacity, packages)
+            rows.append(
+                {
+                    "id": part.id,
+                    "name": part.name,
+                    "sku": part.part_number,
+                    "price": f"{unit:.2f}",
+                    "unit_price": float(unit),
+                    "stock": part.quantity,
+                    "checked": checked,
+                    "quantity": qty_int,
+                }
+            )
+        if not selected:
+            capacity = None
+        labor = Decimal(self.data.get("price") if self.is_bound else (self.instance.price or 0) or 0)
+        try:
+            labor = Decimal(str(labor))
+        except Exception:
+            labor = Decimal("0")
+        total = labor + parts_total
+        self.package_rows = {
+            "parts": rows,
+            "capacity": capacity,
+            "parts_total": f"{parts_total:.2f}",
+            "labor": f"{labor:.2f}",
+            "total": f"{total:.2f}",
+        }
+        self.order_fields(
+            [
+                "category",
+                "name",
+                "description",
+                "price",
+                "duration_minutes",
+                "package_parts",
+                "status",
+                "image",
+            ]
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        items = []
+        for part in cleaned.get("package_parts") or []:
+            raw_qty = self.data.get(f"pkg_part_qty_{part.id}") or "1"
+            try:
+                qty = max(int(raw_qty), 1)
+            except (TypeError, ValueError):
+                self.add_error("package_parts", f"Quantity for {part.name} must be a whole number.")
+                continue
+            items.append({"spare_part": part, "quantity": qty})
+        cleaned["package_items"] = items
+        return cleaned
+
+    def _persist_package_items(self, service):
+        items = self.cleaned_data.get("package_items") or []
+        keep_ids = set()
+        for item in items:
+            part = item["spare_part"]
+            qty = item["quantity"]
+            row, _created = ServicePackageItem.objects.update_or_create(
+                service=service,
+                spare_part=part,
+                defaults={"quantity": qty},
+            )
+            keep_ids.add(row.pk)
+        ServicePackageItem.objects.filter(service=service).exclude(pk__in=keep_ids).delete()
 
 
 class BlogPostGarageForm(GarageModelForm):
@@ -1137,16 +1258,19 @@ class InspectionGarageForm(GarageModelForm):
             for rec in existing_recs
             if rec.spare_part_id
         }
+        from django_app.models import service_package_parts_total
+
         service_rows = []
         for service in list(self.fields["recommend_services"].queryset[:60]):
             note = notes.get(service.id, "")
             if self.is_bound:
                 note = self.data.get(f"rec_service_note_{service.id}", note)
+            total = Decimal(service.price or 0) + service_package_parts_total(service)
             service_rows.append(
                 {
                     "id": service.id,
                     "name": service.name,
-                    "price": f"{service.price}",
+                    "price": f"{total:.2f}",
                     "checked": service.id in selected_services,
                     "note": note or "",
                 }
@@ -3164,7 +3288,7 @@ class ServiceCategoryAdmin(ModalFormMixin, ModelAdmin):
 @admin.register(Service)
 class ServiceAdmin(ModalFormMixin, ModelAdmin):
     form = ServiceGarageForm
-    list_display = ("name", "category", "price", "duration_minutes", "status")
+    list_display = ("name", "category", "total_price_display", "duration_minutes", "package_capacity_display", "status")
     search_fields = ("name", "description")
     change_list_template = "admin/django_app/service_change_list.html"
 
@@ -3173,15 +3297,36 @@ class ServiceAdmin(ModalFormMixin, ModelAdmin):
 
     modal_title_add = "Create New Service Item"
     modal_title_edit = "Edit Service Package"
-    modal_subtitle = "Define labor parameters, description, and base garage rate."
+    modal_subtitle = "Labor rate plus optional package parts from inventory. Capacity follows stock."
     modal_save_add = "Create Service"
 
     def get_queryset(self, request):
-        qs = super().get_queryset(request).select_related("category")
+        qs = super().get_queryset(request).select_related("category").prefetch_related("package_items__spare_part")
         category_id = request.GET.get("category")
         if category_id and category_id.isdigit():
             qs = qs.filter(category_id=int(category_id))
         return qs
+
+    @admin.display(description="Total price")
+    def total_price_display(self, service):
+        from django_app.models import service_package_parts_total
+
+        total = Decimal(service.price or 0) + service_package_parts_total(service)
+        return f"${total:.2f}"
+
+    @admin.display(description="Packages left")
+    def package_capacity_display(self, service):
+        capacity = service_package_capacity(service)
+        if capacity is None:
+            return "Labor only"
+        if capacity < 1:
+            return format_html('<span style="color:#b91c1c;font-weight:700">0 — out of stock</span>')
+        return str(capacity)
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if hasattr(form, "_persist_package_items"):
+            form._persist_package_items(obj)
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
@@ -3215,18 +3360,27 @@ class ServiceAdmin(ModalFormMixin, ModelAdmin):
         return super().changelist_view(request, extra_context=extra_context)
 
     def _row(self, service):
+        from django_app.models import service_package_parts_total
+
         minutes = service.duration_minutes or 0
         hours = minutes / 60
         hours_label = f"{int(hours)} hrs" if hours == int(hours) else f"{hours:g} hrs"
+        capacity = service_package_capacity(service)
+        parts_total = service_package_parts_total(service)
+        labor = Decimal(service.price or 0)
         return {
             "id": service.id,
             "code": _code("SVC", service.id),
             "name": service.name,
             "description": service.description,
             "category": service.category.name,
-            "price": service.price,
+            "price": labor,
+            "parts_total": parts_total,
+            "total_price": labor + parts_total,
             "hours": hours_label,
             "active": service.status == "ACTIVE",
+            "packages_left": "Labor only" if capacity is None else capacity,
+            "package_oos": capacity is not None and capacity < 1,
             "view_url": reverse("admin:django_app_service_change", args=[service.id]),
             "delete_url": reverse("admin:django_app_service_delete", args=[service.id]),
             **_delete_icon_flags(service),
@@ -3419,7 +3573,26 @@ class BookingAdmin(ModelAdmin):
                 job = RepairJob.objects.filter(booking_id=obj.pk).first()
                 if job is not None and job.status == RepairJob.Status.WAITING and not job.parts_used.exists() and not Invoice.objects.filter(repair_job=job).exists():
                     job.delete()
+        was_add = not change
+        previous_service_id = None
+        if change and obj.pk:
+            previous_service_id = Booking.objects.filter(pk=obj.pk).values_list("service_id", flat=True).first()
         super().save_model(request, obj, form, change)
+        from django_app.models import attach_service_package_parts, withdraw_service_package_parts
+
+        if was_add and obj.service_id:
+            try:
+                attach_service_package_parts(obj, obj.service)
+            except ValidationError as exc:
+                messages.error(request, "; ".join(getattr(exc, "messages", None) or [str(exc)]))
+        elif change and obj.service_id and previous_service_id and previous_service_id != obj.service_id:
+            old_service = Service.objects.filter(pk=previous_service_id).first()
+            if old_service is not None:
+                withdraw_service_package_parts(obj, old_service)
+            try:
+                attach_service_package_parts(obj, obj.service)
+            except ValidationError as exc:
+                messages.error(request, "; ".join(getattr(exc, "messages", None) or [str(exc)]))
         if obj.status == Booking.Status.CONFIRMED:
             ensure_confirmed_job(obj)
         sync_vehicle_shop_status(obj.vehicle)
@@ -3504,11 +3677,28 @@ class BookingAdmin(ModelAdmin):
             minutes += extra.service.duration_minutes or 0
         hours = minutes / 60 if minutes else 0
         hours_label = f"{int(hours)} hrs" if hours == int(hours) else f"{hours:g} hrs"
+        from django_app.models import service_package_parts_total
+
         service_rows = []
         if booking.service_id:
-            service_rows.append({"name": booking.service.name, "price": booking.service.price})
-        for extra in booking.added_services.all():
-            service_rows.append({"name": extra.service.name, "price": extra.price})
+            svc = booking.service
+            service_rows.append(
+                {
+                    "name": svc.name,
+                    "price": (svc.price or 0) + service_package_parts_total(svc),
+                }
+            )
+        for extra in booking.added_services.select_related("service"):
+            svc = extra.service
+            if svc is None:
+                service_rows.append({"name": "Service", "price": extra.price or 0})
+            else:
+                service_rows.append(
+                    {
+                        "name": svc.name,
+                        "price": (svc.price or 0) + service_package_parts_total(svc),
+                    }
+                )
         service_total = sum((row["price"] or 0) for row in service_rows)
         part_rows = [
             {"number": item.number or f"PR-{item.id:04d}", "name": item.spare_part.name, "status": item.get_status_display()}

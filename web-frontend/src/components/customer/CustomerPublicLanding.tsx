@@ -110,7 +110,9 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
   const categories = ['ALL', ...Array.from(new Set((services || []).map((service) => service.category).filter(Boolean)))];
   const listedServices = services || [];
   const startingPrice = listedServices.length
-    ? Math.min(...listedServices.map((service) => service.basePrice))
+    ? Math.min(
+        ...listedServices.map((service) => service.estimatedTotal ?? service.basePrice)
+      )
     : null;
 
   const filteredServices = (services || []).filter((s) => {
@@ -537,19 +539,33 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
                   </div>
 
                   <div className="pt-4 border-t border-slate-800/80">
-                    <div className="flex items-baseline justify-between mb-3">
-                      <span className="text-xs text-slate-400 font-medium">Starting from</span>
+                    <div className="flex items-baseline justify-between mb-3 gap-2">
+                      <span className="text-xs text-slate-400 font-medium">
+                        {service.bookable === false
+                          ? 'Out of stock'
+                          : service.availablePackages != null
+                            ? `${service.availablePackages} packages left`
+                            : 'Starting from'}
+                      </span>
                       <span className="text-2xl font-black text-white tracking-tight">
-                        ${service.basePrice.toFixed(2)}
+                        ${(service.estimatedTotal ?? service.basePrice).toFixed(2)}
                       </span>
                     </div>
 
                     <button
-                      onClick={() => onOpenBooking(service.id)}
-                      className="w-full py-2.5 rounded-xl bg-blue-600/15 hover:bg-blue-600 text-blue-400 hover:text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-blue-500/30 hover:border-blue-600 shadow-sm"
+                      onClick={() => {
+                        if (service.bookable === false) return;
+                        onOpenBooking(service.id);
+                      }}
+                      disabled={service.bookable === false}
+                      className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border shadow-sm ${
+                        service.bookable === false
+                          ? 'bg-slate-800/50 text-slate-500 border-slate-700 cursor-not-allowed'
+                          : 'bg-blue-600/15 hover:bg-blue-600 text-blue-400 hover:text-white cursor-pointer border-blue-500/30 hover:border-blue-600'
+                      }`}
                     >
-                      <span>Book Service</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
+                      <span>{service.bookable === false ? 'Unavailable' : 'Book Service'}</span>
+                      {service.bookable !== false && <ArrowRight className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>
@@ -583,7 +599,7 @@ export const CustomerPublicLanding: React.FC<CustomerPublicLandingProps> = ({
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-6 relative">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 relative">
             {/* Step 1 */}
             <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 relative">
               <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-black text-sm flex items-center justify-center mb-4 shadow-md shadow-blue-600/30">

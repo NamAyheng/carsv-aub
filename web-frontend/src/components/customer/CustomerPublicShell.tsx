@@ -82,8 +82,16 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
         isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      <header className="portal-brand-header sticky top-0 z-40 border-b border-white/10 text-white shadow-md shadow-black/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <header className="portal-brand-header sticky top-0 z-40 relative border-b border-white/10 text-white shadow-md shadow-black/40">
+        {mobileMenuOpen && (
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+        )}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-40">
           <div className="h-16 flex items-center justify-between gap-4">
             <button
               type="button"
@@ -108,7 +116,7 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
                 <button
                   type="button"
                   onClick={handleEnterCustomer}
-                  className="bar-action hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-semibold border border-white/25 bg-white/15 hover:bg-white/25 text-white whitespace-nowrap transition-colors"
+                  className="bar-action hidden lg:inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-semibold border border-white/25 bg-white/15 hover:bg-white/25 text-white whitespace-nowrap transition-colors"
                 >
                   <UserCheck className="w-4 h-4 text-emerald-400" />
                   Portal
@@ -117,7 +125,7 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
                 <button
                   type="button"
                   onClick={() => handleOpenAuth('LOGIN')}
-                  className="bar-action hidden sm:inline-flex items-center h-9 px-3 rounded-full text-sm font-semibold border border-white/25 bg-white/15 hover:bg-white/25 text-white whitespace-nowrap transition-colors"
+                  className="bar-action hidden lg:inline-flex items-center h-9 px-3 rounded-full text-sm font-semibold border border-white/25 bg-white/15 hover:bg-white/25 text-white whitespace-nowrap transition-colors"
                 >
                   Login
                 </button>
@@ -134,9 +142,31 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
 
               <ThemeToggle className="!bg-white/15 !border-white/25 !text-white hover:!bg-white/25 [&_svg]:!text-white" />
 
+              {isAuthenticated && currentRole === 'CUSTOMER' ? (
+                <button
+                  type="button"
+                  onClick={handleEnterCustomer}
+                  className="bar-action lg:hidden inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-semibold border border-white/25 bg-white/15 hover:bg-white/25 text-white whitespace-nowrap transition-colors"
+                >
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
+                  Portal
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleOpenAuth('LOGIN')}
+                  className="bar-action lg:hidden inline-flex items-center h-9 px-3.5 rounded-full bg-blue-600 hover:bg-blue-500 text-slate-950 text-sm font-semibold whitespace-nowrap shadow-sm shadow-blue-600/25 cursor-pointer transition-all"
+                >
+                  Login
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="public-mobile-nav"
+                aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
                 className="bar-action lg:hidden h-9 w-9 rounded-full flex items-center justify-center border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
               >
                 {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
@@ -160,15 +190,18 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
         </div>
 
         {mobileMenuOpen && (
-          <div className="lg:hidden bg-[#202127] border-b border-white/10 px-6 py-5 space-y-4">
-            <div className="flex flex-col gap-2 font-medium">
+          <div
+            id="public-mobile-nav"
+            className="portal-mobile-nav keep-on-dark absolute left-0 right-0 top-full z-50 lg:hidden bg-[#202127] border-b border-white/10 px-4 sm:px-6 py-4 sm:py-5 space-y-4 shadow-xl"
+          >
+            <div className="flex flex-col gap-1.5 font-medium">
               {NAV.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => handleNav(item.id)}
                   aria-current={activeSection === item.id ? 'page' : undefined}
-                  className={`text-left px-3 py-2.5 rounded-xl ${navClass(item.id)}`}
+                  className={`text-left px-3 py-2.5 rounded-xl min-h-11 ${navClass(item.id)}`}
                 >
                   {item.label}
                 </button>
@@ -203,34 +236,38 @@ export const CustomerPublicShell: React.FC<CustomerPublicShellProps> = ({
 
       <div className="flex-1">{children}</div>
 
-      <footer className="bg-slate-950 border-t border-slate-800/80 py-12 text-slate-400 text-xs">
+      <footer className="bg-slate-950 border-t border-slate-800/80 py-10 sm:py-12 text-slate-400 text-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold">
-                <Car className="w-5 h-5" />
+          <div className="flex flex-col md:flex-row justify-between items-center gap-6 text-center md:text-left">
+            <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 min-w-0">
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold">
+                  <Car className="w-5 h-5" />
+                </div>
+                <span className="text-lg font-black text-white tracking-tight">
+                  Car<span className="text-blue-500">SV</span>
+                </span>
               </div>
-              <span className="text-lg font-black text-white tracking-tight">
-                Car<span className="text-blue-500">SV</span>
+              <span className="hidden sm:inline text-slate-600">|</span>
+              <span className="leading-relaxed max-w-sm sm:max-w-none">
+                © 2026 CarSV Automotive Technologies Inc. All rights reserved.
               </span>
-              <span className="text-slate-600">|</span>
-              <span>© 2026 CarSV Automotive Technologies Inc. All rights reserved.</span>
             </div>
 
-            <div className="flex items-center gap-6 text-slate-400">
+            <div className="flex flex-wrap items-center justify-center md:justify-end gap-x-5 gap-y-2 text-slate-400">
               {['home', 'about', 'services', 'blog'].map((id) => (
                 <button
                   key={id}
                   type="button"
                   onClick={() => handleNav(id)}
-                  className={`transition-colors ${
+                  className={`transition-colors min-h-9 ${
                     activeSection === id ? 'text-blue-400 font-semibold' : 'hover:text-white'
                   }`}
                 >
                   {id === 'home' ? 'Home' : id === 'about' ? 'What We Are' : id === 'services' ? 'Services' : 'Blog'}
                 </button>
               ))}
-              <button type="button" onClick={handleEnterCustomer} className="hover:text-white transition-colors">
+              <button type="button" onClick={handleEnterCustomer} className="hover:text-white transition-colors min-h-9">
                 Customer Portal
               </button>
             </div>

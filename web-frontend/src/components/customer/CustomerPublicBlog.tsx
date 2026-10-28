@@ -132,7 +132,9 @@ export const CustomerPublicBlog: React.FC<CustomerPublicBlogProps> = (props) => 
                     </p>
                     <p className={`text-lg font-bold ${title}`}>{offers[0].name}</p>
                     <p className={`text-sm mt-1 leading-relaxed ${muted}`}>{offers[0].description}</p>
-                    <p className="text-2xl font-black text-blue-600 mt-3">From ${offers[0].basePrice.toFixed(2)}</p>
+                    <p className="text-2xl font-black text-blue-600 mt-3">
+                      From ${(offers[0].estimatedTotal ?? offers[0].basePrice).toFixed(2)}
+                    </p>
                     <button
                       type="button"
                       onClick={() => handleBook(offers[0].id)}
@@ -226,7 +228,9 @@ export const CustomerPublicBlog: React.FC<CustomerPublicBlogProps> = (props) => 
                         <p className={`text-[11px] font-bold uppercase ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>{offer.category}</p>
                         <p className={`text-sm font-bold mt-0.5 ${title}`}>{offer.name}</p>
                         <p className={`text-xs mt-1 leading-relaxed ${muted}`}>{offer.description}</p>
-                        <p className="text-sm font-black text-blue-600 mt-2">From ${offer.basePrice.toFixed(2)}</p>
+                        <p className="text-sm font-black text-blue-600 mt-2">
+                          From ${(offer.estimatedTotal ?? offer.basePrice).toFixed(2)}
+                        </p>
                       </button>
                     ))}
                     {offers.length === 0 && <p className={`text-sm ${muted}`}>No active services are listed yet.</p>}

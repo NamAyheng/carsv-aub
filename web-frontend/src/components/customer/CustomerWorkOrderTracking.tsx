@@ -409,24 +409,24 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
         </div>
 
         <div
-          className={`flex flex-wrap p-1.5 rounded-2xl gap-2 border ${
+          className={`tab-scroll p-1.5 rounded-2xl border ${
             isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-100/80 border-slate-200'
           }`}
         >
           {(
             [
+              { id: 'ALL', label: 'All' },
               { id: 'ACTIVE', label: 'In workshop' },
               { id: 'WAITING', label: 'Needs approval' },
               { id: 'READY', label: 'Ready' },
               { id: 'FINISHED', label: 'Finished' },
-              { id: 'ALL', label: 'All' },
             ] as const
           ).map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setListTab(tab.id)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap ${
                 listTab === tab.id
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
                   : isDark
@@ -601,15 +601,15 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
 
       {/* 1. MAIN WORK ORDER HEADER CARD */}
       <div
-        className={`rounded-3xl border p-6 sm:p-8 relative overflow-hidden ${
+        className={`rounded-3xl border p-4 sm:p-6 lg:p-8 relative overflow-hidden min-w-0 ${
           isDark ? 'bg-slate-900 border-slate-800 shadow-xl' : 'bg-white border-slate-200 shadow-sm'
         }`}
       >
         {/* Ambient Top Light */}
         <div className="absolute top-0 right-0 w-96 h-40 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="flex flex-col lg:flex-row justify-between lg:items-start gap-6 relative z-10">
-          <div className="space-y-3 max-w-2xl">
+        <div className="flex flex-col lg:flex-row justify-between lg:items-start gap-6 relative z-10 min-w-0">
+          <div className="space-y-3 max-w-2xl min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="px-3 py-1 rounded-lg text-xs font-mono font-extrabold uppercase bg-blue-600/20 text-blue-400 border border-blue-500/30">
                 {currentWO?.workOrderNumber || 'No job'}
@@ -623,7 +623,7 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
               </span>
             </div>
 
-            <h2 className={`text-2xl sm:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            <h2 className={`text-xl sm:text-2xl lg:text-3xl font-black tracking-tight break-words ${isDark ? 'text-white' : 'text-slate-900'}`}>
               {currentWO?.vehicleInfo || 'No vehicle on this job'}
             </h2>
 
@@ -725,7 +725,7 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
           </div>
 
           {/* Quick Info Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs shrink-0 lg:w-96">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs shrink-0 w-full lg:w-96 min-w-0">
             <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <span className="text-slate-500 text-[10px] block font-semibold">Estimated cost</span>
               <span className="font-black text-emerald-600 font-mono text-sm mt-0.5 block">
@@ -834,13 +834,13 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
 
       {/* 3. SUB-TABS: TASKS, INSPECTION, PARTS, LIVE CCTV */}
       <div
-        className={`flex flex-wrap p-1.5 rounded-2xl gap-2 overflow-x-auto border ${
+        className={`tab-scroll p-1.5 rounded-2xl border ${
           isDark ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-100/80'
         }`}
       >
         <button
           onClick={() => setActiveTrackingTab('OVERVIEW')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap ${
             activeTrackingTab === 'OVERVIEW'
               ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
               : isDark
@@ -853,7 +853,7 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
 
         <button
           onClick={() => setActiveTrackingTab('TASKS')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
             activeTrackingTab === 'TASKS'
               ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
               : isDark
@@ -867,7 +867,7 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
 
         <button
           onClick={() => setActiveTrackingTab('INSPECTION')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
             activeTrackingTab === 'INSPECTION'
               ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
               : isDark
@@ -881,7 +881,7 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
 
         <button
           onClick={() => setActiveTrackingTab('PARTS')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
             activeTrackingTab === 'PARTS'
               ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
               : isDark
@@ -895,7 +895,7 @@ export const CustomerWorkOrderTracking: React.FC<CustomerWorkOrderTrackingProps>
 
         <button
           onClick={() => setActiveTrackingTab('CCTV')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap flex items-center gap-1.5 ${
             activeTrackingTab === 'CCTV'
               ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
               : isDark

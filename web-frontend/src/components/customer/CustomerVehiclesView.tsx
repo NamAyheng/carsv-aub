@@ -333,22 +333,22 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                 </div>
 
                 <div className="p-6 space-y-4">
-                  <div className="flex justify-between items-start gap-3">
-                    <div>
-                      <h3 className="text-xl font-bold text-white tracking-tight">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 sm:gap-3 min-w-0">
+                    <div className="min-w-0">
+                      <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight break-words">
                         {vehicleLabel(vehicle.brand, vehicle.model)}
                       </h3>
-                      <span className="mt-2 inline-flex px-3 py-1 rounded-lg text-xs font-mono font-bold bg-slate-950 text-amber-400 border border-amber-500/30">
+                      <span className="mt-2 inline-flex max-w-full px-3 py-1 rounded-lg text-xs font-mono font-bold bg-slate-950 text-amber-400 border border-amber-500/30 truncate">
                         Plate: {vehicle.licensePlate}
                       </span>
                     </div>
-                    <span className="text-xs text-slate-400 font-mono shrink-0">
+                    <span className="text-xs text-slate-400 font-mono sm:shrink-0 sm:text-right break-all">
                       VIN: {vehicle.vin || 'Not recorded'}
                     </span>
                   </div>
 
                   {/* Key Metric Pills */}
-                  <div className="grid grid-cols-3 gap-2.5 text-xs text-slate-300">
+                  <div className="grid grid-cols-3 gap-2 sm:gap-2.5 text-xs text-slate-300 min-w-0">
                     <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
                       <div className="text-[10px] text-slate-400 flex items-center gap-1">
                         <Gauge className="w-3 h-3 text-blue-400" />
@@ -396,20 +396,20 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="p-6 pt-0 grid grid-cols-4 gap-2.5">
+              {/* Action Buttons — 2×2 on phones, 4-up from md so desktop stays unchanged */}
+              <div className="p-4 sm:p-6 pt-0 grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-2.5">
                 <button
                   onClick={() => setSelectedVehicleDetails(vehicle)}
-                  className="h-10 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold transition-all border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  className="min-h-10 h-auto py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold transition-all border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <History className="w-3.5 h-3.5 shrink-0 text-blue-400" />
-                  <span>Service History</span>
+                  <span className="text-center leading-tight">Service History</span>
                 </button>
 
                 {onBrowseParts && (
                   <button
                     onClick={onBrowseParts}
-                    className="h-10 px-2 rounded-xl bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 text-[11px] font-bold transition-all border border-blue-500/30 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    className="min-h-10 h-auto py-2 px-2 rounded-xl bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 text-[11px] font-bold transition-all border border-blue-500/30 flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Package className="w-3.5 h-3.5 shrink-0" />
                     <span>Parts</span>
@@ -418,7 +418,7 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
 
                 <button
                   onClick={() => askRemoveVehicle(vehicle)}
-                  className="h-10 px-2 rounded-xl bg-rose-600/10 hover:bg-rose-600/20 text-rose-300 text-[11px] font-bold transition-all border border-rose-500/30 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  className="min-h-10 h-auto py-2 px-2 rounded-xl bg-rose-600/10 hover:bg-rose-600/20 text-rose-300 text-[11px] font-bold transition-all border border-rose-500/30 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5 shrink-0" />
                   <span>Remove</span>
@@ -426,10 +426,10 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
 
                 <button
                   onClick={() => onBookServiceForVehicle(vehicle.id)}
-                  className="h-10 px-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold shadow-md shadow-blue-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  className="min-h-10 h-auto py-2 px-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold shadow-md shadow-blue-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Calendar className="w-3.5 h-3.5 shrink-0" />
-                  <span>Book Service</span>
+                  <span className="text-center leading-tight">Book Service</span>
                 </button>
               </div>
             </div>
@@ -439,8 +439,8 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
 
       {/* MODAL 1: ADD NEW VEHICLE */}
       {showAddVehicleModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden max-h-[min(92dvh,90vh)] overflow-y-auto overscroll-contain">
             <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Car className="w-5 h-5 text-blue-500" />
@@ -487,7 +487,7 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Model Year</label>
                   <input
@@ -521,7 +521,7 @@ export const CustomerVehiclesView: React.FC<CustomerVehiclesViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Fuel Type</label>
                   <select

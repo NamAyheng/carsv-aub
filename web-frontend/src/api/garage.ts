@@ -83,10 +83,25 @@ type ApiService = {
   id: number;
   name: string;
   description: string;
-  price: string;
+  /** Catalog total = labor + package parts. */
+  price: string | number;
+  labor_price?: string | number;
   duration_minutes: number;
   category_name: string;
   image_url?: string;
+  available_packages?: number | null;
+  bookable?: boolean;
+  parts_total?: string | number;
+  estimated_total?: string | number;
+  package_parts?: {
+    id: number;
+    name: string;
+    sku: string;
+    quantity: number;
+    unit_price: string | number;
+    line_total: string | number;
+    stock: number;
+  }[];
 };
 
 type ApiBooking = {
@@ -464,14 +479,32 @@ function mapVehicle(row: ApiVehicle, profile: CustomerProfile): Vehicle {
 }
 
 function mapService(row: ApiService): ServiceItem {
+  const laborPrice = Number(row.labor_price ?? 0);
+  const partsTotal = Number(row.parts_total) || 0;
+  const estimatedFromApi = Number(row.estimated_total);
+  const priceFromApi = Number(row.price);
+  // API `price` is catalog total (labor + parts). Prefer estimated_total, then price, then sum.
+  const estimatedTotal = Number.isFinite(estimatedFromApi)
+    ? estimatedFromApi
+    : Number.isFinite(priceFromApi)
+      ? priceFromApi
+      : (Number.isFinite(laborPrice) ? laborPrice : 0) + partsTotal;
+  const availablePackages =
+    row.available_packages === undefined ? null : row.available_packages;
+  const bookable = row.bookable !== false;
   return {
     id: String(row.id),
     name: row.name,
     category: serviceCategory(row.category_name || ''),
     description: row.description || '',
-    basePrice: Number(row.price) || 0,
+    // basePrice is the displayed catalog total everywhere in the customer UI.
+    basePrice: estimatedTotal,
+    partsTotal,
+    estimatedTotal,
+    availablePackages,
+    bookable,
     estimatedDurationHours: Math.max((row.duration_minutes || 60) / 60, 0.5),
-    requiredParts: [],
+    requiredParts: (row.package_parts || []).map((part) => part.name),
     status: 'ACTIVE',
     timesPerformed: 0,
     imageUrl: mediaUrl(row.image_url),

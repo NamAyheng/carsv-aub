@@ -72,6 +72,33 @@ function quoteTotals(order: WorkOrder, visitParts: CustomerPartRequestRow[]) {
   };
 }
 
+type QuoteListTab = 'ALL' | 'SERVICES' | 'PARTS' | 'PENDING' | 'CONFIRMED';
+
+type QuoteFeedItem =
+  | { id: string; kind: 'service'; pending: boolean; dateMs: number; order: WorkOrder }
+  | { id: string; kind: 'parts'; pending: boolean; dateMs: number; row: CustomerPartRequestRow };
+
+function parseQuoteDateMs(value?: string) {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function isPartsPurchasePending(row: CustomerPartRequestRow) {
+  return row.status === 'PENDING';
+}
+
+function isPartsPurchaseConfirmed(row: CustomerPartRequestRow) {
+  return row.status === 'NOTED' || row.status === 'CONFIRMED';
+}
+
+function sortQuoteFeed(items: QuoteFeedItem[], groupPendingFirst: boolean) {
+  return [...items].sort((a, b) => {
+    if (groupPendingFirst && a.pending !== b.pending) return a.pending ? -1 : 1;
+    return b.dateMs - a.dateMs;
+  });
+}
+
 export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
   const navigate = useNavigate();
   const [jobParams, setJobParams] = useSearchParams();
@@ -85,7 +112,7 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
   const [showAddService, setShowAddService] = useState(false);
   const [extraServiceId, setExtraServiceId] = useState('');
   const [addingService, setAddingService] = useState(false);
-  const [listTab, setListTab] = useState<'VISIT' | 'PARTS' | 'CONFIRMED' | 'ALL'>('ALL');
+  const [listTab, setListTab] = useState<QuoteListTab>('ALL');
 
   const waiting = useMemo(
     () =>
@@ -104,12 +131,7 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
   );
 
   const purchaseQuotes = useMemo(
-    () => partsOnlyRequests.filter((row) => row.status === 'PENDING'),
-    [partsOnlyRequests]
-  );
-
-  const confirmedPurchases = useMemo(
-    () => partsOnlyRequests.filter((row) => row.status === 'NOTED' || row.status === 'CONFIRMED'),
+    () => partsOnlyRequests.filter((row) => isPartsPurchasePending(row)),
     [partsOnlyRequests]
   );
 
@@ -125,20 +147,48 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
     [workOrders, currentUser]
   );
 
-  const showVisitQuotes = listTab === 'ALL' || listTab === 'VISIT';
-  // Parts buy = every pickup/delivery purchase (pending + already confirmed), not only open ones.
-  const showPartsBuy = listTab === 'ALL' || listTab === 'PARTS';
-  const showConfirmedParts = listTab === 'CONFIRMED';
-  const showConfirmedVisits = listTab === 'ALL' || listTab === 'CONFIRMED';
-  const visibleVisitQuotes = showVisitQuotes ? waiting : [];
-  const visiblePartsBuy = showPartsBuy ? partsOnlyRequests : [];
-  const visibleConfirmedParts = showConfirmedParts ? confirmedPurchases : [];
-  const visibleConfirmedVisits = showConfirmedVisits ? confirmedVisits : [];
-  const listEmpty =
-    visibleVisitQuotes.length === 0 &&
-    visiblePartsBuy.length === 0 &&
-    visibleConfirmedParts.length === 0 &&
-    visibleConfirmedVisits.length === 0;
+  const quoteFeed = useMemo(() => {
+    const serviceItems: QuoteFeedItem[] = [
+      ...waiting.map((order) => ({
+        id: `service-pending-${order.id}`,
+        kind: 'service' as const,
+        pending: true,
+        dateMs: parseQuoteDateMs(order.createdAt),
+        order,
+      })),
+      ...confirmedVisits.map((order) => ({
+        id: `service-confirmed-${order.id}`,
+        kind: 'service' as const,
+        pending: false,
+        dateMs: parseQuoteDateMs(order.createdAt),
+        order,
+      })),
+    ];
+    const partsItems: QuoteFeedItem[] = partsOnlyRequests
+      .filter((row) => isPartsPurchasePending(row) || isPartsPurchaseConfirmed(row))
+      .map((row) => ({
+        id: `parts-${row.id}`,
+        kind: 'parts' as const,
+        pending: isPartsPurchasePending(row),
+        dateMs: parseQuoteDateMs(row.requestedAt),
+        row,
+      }));
+
+    let items: QuoteFeedItem[] = [];
+    if (listTab === 'ALL') items = [...serviceItems, ...partsItems];
+    else if (listTab === 'SERVICES') items = serviceItems;
+    else if (listTab === 'PARTS') items = partsItems;
+    else if (listTab === 'PENDING') {
+      items = [...serviceItems, ...partsItems].filter((item) => item.pending);
+    } else {
+      items = [...serviceItems, ...partsItems].filter((item) => !item.pending);
+    }
+
+    const groupPendingFirst = listTab === 'ALL' || listTab === 'SERVICES' || listTab === 'PARTS';
+    return sortQuoteFeed(items, groupPendingFirst);
+  }, [waiting, confirmedVisits, partsOnlyRequests, listTab]);
+
+  const listEmpty = quoteFeed.length === 0;
 
   const selected = useMemo(() => {
     if (!jobQuery) return null;
@@ -358,20 +408,21 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
           </div>
         </div>
 
-        <div className="flex flex-wrap border border-slate-200 bg-slate-100/80 p-1.5 rounded-2xl gap-2">
+        <div className="tab-scroll border border-slate-200 bg-slate-100/80 p-1.5 rounded-2xl">
           {(
             [
-              { id: 'VISIT', label: 'Visit quotes' },
-              { id: 'PARTS', label: 'Parts buy' },
-              { id: 'CONFIRMED', label: 'Confirmed' },
               { id: 'ALL', label: 'All' },
+              { id: 'SERVICES', label: 'Services' },
+              { id: 'PARTS', label: 'Parts' },
+              { id: 'PENDING', label: 'Pending' },
+              { id: 'CONFIRMED', label: 'Confirmed' },
             ] as const
           ).map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setListTab(tab.id)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap ${
                 listTab === tab.id
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
                   : 'text-slate-500 hover:text-slate-900 hover:bg-white'
@@ -392,162 +443,160 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            {[...visiblePartsBuy, ...visibleConfirmedParts].map((row) => {
-              const awaitingConfirm = row.status === 'PENDING';
-              return (
-                <article
-                  key={row.id}
-                  className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 hover:border-slate-300 shadow-sm transition-all"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-blue-700">{row.number}</span>
-                        {awaitingConfirm ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200">
-                            Needs confirm
+            {quoteFeed.map((item) => {
+              if (item.kind === 'parts') {
+                const row = item.row;
+                const awaitingConfirm = item.pending;
+                return (
+                  <article
+                    key={item.id}
+                    className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 hover:border-slate-300 shadow-sm transition-all"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-blue-700">{row.number}</span>
+                          {awaitingConfirm ? (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200">
+                              Needs confirm
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              {row.status === 'NOTED' ? 'Noted' : 'Confirmed'}
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-slate-100 text-slate-700 border border-slate-200">
+                            {row.fulfillment === 'DELIVERY' ? 'Delivery' : 'Pickup'}
                           </span>
-                        ) : row.status === 'CANCELLED' ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-rose-50 text-rose-800 border border-rose-200">
-                            Cancelled
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            {row.status === 'NOTED' ? 'Noted' : 'Confirmed'}
-                          </span>
-                        )}
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-slate-100 text-slate-700 border border-slate-200">
-                          {row.fulfillment === 'DELIVERY' ? 'Delivery' : 'Pickup'}
-                        </span>
+                        </div>
+                        <h3 className="text-base font-bold text-slate-900">{row.productName}</h3>
+                        <p className="text-xs text-slate-500">
+                          {row.carBrand}
+                          {row.vehiclePlate ? ` · ${row.vehiclePlate}` : ''} · parts only
+                          {row.requestedAt ? ` · ${row.requestedAt}` : ''}
+                        </p>
                       </div>
-                      <h3 className="text-base font-bold text-slate-900">{row.productName}</h3>
-                      <p className="text-xs text-slate-500">
-                        {row.carBrand}
-                        {row.vehiclePlate ? ` · ${row.vehiclePlate}` : ''} · parts only
-                      </p>
-                      {row.status === 'CANCELLED' && row.cancelReason ? (
-                        <p className="text-xs text-rose-600">Cancelled: {row.cancelReason}</p>
-                      ) : null}
-                    </div>
-                    <div className="text-right">
-                      <div className="font-mono text-xl font-black text-slate-900">{money(row.price)}</div>
-                      <div className="text-[11px] text-slate-500">
-                        {awaitingConfirm
-                          ? 'Confirm purchase'
-                          : row.status === 'CANCELLED'
-                            ? 'Not available'
-                            : 'Garage prepares handoff'}
+                      <div className="text-right shrink-0 flex flex-col-reverse sm:flex-col gap-0.5">
+                        <div className="font-mono text-xl font-black text-slate-900">{money(row.price)}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {awaitingConfirm ? 'Confirm purchase' : 'Garage prepares handoff'}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  {awaitingConfirm && (
-                    <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100">
-                      <button
-                        type="button"
-                        disabled={busyId === row.id}
-                        onClick={() => void confirmPurchase(row)}
-                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold disabled:opacity-60"
-                      >
-                        Confirm purchase
-                      </button>
-                      {row.canWithdraw && (
+                    {awaitingConfirm && (
+                      <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100">
                         <button
                           type="button"
                           disabled={busyId === row.id}
-                          onClick={() => void removePart(row)}
-                          className="px-4 py-2 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold border border-rose-200"
+                          onClick={() => void confirmPurchase(row)}
+                          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold disabled:opacity-60"
                         >
-                          Cancel request
+                          Confirm purchase
                         </button>
-                      )}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
+                        {row.canWithdraw && (
+                          <button
+                            type="button"
+                            disabled={busyId === row.id}
+                            onClick={() => void removePart(row)}
+                            className="px-4 py-2 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold border border-rose-200"
+                          >
+                            Cancel request
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              }
 
-            {visibleConfirmedVisits.map((order) => {
+              const order = item.order;
               const visitParts = requests.filter((row) => order.bookingId && row.bookingId === order.bookingId);
               const { serviceLines, quoteTotal } = quoteTotals(order, visitParts);
               const serviceLabel =
                 serviceLines.map((row) => row.name).filter(Boolean).join(' · ') || 'Service on this visit';
-              const car = (vehicles || []).find((item) => item.id === order.vehicleId);
+              const car = (vehicles || []).find((vehicle) => vehicle.id === order.vehicleId);
               const photo = car?.imageUrl || car?.image || '';
               const total = order.invoiceTotal || quoteTotal || order.estimatedCost || 0;
-              return (
-                <button
-                  key={`confirmed-${order.id}`}
-                  type="button"
-                  onClick={() =>
-                    navigate(`/tracking?job=${encodeURIComponent(order.workOrderNumber || order.id)}`)
-                  }
-                  className="w-full text-left bg-white rounded-2xl border border-slate-200 p-5 hover:border-emerald-300 shadow-sm transition-all space-y-3"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2 min-w-0">
-                      <span className="font-mono text-xs font-bold text-blue-700">{order.workOrderNumber}</span>
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-slate-100 text-slate-800 border border-slate-200">
-                        {order.vehiclePlate || 'No plate'}
-                      </span>
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
-                        Confirmed · {order.statusLabel || 'Repairing'}
-                      </span>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-[10px] uppercase tracking-wider text-slate-500">Approved total</div>
-                      <div className="font-mono text-xl font-black text-slate-900">{money(total)}</div>
-                    </div>
-                  </div>
-                  <div className="flex gap-4 items-start">
-                    <div className="w-28 sm:w-36 shrink-0 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 aspect-[4/3]">
-                      {photo ? (
-                        <img src={photo} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center text-slate-400">
-                          <Car className="w-8 h-8" />
+
+              if (!item.pending) {
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() =>
+                      navigate(`/tracking?job=${encodeURIComponent(order.workOrderNumber || order.id)}`)
+                    }
+                    className="w-full text-left bg-white rounded-2xl border border-slate-200 p-5 hover:border-emerald-300 shadow-sm transition-all space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-1.5 sm:space-y-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-blue-700">{order.workOrderNumber}</span>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-slate-100 text-slate-800 border border-slate-200">
+                            {order.vehiclePlate || 'No plate'}
+                          </span>
+                          <span className="hidden sm:inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            {order.statusLabel || 'Repairing'}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <h3 className="text-base font-bold text-slate-900">{order.vehicleInfo || 'Vehicle'}</h3>
-                      <p className="text-xs text-slate-600 line-clamp-1">{serviceLabel}</p>
-                      <p className="text-xs text-slate-500 line-clamp-2">
-                        {order.reportedProblem || 'No complaint recorded.'}
-                      </p>
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 text-[11px] text-slate-500">
-                        <span>
-                          {order.bookingId ? `Booking BK-${order.bookingId.padStart(4, '0')}` : 'Booking'}
-                          {order.invoiceNumber ? ` · ${order.invoiceNumber}` : ''}
+                        <span className="inline-flex sm:hidden px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          {order.statusLabel || 'Repairing'}
                         </span>
-                        <span className="text-emerald-700 font-bold">Open tracking →</span>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-[10px] uppercase tracking-wider text-slate-500">Approved total</div>
+                        <div className="font-mono text-xl font-black text-slate-900">{money(total)}</div>
                       </div>
                     </div>
-                  </div>
-                </button>
-              );
-            })}
+                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-start min-w-0">
+                      <div className="w-full sm:w-28 md:w-36 shrink-0 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 aspect-[16/9] sm:aspect-[4/3]">
+                        {photo ? (
+                          <img src={photo} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-slate-400">
+                            <Car className="w-8 h-8" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <h3 className="text-base font-bold text-slate-900 break-words">{order.vehicleInfo || 'Vehicle'}</h3>
+                        <p className="text-xs text-slate-600 line-clamp-1">{serviceLabel}</p>
+                        <p className="text-xs text-slate-500 line-clamp-2">
+                          {order.reportedProblem || 'No complaint recorded.'}
+                        </p>
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 text-[11px] text-slate-500">
+                          <span className="break-words">
+                            {order.createdAt ? `${order.createdAt} · ` : ''}
+                            {order.bookingId ? `Booking BK-${order.bookingId.padStart(4, '0')}` : 'Booking'}
+                            {order.invoiceNumber ? ` · ${order.invoiceNumber}` : ''}
+                          </span>
+                          <span className="text-emerald-700 font-bold">Open tracking →</span>
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              }
 
-            {visibleVisitQuotes.map((order) => {
-              const visitParts = requests.filter((row) => order.bookingId && row.bookingId === order.bookingId);
-              const { serviceLines, quoteTotal } = quoteTotals(order, visitParts);
-              const serviceLabel =
-                serviceLines.map((row) => row.name).filter(Boolean).join(' · ') || 'Service on this visit';
-              const car = (vehicles || []).find((item) => item.id === order.vehicleId);
-              const photo = car?.imageUrl || car?.image || '';
               return (
                 <button
-                  key={order.id}
+                  key={item.id}
                   type="button"
                   onClick={() => openQuote(order)}
                   className="w-full text-left bg-white rounded-2xl border border-slate-200 p-5 hover:border-blue-300 shadow-sm transition-all space-y-3"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-1.5 sm:space-y-0">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-xs font-bold text-blue-700">{order.workOrderNumber}</span>
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-slate-100 text-slate-800 border border-slate-200">
-                        {order.vehiclePlate || 'No plate'}
-                      </span>
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-slate-100 text-slate-800 border border-slate-200">
+                          {order.vehiclePlate || 'No plate'}
+                        </span>
+                        <span className="hidden sm:inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200">
+                          Waiting for approval
+                        </span>
+                      </div>
+                      <span className="inline-flex sm:hidden px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200">
                         Waiting for approval
                       </span>
                     </div>
@@ -557,8 +606,8 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
                     </div>
                   </div>
 
-                  <div className="flex gap-4 items-start">
-                    <div className="w-28 sm:w-36 shrink-0 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-[4/3]">
+                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-start min-w-0">
+                    <div className="w-full sm:w-28 md:w-36 shrink-0 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-[16/9] sm:aspect-[4/3]">
                       {photo ? (
                         <img src={photo} alt="" className="h-full w-full object-cover" />
                       ) : (
@@ -568,13 +617,14 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
                       )}
                     </div>
                     <div className="min-w-0 flex-1 space-y-1">
-                      <h3 className="text-base font-bold text-slate-900">{order.vehicleInfo || 'Vehicle'}</h3>
+                      <h3 className="text-base font-bold text-slate-900 break-words">{order.vehicleInfo || 'Vehicle'}</h3>
                       <p className="text-xs text-slate-600 line-clamp-1">{serviceLabel}</p>
                       <p className="text-xs text-slate-500 line-clamp-2">
                         {order.reportedProblem || 'No complaint recorded.'}
                       </p>
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 text-[11px] text-slate-500">
-                        <span>
+                        <span className="break-words">
+                          {order.createdAt ? `${order.createdAt} · ` : ''}
                           {order.bookingId ? `Booking BK-${order.bookingId.padStart(4, '0')}` : 'Booking'}
                           {order.invoiceNumber ? ` · ${order.invoiceNumber}` : ''}
                           {visitParts.length > 0
@@ -628,37 +678,37 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
         All quotes
       </button>
 
-      <article className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="p-6 border-b border-slate-100 flex flex-wrap justify-between gap-3">
-          <div>
+      <article className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm min-w-0">
+        <div className="p-4 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:flex-wrap sm:justify-between gap-3">
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-sm font-black text-slate-900">{order.workOrderNumber}</span>
+              <span className="font-mono text-sm font-black text-slate-900 break-all">{order.workOrderNumber}</span>
               <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200">
                 {order.statusLabel || 'Waiting for approval'}
               </span>
             </div>
-            <div className="text-xs text-slate-600 mt-1 flex items-center gap-1.5">
-              <Car className="w-3.5 h-3.5" />
-              {order.vehicleInfo} · {order.vehiclePlate}
+            <div className="text-xs text-slate-600 mt-1 flex items-start gap-1.5 min-w-0">
+              <Car className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span className="break-words">{order.vehicleInfo} · {order.vehiclePlate}</span>
             </div>
             {order.bookingId && (
-              <div className="text-[11px] text-slate-500 mt-1">
+              <div className="text-[11px] text-slate-500 mt-1 break-words">
                 Booking BK-{order.bookingId.padStart(4, '0')}
                 {order.invoiceNumber ? ` · ${order.invoiceNumber}` : ''}
               </div>
             )}
           </div>
-          <div className="text-xs text-slate-500 text-right space-y-1">
-            <div className="flex items-center justify-end gap-1">
-              <Wrench className="w-3.5 h-3.5" />
-              {order.assignedTechnicianName || 'Unassigned'}
+          <div className="text-xs text-slate-500 sm:text-right space-y-1 shrink-0">
+            <div className="flex items-center sm:justify-end gap-1">
+              <Wrench className="w-3.5 h-3.5 shrink-0" />
+              <span className="break-words">{order.assignedTechnicianName || 'Unassigned'}</span>
             </div>
             <div>{order.createdAt || '—'}</div>
             <div className="font-mono text-2xl font-black text-slate-900">{money(quoteTotal)}</div>
           </div>
         </div>
 
-        <div className="p-6 space-y-4 bg-slate-50/40">
+        <div className="p-4 sm:p-6 space-y-4 bg-slate-50/40 min-w-0">
           <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-sm">
             <h3 className="text-xs font-bold uppercase tracking-wide text-blue-700 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
@@ -999,7 +1049,9 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
                   }
                   const available = (services || []).filter(
                     (item) =>
-                      item.status === 'ACTIVE' && !serviceLines.some((row) => row.name === item.name)
+                      item.status === 'ACTIVE' &&
+                      item.bookable !== false &&
+                      !serviceLines.some((row) => row.name === item.name)
                   );
                   if (available.length === 0) {
                     addToast({
@@ -1059,11 +1111,11 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
                 >
                   <option value="">Choose a service</option>
                   {(services || [])
-                    .filter((item) => item.status === 'ACTIVE')
+                    .filter((item) => item.status === 'ACTIVE' && item.bookable !== false)
                     .filter((item) => !serviceLines.some((row) => row.name === item.name))
                     .map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.name} · {money(item.basePrice || 0)}
+                        {item.name} · {money(item.estimatedTotal ?? item.basePrice ?? 0)}
                       </option>
                     ))}
                 </select>
@@ -1093,10 +1145,10 @@ export const CustomerQuotesView: React.FC<CustomerQuotesViewProps> = () => {
       </article>
 
       {cancelFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-sm">
           <form
             onSubmit={submitCancel}
-            className="w-full max-w-md bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-xl"
+            className="w-full max-w-md bg-white border border-slate-200 sm:rounded-3xl rounded-t-3xl p-4 sm:p-6 space-y-4 shadow-xl max-h-[min(92dvh,90vh)] overflow-y-auto"
           >
             <h3 className="text-base font-bold text-slate-900">Cancel {cancelFor.workOrderNumber}</h3>
             <p className="text-xs text-slate-500">

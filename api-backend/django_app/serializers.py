@@ -108,9 +108,41 @@ class ServiceCategorySerializer(serializers.HyperlinkedModelSerializer):
 
 
 class ServiceSerializer(serializers.HyperlinkedModelSerializer):
+    labor_price = serializers.SerializerMethodField()
+    parts_total = serializers.SerializerMethodField()
+    estimated_total = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()
+
     class Meta:
         model = Service
-        fields = ["url", "category", "name", "description", "price", "duration_minutes", "status"]
+        fields = [
+            "url",
+            "category",
+            "name",
+            "description",
+            "price",
+            "labor_price",
+            "parts_total",
+            "estimated_total",
+            "duration_minutes",
+            "status",
+        ]
+
+    def get_labor_price(self, service):
+        return service.price or 0
+
+    def get_parts_total(self, service):
+        from django_app.models import service_package_parts_total
+
+        return service_package_parts_total(service)
+
+    def get_estimated_total(self, service):
+        from django_app.models import service_package_parts_total
+
+        return (service.price or 0) + service_package_parts_total(service)
+
+    def get_price(self, service):
+        return self.get_estimated_total(service)
 
 
 class BookingSerializer(serializers.HyperlinkedModelSerializer):

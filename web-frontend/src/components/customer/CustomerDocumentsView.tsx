@@ -412,7 +412,7 @@ export const CustomerDocumentsView: React.FC = () => {
   if (openFile) {
     return (
       <div className="space-y-6">
-        <div className={`p-6 rounded-3xl border space-y-4 ${card}`}>
+        <div className={`p-4 sm:p-6 rounded-3xl border space-y-4 min-w-0 ${card}`}>
           <button
             type="button"
             onClick={backToList}
@@ -538,7 +538,7 @@ export const CustomerDocumentsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className={`p-6 rounded-3xl border space-y-4 ${card}`}>
+      <div className={`p-4 sm:p-6 rounded-3xl border space-y-4 min-w-0 ${card}`}>
         <div>
           <h2 className="text-2xl font-black tracking-tight flex items-center gap-2.5">
             <FileText className="w-6 h-6 text-blue-500" />
@@ -548,7 +548,7 @@ export const CustomerDocumentsView: React.FC = () => {
             One file per service visit. Open it to see inspection, invoice, and receipt together.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="tab-scroll">
           {(
             [
               { id: 'ALL' as const, label: 'All visits', icon: FileText },
@@ -561,7 +561,7 @@ export const CustomerDocumentsView: React.FC = () => {
               key={tab.id}
               type="button"
               onClick={() => setFilter(tab.id)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all shrink-0 whitespace-nowrap ${
                 docFilter === tab.id
                   ? isDark
                     ? 'bg-slate-700 text-white border-slate-600'

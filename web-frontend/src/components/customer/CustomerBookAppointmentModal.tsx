@@ -11,6 +11,7 @@ import {
   Sparkles,
   Plus,
   Package,
+  Ban,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { belongsToCurrentCustomer, demoCustomerId } from '../../utils/customerScope';
@@ -118,9 +119,19 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
   const extraServices = selectedServices.slice(1);
 
   const toggleService = (serviceId: string) => {
-    setSelectedServiceIds((ids) =>
-      ids.includes(serviceId) ? ids.filter((id) => id !== serviceId) : [...ids, serviceId]
-    );
+    const target = (services || []).find((item) => item.id === serviceId);
+    setSelectedServiceIds((ids) => {
+      if (ids.includes(serviceId)) return ids.filter((id) => id !== serviceId);
+      if (target && target.bookable === false) {
+        addToast({
+          type: 'warning',
+          title: 'Service unavailable',
+          message: `${target.name} is out of stock until package parts are restocked.`,
+        });
+        return ids;
+      }
+      return [...ids, serviceId];
+    });
   };
 
   const handleCreateVehicleInline = async (e: React.FormEvent) => {
@@ -188,7 +199,10 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
       if (!query) return true;
       return part.name.toLowerCase().includes(query) || part.sku.toLowerCase().includes(query);
     });
-  const servicesTotal = selectedServices.reduce((sum, item) => sum + (item.basePrice || 0), 0);
+  const servicesTotal = selectedServices.reduce(
+    (sum, item) => sum + (item.estimatedTotal ?? item.basePrice ?? 0),
+    0
+  );
   const partsTotal = draftParts.reduce((sum, part) => sum + (part.unitPrice || 0), 0);
   const bookingTotal = servicesTotal + partsTotal;
   const estimatedHours = selectedServices.reduce(
@@ -303,22 +317,23 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 sm:rounded-3xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col max-h-[min(92dvh,90vh)] min-h-0">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
+        <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-900/80 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
               <CalendarIcon className="w-5 h-5 text-blue-400" />
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Book Automotive Service</h3>
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-bold text-white truncate">Book Automotive Service</h3>
               <p className="text-xs text-slate-400">Step {Math.min(step, 5)} of 5 — CarSV Certified Care</p>
             </div>
           </div>
           <button
             onClick={handleResetAndClose}
-            className="p-2 text-slate-400 hover:text-white rounded-full bg-slate-800 hover:bg-slate-700 transition-colors"
+            aria-label="Close booking"
+            className="p-2 shrink-0 text-slate-400 hover:text-white rounded-full bg-slate-800 hover:bg-slate-700 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -335,18 +350,18 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
         )}
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-6">
+        <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain flex-1 space-y-6 min-h-0">
           {/* STEP 1: SELECT VEHICLE */}
           {step === 1 && (
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                <div className="min-w-0">
                   <h4 className="text-base font-bold text-white">Step 1: Select Your Vehicle</h4>
                   <p className="text-xs text-slate-400">Which car needs service or diagnostic repair?</p>
                 </div>
                 <button
                   onClick={() => setShowAddVehicleInline(!showAddVehicleInline)}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 text-xs font-semibold hover:bg-blue-600 hover:text-white transition-all flex items-center gap-1 border border-blue-500/30"
+                  className="shrink-0 self-start sm:self-auto px-3 py-2 min-h-10 rounded-lg bg-blue-600/20 text-blue-400 text-xs font-semibold hover:bg-blue-600 hover:text-white transition-all flex items-center gap-1 border border-blue-500/30"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add New Car</span>
@@ -512,33 +527,49 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                 <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
                   {filteredCatalogServices.map((s) => {
                     const selected = selectedServiceIds.includes(s.id);
+                    const unavailable = s.bookable === false;
+                    const displayPrice = s.estimatedTotal ?? s.basePrice;
                     return (
                       <div
                         key={s.id}
                         onClick={() => toggleService(s.id)}
-                        className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                          selected
-                            ? 'bg-blue-600/15 border-blue-500 ring-1 ring-blue-500'
-                            : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                        className={`p-3.5 rounded-xl border transition-all flex items-center justify-between ${
+                          unavailable
+                            ? 'bg-slate-950/40 border-slate-800/80 opacity-60 cursor-not-allowed'
+                            : selected
+                              ? 'bg-blue-600/15 border-blue-500 ring-1 ring-blue-500 cursor-pointer'
+                              : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 cursor-pointer'
                         }`}
                       >
                         <div className="space-y-0.5 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-white text-sm">{s.name}</span>
                             <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold">
                               {s.category}
                             </span>
+                            {unavailable ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30 font-bold uppercase">
+                                Out of stock
+                              </span>
+                            ) : s.availablePackages != null ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-semibold">
+                                {s.availablePackages} left
+                              </span>
+                            ) : null}
                           </div>
                           <p className="text-xs text-slate-400 line-clamp-1">{s.description}</p>
                         </div>
                         <div className="text-right shrink-0 ml-4 flex items-center gap-3">
                           <div>
-                            <div className="text-base font-black text-white">${s.basePrice.toFixed(2)}</div>
+                            <div className="text-base font-black text-white">${displayPrice.toFixed(2)}</div>
                             <div className="text-[10px] text-slate-400 font-mono">
                               ~{s.estimatedDurationHours ? s.estimatedDurationHours * 60 : 45} mins
+                              {(s.partsTotal || 0) > 0 ? ' · incl. parts' : ''}
                             </div>
                           </div>
-                          {selected ? (
+                          {unavailable ? (
+                            <Ban className="w-5 h-5 text-slate-600" />
+                          ) : selected ? (
                             <CheckCircle2 className="w-5 h-5 text-blue-400" />
                           ) : (
                             <Plus className="w-5 h-5 text-slate-600" />
@@ -690,7 +721,7 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
                 {timeSlots.map((time) => {
                   const taken = slotTaken(time);
                   return (
@@ -748,7 +779,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                             )}
                           </span>
                           <span className="flex items-center gap-2">
-                            <span className="font-mono text-slate-400">${item.basePrice.toFixed(2)}</span>
+                            <span className="font-mono text-slate-400">
+                              ${(item.estimatedTotal ?? item.basePrice).toFixed(2)}
+                            </span>
                             <button
                               type="button"
                               onClick={() => toggleService(item.id)}
@@ -778,7 +811,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                             className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 hover:bg-blue-50 hover:text-slate-900"
                           >
                             <span>{item.name}</span>
-                            <span className="font-mono text-slate-500">${item.basePrice.toFixed(2)}</span>
+                            <span className="font-mono text-slate-500">
+                              ${(item.estimatedTotal ?? item.basePrice).toFixed(2)}
+                            </span>
                           </button>
                         </li>
                       ))}
@@ -982,12 +1017,12 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
 
         {/* Footer Navigation Buttons (Steps 1 - 5) */}
         {step <= 5 && (
-          <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-800 bg-slate-900/90 flex flex-wrap items-center justify-between gap-2 shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             {step > 1 ? (
               <button
                 type="button"
                 onClick={() => setStep(step - 1)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all flex items-center gap-1.5"
+                className="min-h-10 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all flex items-center gap-1.5"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Back</span>
@@ -1003,18 +1038,18 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                   if (!canContinueFromStep(step)) return;
                   setStep(step + 1);
                 }}
-                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                className="min-h-10 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 transition-all flex items-center gap-1.5 cursor-pointer ml-auto"
               >
                 <span>Continue</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto ml-auto">
                 <button
                   type="button"
                   disabled={submitting}
                   onClick={handleResetAndClose}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all disabled:opacity-60"
+                  className="min-h-10 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all disabled:opacity-60"
                 >
                   Cancel
                 </button>
@@ -1022,9 +1057,9 @@ export const CustomerBookAppointmentModal: React.FC<CustomerBookAppointmentModal
                   type="button"
                   disabled={submitting || selectedServiceIds.length === 0}
                   onClick={() => void handleConfirmAppointment()}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  className="min-h-10 px-4 sm:px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
                 >
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>{submitting ? 'Saving…' : 'Confirm Appointment'}</span>
                 </button>
               </div>

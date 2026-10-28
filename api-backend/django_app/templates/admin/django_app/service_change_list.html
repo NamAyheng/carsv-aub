@@ -71,8 +71,12 @@
                         </strong>
                     </div>
                     <div>
-                        <span>Standard Labor Rate</span>
-                        <strong class="price">${{ row.price|floatformat:0 }}</strong>
+                        <span>Total price</span>
+                        <strong class="price">${{ row.total_price|floatformat:2 }}</strong>
+                    </div>
+                    <div>
+                        <span>Packages left</span>
+                        <strong {% if row.package_oos %}style="color:#b91c1c"{% endif %}>{{ row.packages_left }}</strong>
                     </div>
                 </div>
                 <div class="sv-foot">
