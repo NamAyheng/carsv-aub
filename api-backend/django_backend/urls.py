@@ -90,6 +90,8 @@ customer_router.register(r"estimates", CustomerEstimateViewSet, basename="custom
 customer_router.register(r"notifications", CustomerNotificationViewSet, basename="customer-notification")
 
 urlpatterns = [
+    # Admin host root (e.g. admin.carsv.chayhour.xyz/) → Unfold dashboard.
+    path("", RedirectView.as_view(url="/admin/", permanent=False)),
     # Django auth Groups removed — Roles replace them. Keep old bookmarks working.
     path(
         "admin/auth/group/",
