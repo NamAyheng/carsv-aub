@@ -16,7 +16,8 @@ export interface PublicBlogPost {
 }
 
 export async function loadPublicBlog(): Promise<PublicBlogPost[]> {
-  const response = await fetch('/api/public/blog/');
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+  const response = await fetch(`${apiBase}/api/public/blog/`);
   if (!response.ok) throw new Error('The blog could not be loaded.');
   const data = await response.json();
   const rows = Array.isArray(data) ? (data as PublicBlogPost[]) : [];

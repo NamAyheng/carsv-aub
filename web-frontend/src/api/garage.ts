@@ -970,7 +970,8 @@ function mapHistory(row: ApiHistory, profile: CustomerProfile): ServiceHistoryRe
 }
 
 export async function loadPublicServices(): Promise<ServiceItem[]> {
-  const response = await fetch('/api/public/services/');
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+  const response = await fetch(`${apiBase}/api/public/services/`);
   if (!response.ok) throw new Error(await apiErrorMessage(response));
   const data = await response.json();
   const rows = (Array.isArray(data) ? data : []) as ApiService[];

@@ -43,6 +43,15 @@ function loadGisScript(): Promise<void> {
   return scriptPromise;
 }
 
+function originMismatchHint(): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return (
+    `Google blocked this site origin${origin ? ` (${origin})` : ''}. ` +
+    'In Google Cloud Console → OAuth Web client → Authorized JavaScript origins, add that exact origin ' +
+    '(no path). Include https://carsv.chayhour.xyz and http://127.0.0.1:3000 / http://localhost:3000 for local.'
+  );
+}
+
 /** Returns a Google ID token (JWT). Prefers One Tap; falls back to a programmatic GIS button click. */
 export async function requestGoogleIdToken(clientId: string): Promise<string> {
   if (!clientId) {
@@ -81,6 +90,8 @@ export async function requestGoogleIdToken(clientId: string): Promise<string> {
       reject(new Error(message));
     };
 
+    // Classic GIS (not FedCM). FedCM on Firefox often surfaces Error 400: origin_mismatch
+    // even when the same Web client works with the popup / button flow.
     id.initialize({
       client_id: clientId,
       callback: (response: { credential?: string }) => {
@@ -89,7 +100,8 @@ export async function requestGoogleIdToken(clientId: string): Promise<string> {
       },
       auto_select: false,
       cancel_on_tap_outside: true,
-      use_fedcm_for_prompt: true,
+      use_fedcm_for_prompt: false,
+      ux_mode: 'popup',
     });
 
     const tryHiddenButton = () => {
@@ -110,21 +122,23 @@ export async function requestGoogleIdToken(clientId: string): Promise<string> {
           locale: 'en',
         });
       } catch {
-        fail('Google sign-in UI could not start. Check GOOGLE_CLIENT_ID and authorized JavaScript origins.');
+        fail(originMismatchHint());
         return;
       }
       window.setTimeout(() => {
         if (settled || !host) return;
         const btn = host.querySelector<HTMLElement>('div[role="button"]');
         if (!btn) {
-          fail('Google sign-in UI could not start. Check GOOGLE_CLIENT_ID and authorized JavaScript origins.');
+          fail(originMismatchHint());
           return;
         }
         host.style.pointerEvents = 'auto';
         btn.click();
         window.setTimeout(() => {
           if (!settled) {
-            fail('Google sign-in was cancelled or blocked by the browser.');
+            fail(
+              `Google sign-in was cancelled or blocked. If you saw Error 400: origin_mismatch, ${originMismatchHint()}`,
+            );
           }
         }, 120000);
       }, 80);

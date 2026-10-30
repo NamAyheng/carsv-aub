@@ -87,6 +87,19 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
 
+  // Sync Login/Register from the parent without remounting (OTP step stays mounted mid-flow).
+  const wasOpenRef = React.useRef(false);
+  useEffect(() => {
+    if (isOpen && !wasOpenRef.current) {
+      setMode(initialMode);
+    } else if (isOpen && wasOpenRef.current) {
+      setMode((current) =>
+        current === 'CHECK_EMAIL' || current === 'PHONE' || current === 'FORGOT' ? current : initialMode,
+      );
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen, initialMode]);
+
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const timer = window.setTimeout(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);

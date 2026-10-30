@@ -8,9 +8,12 @@
 | **Live** admin / API | https://admin.carsv.chayhour.xyz/admin/ (fallback: https://carsv-api.onrender.com/admin/) | [ROLE_IN_DASHBOARD.md](ROLE_IN_DASHBOARD.md) |
 | **Live** deploy / env | Render | [RENDER.md](../RENDER.md) |
 | **Google Sign-In origins** | — | [GOOGLE_OAUTH_ORIGINS.md](GOOGLE_OAUTH_ORIGINS.md) |
+| **Local auth parity** (Google, OTP, Telegram) | — | [LOCAL_AUTH.md](LOCAL_AUTH.md) |
 | **Local** | Docker or venv below | this file |
 
 Local DB ≠ live DB. Branch for local work: `ayheng-local`. Live code: `ayheng`.
+
+Auth on local Compose: set `GOOGLE_CLIENT_ID` (and Telegram vars if testing connect) in root `.env`. Team default email is console (`docker compose logs -f api` for OTP). See [LOCAL_AUTH.md](LOCAL_AUTH.md).
 
 ---
 

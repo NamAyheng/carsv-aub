@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import { ToastContainer } from './components/common/ToastContainer';
 import { ConfirmModal } from './components/common/ConfirmModal';
-import { CustomerPortalApp, CustomerTab } from './components/customer/CustomerPortalApp';
+import { CustomerPortalApp } from './components/customer/CustomerPortalApp';
 import { CustomerPublicLanding } from './components/customer/CustomerPublicLanding';
 import { CustomerPublicBlog } from './components/customer/CustomerPublicBlog';
 import { CustomerAuthModal } from './components/customer/CustomerAuthModal';
@@ -112,7 +112,6 @@ function PublicSite() {
         />
       )}
       <CustomerAuthModal
-        key={authMode}
         isOpen={authOpen}
         initialMode={authMode}
         onClose={() => {
@@ -139,13 +138,14 @@ function PublicSite() {
   );
 }
 
-function CustomerPage({ tab }: { tab: CustomerTab }) {
+/** Layout stays mounted across portal tab routes so booking/modals are not wiped. */
+function CustomerPortalShell() {
   const navigate = useNavigate();
   return (
-    <CustomerPortalApp
-      key={tab}
-      onBackToPublicSite={() => navigate('/')}
-    />
+    <>
+      <CustomerPortalApp onBackToPublicSite={() => navigate('/')} />
+      <Outlet />
+    </>
   );
 }
 
@@ -162,16 +162,18 @@ function AppRoutes() {
         <Route path="/contact" element={<PublicSite />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/dashboard" element={<RequireCustomer><CustomerPage tab="DASHBOARD" /></RequireCustomer>} />
-        <Route path="/vehicles" element={<RequireCustomer><CustomerPage tab="VEHICLES" /></RequireCustomer>} />
-        <Route path="/appointments" element={<RequireCustomer><CustomerPage tab="APPOINTMENTS" /></RequireCustomer>} />
-        <Route path="/tracking" element={<RequireCustomer><CustomerPage tab="TRACKING" /></RequireCustomer>} />
-        <Route path="/quotes" element={<RequireCustomer><CustomerPage tab="QUOTES" /></RequireCustomer>} />
-        <Route path="/parts" element={<RequireCustomer><CustomerPage tab="PARTS_PRODUCTS" /></RequireCustomer>} />
-        <Route path="/invoices" element={<RequireCustomer><CustomerPage tab="INVOICES" /></RequireCustomer>} />
-        <Route path="/documents" element={<RequireCustomer><CustomerPage tab="DOCUMENTS" /></RequireCustomer>} />
-        <Route path="/reviews" element={<RequireCustomer><CustomerPage tab="FEEDBACK" /></RequireCustomer>} />
-        <Route path="/profile" element={<RequireCustomer><CustomerPage tab="PROFILE" /></RequireCustomer>} />
+        <Route element={<RequireCustomer><CustomerPortalShell /></RequireCustomer>}>
+          <Route path="/dashboard" />
+          <Route path="/vehicles" />
+          <Route path="/appointments" />
+          <Route path="/tracking" />
+          <Route path="/quotes" />
+          <Route path="/parts" />
+          <Route path="/invoices" />
+          <Route path="/documents" />
+          <Route path="/reviews" />
+          <Route path="/profile" />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ThemeFrame>

@@ -23,10 +23,13 @@ cp .env.example .env
 
 Optional: copy Google / Telegram values from `api-backend/.env` into the root `.env`.
 
-For email verification links, set `FRONTEND_URL` (local: `http://127.0.0.1:3000`).  
-Local default `EMAIL_BACKEND` is console (messages appear in `carsv-api` logs).  
+For email verification / OTP, set `FRONTEND_URL` (local: `http://127.0.0.1:3000`).  
+**Recommended team default:** `EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend` — OTP codes appear in `docker compose logs -f api`.  
+**Optional on your machine:** Resend (`django_app.email_backends.ResendAPIBackend`) with a verified `DEFAULT_FROM_EMAIL` (same as live).
 
-For **Render** (free tier), see `RENDER.md`. Use Resend **HTTPS** (`django_app.email_backends.ResendAPIBackend`) — SMTP ports are blocked on Free Web Services.
+Local Google, OTP, and Telegram connect/tunnel: [guidelines/LOCAL_AUTH.md](guidelines/LOCAL_AUTH.md). Google origins: [guidelines/GOOGLE_OAUTH_ORIGINS.md](guidelines/GOOGLE_OAUTH_ORIGINS.md).
+
+For **Render** (free tier), see `RENDER.md`. Use Resend **HTTPS** (`django_app.email_backends.ResendAPIBackend`) — SMTP ports are blocked on Free Web Services. Prefer opening the site as **http://127.0.0.1:3000** (not a mix of localhost and 127.0.0.1).
 
 ## 2. Start (Fedora / Linux / Windows)
 
@@ -149,6 +152,10 @@ Telegram `chat_id` lived in SQLite. After switching to Compose Postgres, re-link
 
 - `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_USERNAME` in root `.env`
 - Customer row with `telegram_chat_id` + `telegram_alerts=true`
+
+**Webhook:** day-to-day leave BotFather on live  
+`https://admin.carsv.chayhour.xyz/api/telegram/webhook/`.  
+Local Profile → Connect only updates the **local** DB when you temporarily tunnel `:8000` and `set_telegram_webhook` to that HTTPS URL — then restore live. Steps: [guidelines/LOCAL_AUTH.md](guidelines/LOCAL_AUTH.md) §4.
 
 ## Troubleshooting
 
