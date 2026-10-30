@@ -2,7 +2,9 @@ import hashlib
 import hmac
 import logging
 import re
+import secrets
 import time
+from datetime import timedelta
 from urllib.parse import quote
 
 from django.conf import settings
@@ -13,10 +15,11 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from django_app.models import AuthProvider, Customer, User
+from django_app.models import AuthProvider, Customer, EmailVerificationOTP, User
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +27,22 @@ INVALID_CREDENTIALS = "Invalid credentials."
 VERIFY_EMAIL = "Verify your email before signing in."
 GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 TELEGRAM_MAX_AGE = 60 * 60 * 24
-EMAIL_VERIFY_MAX_AGE = 60 * 60 * 24
 PASSWORD_RESET_MAX_AGE = 60 * 60
-EMAIL_VERIFY_SALT = "carsv-email-verify"
 PASSWORD_RESET_SALT = "carsv-password-reset"
-_SECRET_EXTRA_KEYS = frozenset({"verification_token", "token", "password", "current_password", "new_password"})
+EMAIL_OTP_LENGTH = 6
+# Strip secrets from AuthError.extra before API JSON. Do not include the error
+# field name "code" (VERIFY_EMAIL / NO_LOCAL_PASSWORD) — only OTP/token secrets.
+_SECRET_EXTRA_KEYS = frozenset(
+    {
+        "verification_token",
+        "token",
+        "password",
+        "current_password",
+        "new_password",
+        "otp",
+        "otp_code",
+    }
+)
 
 
 class AuthError(Exception):
@@ -112,7 +126,7 @@ def password_login(identifier, password):
         raise AuthError(INVALID_CREDENTIALS, 400)
     if user.role == User.Role.CUSTOMER and not user.email_verified:
         try:
-            _deliver_verification_email(user)
+            _issue_and_send_otp(user, respect_cooldown=True)
         except AuthError:
             pass
         raise AuthError(
@@ -168,18 +182,13 @@ def register_customer(*, email, password, first_name, last_name="", phone=""):
     except IntegrityError as exc:
         raise AuthError("An account with this email already exists.", 400) from exc
     try:
-        _deliver_verification_email(user)
+        _issue_and_send_otp(user, respect_cooldown=False)
         return user, True
     except AuthError as exc:
         # Account exists; email provider (e.g. Resend sandbox) may refuse the address.
         if exc.status_code == 503:
             return user, False
         raise
-
-
-def issue_email_verify_token(user):
-    """Embed unverified state so the same link cannot be reused after activation."""
-    return TimestampSigner(salt=EMAIL_VERIFY_SALT).sign(f"{user.pk}:unverified")
 
 
 def _frontend_base():
@@ -190,35 +199,79 @@ def _from_email():
     return getattr(settings, "DEFAULT_FROM_EMAIL", None) or "CarSV <noreply@carsv.local>"
 
 
-def _verification_url(token):
-    return f"{_frontend_base()}/verify-email?token={quote(token, safe='')}"
+def _otp_max_age():
+    return int(getattr(settings, "EMAIL_OTP_MAX_AGE", 600) or 600)
 
 
-def _deliver_verification_email(user):
+def _otp_max_attempts():
+    return int(getattr(settings, "EMAIL_OTP_MAX_ATTEMPTS", 5) or 5)
+
+
+def _generate_otp_code():
+    return "".join(secrets.choice("0123456789") for _ in range(EMAIL_OTP_LENGTH))
+
+
+def _hash_otp_code(user_id, code):
+    material = f"{settings.SECRET_KEY}:carsv-email-otp:{user_id}:{code}".encode()
+    return hashlib.sha256(material).hexdigest()
+
+
+def _normalize_otp_code(raw):
+    digits = re.sub(r"\D", "", str(raw or ""))
+    return digits
+
+
+def _issue_and_send_otp(user, *, respect_cooldown=False):
     if user.email_is_placeholder:
         raise AuthError("This account has no email address to verify.", 400)
-    token = issue_email_verify_token(user)
-    link = _verification_url(token)
+    if user.email_verified:
+        raise AuthError("This email is already verified. You can sign in.", 400)
+
+    normalized = (user.email or "").strip().lower()
+    cooldown = int(getattr(settings, "EMAIL_VERIFY_RESEND_COOLDOWN", 60) or 60)
+    cache_key = f"carsv:verify-resend:{normalized}"
+    if respect_cooldown and cache.get(cache_key):
+        raise AuthError("Please wait a minute before requesting another verification email.", 429)
+
+    code = _generate_otp_code()
+    code_hash = _hash_otp_code(user.pk, code)
+    expires_at = timezone.now() + timedelta(seconds=_otp_max_age())
+
+    with transaction.atomic():
+        EmailVerificationOTP.objects.filter(user=user, consumed_at__isnull=True).update(
+            consumed_at=timezone.now()
+        )
+        EmailVerificationOTP.objects.create(
+            user=user,
+            code_hash=code_hash,
+            expires_at=expires_at,
+        )
+
+    minutes = max(1, _otp_max_age() // 60)
     body = (
-        "Your CarSV account was created.\n\n"
-        "Verify your email by opening this link (expires in 24 hours):\n"
-        f"{link}\n\n"
-        "If you did not create this account, you can ignore this message.\n"
+        "CarSV verification code\n\n"
+        f"Your verification code is: {code}\n\n"
+        f"This code expires in {minutes} minutes.\n"
+        "Do not share this code with anyone.\n\n"
+        "If you did not create a CarSV account, you can ignore this message.\n"
     )
     try:
         send_mail(
-            "Verify your CarSV account",
+            "Your CarSV verification code",
             body,
             _from_email(),
             [user.email],
             fail_silently=False,
         )
     except Exception:
-        logger.exception("Could not send verification email to user_id=%s", user.pk)
+        logger.exception("Could not send verification OTP to user_id=%s", user.pk)
         raise AuthError(
             "The account was saved, but the email could not be sent. Try resend in a minute.",
             503,
         ) from None
+
+    cache.set(cache_key, 1, cooldown)
+    return True
 
 
 def _send_password_reset_email(user, token):
@@ -258,50 +311,83 @@ def _read_signed(token, salt, max_age):
         raise AuthError("This link is invalid.", 400) from exc
 
 
-def verify_email(token):
-    raw = _read_signed_raw(token, EMAIL_VERIFY_SALT, EMAIL_VERIFY_MAX_AGE)
-    try:
-        pk_s, state = str(raw).split(":", 1)
-        pk = int(pk_s)
-    except (ValueError, TypeError) as exc:
-        raise AuthError("This link is invalid.", 400) from exc
-    if state != "unverified":
-        raise AuthError("This link is invalid.", 400)
-    user = User.objects.filter(pk=pk).first()
-    if user is None or user.email_is_placeholder:
-        raise AuthError("This link is invalid.", 400)
-    if user.email_verified:
-        raise AuthError("This email is already verified. You can sign in.", 400)
+def _activate_verified_customer(user):
     user.email_verified = True
     if user.status != User.Status.ACTIVE:
         user.status = User.Status.ACTIVE
     user.save()
-    from django_app.models import Customer, Notification, notify_customer
+    from django_app.models import Notification, notify_customer
 
     customer = Customer.objects.filter(user=user).first()
-    if customer is not None:
-        from django_app.telegram_bot import format_customer_alert
+    if customer is None:
+        return user
+    from django_app.telegram_bot import format_customer_alert
 
-        notify_customer(
-            customer,
-            kind=Notification.Kind.ACCOUNT,
-            title="Welcome to CarSV",
-            message=(
-                "Your account is verified. Add a vehicle and book a visit anytime. "
-                "Connect Telegram in Profile to get garage alerts on your phone."
-            ),
-            telegram_text=format_customer_alert(
-                emoji="👋",
-                title="Welcome",
-                customer=customer,
-                body=[
-                    "Welcome to CarSV.",
-                    "Add a vehicle and book a visit whenever you’re ready.",
-                    "Connect Telegram in Profile to keep getting these alerts.",
-                ],
-            ),
-        )
+    notify_customer(
+        customer,
+        kind=Notification.Kind.ACCOUNT,
+        title="Welcome to CarSV",
+        message=(
+            "Your account is verified. Add a vehicle and book a visit anytime. "
+            "Connect Telegram in Profile to get garage alerts on your phone."
+        ),
+        telegram_text=format_customer_alert(
+            emoji="👋",
+            title="Welcome",
+            customer=customer,
+            body=[
+                "Welcome to CarSV.",
+                "Add a vehicle and book a visit whenever you’re ready.",
+                "Connect Telegram in Profile to keep getting these alerts.",
+            ],
+        ),
+    )
     return user
+
+
+def verify_email_otp(email, code):
+    normalized = (email or "").strip().lower()
+    digits = _normalize_otp_code(code)
+    if not normalized:
+        raise AuthError("Enter the email address for your account.", 400)
+    if len(digits) != EMAIL_OTP_LENGTH:
+        raise AuthError("Enter the 6-digit verification code.", 400)
+
+    user = User.objects.filter(email__iexact=normalized, email_is_placeholder=False).first()
+    if user is None:
+        raise AuthError("Invalid verification code.", 400)
+    if user.email_verified:
+        raise AuthError("This email is already verified. You can sign in.", 400)
+
+    otp = (
+        EmailVerificationOTP.objects.filter(user=user, consumed_at__isnull=True)
+        .order_by("-created_at")
+        .first()
+    )
+    if otp is None:
+        raise AuthError("No verification code is pending. Request a new code.", 400)
+    if otp.expires_at <= timezone.now():
+        otp.consumed_at = timezone.now()
+        otp.save(update_fields=["consumed_at"])
+        raise AuthError("This verification code has expired. Request a new code.", 400)
+    if otp.attempt_count >= _otp_max_attempts():
+        raise AuthError("Too many incorrect attempts. Request a new code.", 400)
+
+    expected = _hash_otp_code(user.pk, digits)
+    if not hmac.compare_digest(otp.code_hash, expected):
+        otp.attempt_count += 1
+        otp.save(update_fields=["attempt_count"])
+        remaining = _otp_max_attempts() - otp.attempt_count
+        if remaining <= 0:
+            raise AuthError("Too many incorrect attempts. Request a new code.", 400)
+        raise AuthError("Invalid verification code.", 400)
+
+    otp.consumed_at = timezone.now()
+    otp.save(update_fields=["consumed_at"])
+    EmailVerificationOTP.objects.filter(user=user, consumed_at__isnull=True).update(
+        consumed_at=timezone.now()
+    )
+    return _activate_verified_customer(user)
 
 
 def resend_verification(email):
@@ -320,15 +406,15 @@ def resend_verification(email):
         cache.set(cache_key, 1, cooldown)
         return False
 
-    _deliver_verification_email(user)
-    cache.set(cache_key, 1, cooldown)
+    _issue_and_send_otp(user, respect_cooldown=False)
     return True
 
 
 def request_password_reset(email):
     normalized = (email or "").strip().lower()
     user = User.objects.filter(email__iexact=normalized, email_is_placeholder=False).first()
-    if user:
+    # Do not let password reset become an email-verification bypass for unverified accounts.
+    if user and user.email_verified:
         token = TimestampSigner(salt=PASSWORD_RESET_SALT).sign(str(user.pk))
         _send_password_reset_email(user, token)
 
@@ -337,17 +423,16 @@ def confirm_password_reset(token, password):
     user = User.objects.filter(pk=_read_signed(token, PASSWORD_RESET_SALT, PASSWORD_RESET_MAX_AGE)).first()
     if user is None or user.email_is_placeholder:
         raise AuthError("This link is invalid.", 400)
-    if user.email_verified and user.status != User.Status.ACTIVE:
+    if not user.email_verified:
+        raise AuthError("Verify your email before resetting your password.", 400)
+    if user.status != User.Status.ACTIVE:
         raise AuthError("This account is disabled.", 400)
     try:
         validate_password(password, user)
     except DjangoValidationError as exc:
         raise AuthError(" ".join(exc.messages), 400) from exc
     user.set_password(password)
-    user.email_verified = True
-    if user.status != User.Status.ACTIVE:
-        user.status = User.Status.ACTIVE
-    user.save()
+    user.save(update_fields=["password"])
     return user
 
 

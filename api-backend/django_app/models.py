@@ -1779,6 +1779,30 @@ class AuthProvider(models.Model):
         return f"{self.provider}:{self.provider_user_id}"
 
 
+class EmailVerificationOTP(models.Model):
+    """Hashed 6-digit email verification code for customer form registration."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="email_verification_otps",
+    )
+    code_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField(db_index=True)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"], name="django_app__user_id_2909c0_idx"),
+        ]
+
+    def __str__(self):
+        return f"otp user={self.user_id} expires={self.expires_at}"
+
+
 class TelegramLinkPending(models.Model):
     """Temporary Yes/No confirmation after a customer shares their phone in the bot."""
 

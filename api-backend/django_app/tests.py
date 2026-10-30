@@ -471,7 +471,15 @@ class ApiAuthTests(APITestCase):
                 return unquote(line.split("token=", 1)[-1].strip())
         self.fail(f"No {path} link found in email body")
 
-    def test_verify_email_then_login(self):
+    def _otp_from_mail(self, body):
+        import re
+
+        match = re.search(r"verification code is:\s*(\d{6})", body or "", re.I)
+        if not match:
+            self.fail("No 6-digit verification code found in email body")
+        return match.group(1)
+
+    def test_verify_email_otp_then_login(self):
         registered = self.client.post(
             "/api/auth/register/",
             {"email": "verify.me@example.com", "password": "Testpass123!", "first_name": "Verify"},
@@ -479,40 +487,107 @@ class ApiAuthTests(APITestCase):
         )
         self.assertEqual(registered.status_code, 201)
         self.assertNotIn("verification_token", registered.data)
-        self.assertIn("check your email", registered.data["detail"].lower())
+        self.assertNotIn("code", registered.data)
+        self.assertNotIn("otp", registered.data)
+        self.assertIn("6-digit", registered.data["detail"].lower())
         self.assertEqual(len(mail.outbox), 1)
-        token = self._token_from_mail(mail.outbox[-1].body)
+        code = self._otp_from_mail(mail.outbox[-1].body)
         blocked = self._login(email="verify.me@example.com", password="Testpass123!")
         self.assertEqual(blocked.status_code, 400)
         self.assertEqual(blocked.data.get("code"), "VERIFY_EMAIL")
         self.assertNotIn("verification_token", blocked.data)
-        verified = self.client.post("/api/auth/verify-email/", {"token": token}, format="json")
+        self.assertNotIn("otp", blocked.data)
+        self.assertNotRegex(str(blocked.data), r"\b\d{6}\b")
+        verified = self.client.post(
+            "/api/auth/verify-email/",
+            {"email": "verify.me@example.com", "code": code},
+            format="json",
+        )
         self.assertEqual(verified.status_code, 200)
-        reused = self.client.post("/api/auth/verify-email/", {"token": token}, format="json")
+        reused = self.client.post(
+            "/api/auth/verify-email/",
+            {"email": "verify.me@example.com", "code": code},
+            format="json",
+        )
         self.assertEqual(reused.status_code, 400)
         login = self._login(email="verify.me@example.com", password="Testpass123!")
         self.assertEqual(login.status_code, 200)
 
+    def test_verify_email_rejects_wrong_and_legacy_token(self):
+        self.client.post(
+            "/api/auth/register/",
+            {"email": "wrong.otp@example.com", "password": "Testpass123!", "first_name": "Wrong"},
+            format="json",
+        )
+        code = self._otp_from_mail(mail.outbox[-1].body)
+        wrong = "000000" if code != "000000" else "111111"
+        bad = self.client.post(
+            "/api/auth/verify-email/",
+            {"email": "wrong.otp@example.com", "code": wrong},
+            format="json",
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertNotIn("code", bad.data)
+        legacy = self.client.post(
+            "/api/auth/verify-email/",
+            {"token": "legacy-link-token"},
+            format="json",
+        )
+        self.assertEqual(legacy.status_code, 400)
+        self.assertIn("6-digit", legacy.data["error"].lower())
+
+    def test_otp_max_attempts_then_requires_new_code(self):
+        from django.test import override_settings
+
+        with override_settings(EMAIL_OTP_MAX_ATTEMPTS=3):
+            self.client.post(
+                "/api/auth/register/",
+                {"email": "attempts@example.com", "password": "Testpass123!", "first_name": "Try"},
+                format="json",
+            )
+            code = self._otp_from_mail(mail.outbox[-1].body)
+            wrong = "000000" if code != "000000" else "111111"
+            for _ in range(3):
+                resp = self.client.post(
+                    "/api/auth/verify-email/",
+                    {"email": "attempts@example.com", "code": wrong},
+                    format="json",
+                )
+                self.assertEqual(resp.status_code, 400)
+            locked = self.client.post(
+                "/api/auth/verify-email/",
+                {"email": "attempts@example.com", "code": code},
+                format="json",
+            )
+            self.assertEqual(locked.status_code, 400)
+            self.assertIn("too many", locked.data["error"].lower())
+
     def test_resend_verification_rate_limit_and_no_token_leak(self):
+        from django.core.cache import cache
+
         self.client.post(
             "/api/auth/register/",
             {"email": "resend.me@example.com", "password": "Testpass123!", "first_name": "Resend"},
             format="json",
         )
         mail.outbox.clear()
+        cache.clear()
         first = self.client.post("/api/auth/resend-verification/", {"email": "resend.me@example.com"}, format="json")
         self.assertEqual(first.status_code, 200)
         self.assertNotIn("verification_token", first.data)
+        self.assertNotIn("code", first.data)
         self.assertEqual(len(mail.outbox), 1)
+        self.assertRegex(self._otp_from_mail(mail.outbox[-1].body), r"^\d{6}$")
         second = self.client.post("/api/auth/resend-verification/", {"email": "resend.me@example.com"}, format="json")
         self.assertEqual(second.status_code, 429)
         self.assertNotIn("verification_token", second.data)
 
-    def test_expired_verification_link_is_rejected(self):
-        import time
-        from unittest import mock
+    def test_expired_otp_is_rejected(self):
+        from datetime import timedelta
 
-        from django_app.auth_services import EMAIL_VERIFY_MAX_AGE
+        from django.utils import timezone
+
+        from django_app.models import EmailVerificationOTP
 
         registered = self.client.post(
             "/api/auth/register/",
@@ -520,10 +595,15 @@ class ApiAuthTests(APITestCase):
             format="json",
         )
         self.assertEqual(registered.status_code, 201)
-        token = self._token_from_mail(mail.outbox[-1].body)
-        future = time.time() + EMAIL_VERIFY_MAX_AGE + 60
-        with mock.patch("django.core.signing.time.time", return_value=future):
-            response = self.client.post("/api/auth/verify-email/", {"token": token}, format="json")
+        code = self._otp_from_mail(mail.outbox[-1].body)
+        otp = EmailVerificationOTP.objects.filter(user__email="expire.me@example.com").latest("created_at")
+        otp.expires_at = timezone.now() - timedelta(seconds=1)
+        otp.save(update_fields=["expires_at"])
+        response = self.client.post(
+            "/api/auth/verify-email/",
+            {"email": "expire.me@example.com", "code": code},
+            format="json",
+        )
         self.assertEqual(response.status_code, 400)
         self.assertIn("expired", response.data["error"].lower())
 
@@ -540,6 +620,19 @@ class ApiAuthTests(APITestCase):
         new = self._login(email="namayheng12345@gmail.com", password="Resetpass123!")
         self.assertEqual(old.status_code, 400)
         self.assertEqual(new.status_code, 200)
+
+    def test_password_reset_does_not_bypass_unverified_email(self):
+        self.client.post(
+            "/api/auth/register/",
+            {"email": "unverified.reset@example.com", "password": "Testpass123!", "first_name": "Unverified"},
+            format="json",
+        )
+        mail.outbox.clear()
+        self.client.post("/api/auth/password-reset/", {"email": "unverified.reset@example.com"}, format="json")
+        self.assertEqual(len(mail.outbox), 0)
+        blocked = self._login(email="unverified.reset@example.com", password="Testpass123!")
+        self.assertEqual(blocked.status_code, 400)
+        self.assertEqual(blocked.data.get("code"), "VERIFY_EMAIL")
 
     def test_password_change_checks_current_password(self):
         token = self._login(email="namayheng12345@gmail.com", password="Ayheng123!@#").data["access"]

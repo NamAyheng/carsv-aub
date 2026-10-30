@@ -165,12 +165,12 @@ export async function apiRegister(payload: {
   return data as RegisterResult;
 }
 
-export async function apiVerifyEmail(token: string): Promise<{ detail?: string }> {
+export async function apiVerifyEmail(email: string, code: string): Promise<{ detail?: string }> {
   const response = await fetch(`${API_BASE}/api/auth/verify-email/`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: token.trim() }),
+    body: JSON.stringify({ email: email.trim(), code: code.trim() }),
   });
   const data = await readJson(response);
   if (!response.ok || !data.ok) {
@@ -196,7 +196,9 @@ export async function apiConfirmPasswordReset(
   return { detail: typeof data.detail === 'string' ? data.detail : undefined };
 }
 
-export async function apiResendVerification(email: string): Promise<void> {
+export async function apiResendVerification(
+  email: string,
+): Promise<{ resend_cooldown_seconds?: number }> {
   const response = await fetch(`${API_BASE}/api/auth/resend-verification/`, {
     method: 'POST',
     credentials: 'include',
@@ -209,6 +211,10 @@ export async function apiResendVerification(email: string): Promise<void> {
       typeof data.error === 'string' ? data.error : 'Could not resend the verification email.',
     );
   }
+  return {
+    resend_cooldown_seconds:
+      typeof data.resend_cooldown_seconds === 'number' ? data.resend_cooldown_seconds : 60,
+  };
 }
 
 export async function apiLogout(): Promise<void> {

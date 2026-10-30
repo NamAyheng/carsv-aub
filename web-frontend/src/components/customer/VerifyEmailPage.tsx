@@ -1,37 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Car, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiVerifyEmail } from '../../api/client';
+import React from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Car, KeyRound } from 'lucide-react';
 
-type Status = 'working' | 'ok' | 'error';
-
+/**
+ * Legacy /verify-email?token=… links are retired. Verification is a 6-digit OTP
+ * entered in the sign-in modal.
+ */
 export const VerifyEmailPage: React.FC = () => {
-  const [params] = useSearchParams();
   const navigate = useNavigate();
-  const token = (params.get('token') || '').trim();
-  const [status, setStatus] = useState<Status>(token ? 'working' : 'error');
-  const [message, setMessage] = useState(
-    token ? 'Confirming your email…' : 'This verification link is missing a token.',
-  );
-
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    apiVerifyEmail(token)
-      .then((result) => {
-        if (cancelled) return;
-        setStatus('ok');
-        setMessage(result.detail || 'Email verified. You can sign in.');
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setStatus('error');
-        setMessage(error instanceof Error ? error.message : 'Could not verify email.');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4 py-16">
@@ -41,29 +17,21 @@ export const VerifyEmailPage: React.FC = () => {
         </div>
         <h1 className="text-2xl font-black text-white tracking-tight">Email verification</h1>
         <div className="mt-6 flex flex-col items-center gap-3">
-          {status === 'working' && <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />}
-          {status === 'ok' && <CheckCircle2 className="w-8 h-8 text-emerald-400" />}
-          {status === 'error' && <AlertCircle className="w-8 h-8 text-rose-400" />}
-          <p className="text-sm text-slate-300 leading-relaxed">{message}</p>
+          <KeyRound className="w-8 h-8 text-blue-400" />
+          <p className="text-sm text-slate-300 leading-relaxed">
+            CarSV now verifies accounts with a <span className="text-white font-semibold">6-digit code</span>{' '}
+            sent to your email. Open Sign In, and if your account is waiting for verification you can enter
+            the code there (or request a new one).
+          </p>
         </div>
         <div className="mt-8 space-y-2">
-          {status === 'ok' ? (
-            <button
-              type="button"
-              onClick={() => navigate('/?signin=1')}
-              className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold"
-            >
-              Sign in
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => navigate('/?signin=1')}
-              className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold border border-slate-700"
-            >
-              Back to sign in
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => navigate('/?signin=1')}
+            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold"
+          >
+            Open sign in
+          </button>
           <Link to="/" className="block text-xs text-slate-400 hover:text-white pt-1">
             Return to home
           </Link>

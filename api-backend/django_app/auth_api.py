@@ -22,7 +22,7 @@ from django_app.auth_services import (
     rotate_refresh,
     telegram_login,
     unlink_provider,
-    verify_email,
+    verify_email_otp,
     verify_google_id_token,
     verify_telegram_login,
 )
@@ -39,7 +39,9 @@ class AuthUserThrottle(UserRateThrottle):
     scope = "auth_user"
 
 
-_SECRET_RESPONSE_KEYS = frozenset({"verification_token", "token", "password", "current_password", "new_password"})
+_SECRET_RESPONSE_KEYS = frozenset(
+    {"verification_token", "token", "password", "current_password", "new_password", "otp", "otp_code"}
+)
 
 
 def _error(exc):
@@ -110,13 +112,13 @@ class RegisterView(AuthView):
         email = serializer.validated_data["email"].strip().lower()
         if email_sent:
             detail = (
-                "Your account has been created. Please check your email and verify "
-                "your address before logging in."
+                "Your account has been created. Enter the 6-digit code we sent to your email "
+                "to verify your address before logging in."
             )
         else:
             detail = (
                 "Your account was created, but the verification email could not be delivered. "
-                "Use Resend verification on the next screen, or ask an admin to verify the account."
+                "Use Resend on the next screen, or ask an admin to verify the account."
             )
         return Response(
             {
@@ -146,9 +148,18 @@ class RefreshView(AuthView):
 
 class VerifyEmailView(AuthView):
     def post(self, request):
-        token = str(request.data.get("token") or "")
+        email = str(request.data.get("email") or "")
+        code = str(request.data.get("code") or request.data.get("otp") or "")
+        if request.data.get("token"):
+            return Response(
+                {
+                    "ok": False,
+                    "error": "Link verification is no longer used. Enter the 6-digit code from your email.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
-            verify_email(token)
+            verify_email_otp(email, code)
         except AuthError as exc:
             return _error(exc)
         return Response({"ok": True, "detail": "Email verified. You can sign in."})
@@ -163,7 +174,10 @@ class ResendVerificationView(AuthView):
         return Response(
             {
                 "ok": True,
-                "detail": "If that account is waiting for verification, an email has been sent.",
+                "detail": "If that account is waiting for verification, a new code has been sent.",
+                "resend_cooldown_seconds": int(
+                    getattr(settings, "EMAIL_VERIFY_RESEND_COOLDOWN", 60) or 60
+                ),
             }
         )
 

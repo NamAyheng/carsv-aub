@@ -191,6 +191,9 @@ EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1") == "1"
 EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "0") == "1"
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "CarSV <noreply@carsv.local>")
 EMAIL_VERIFY_RESEND_COOLDOWN = int(os.environ.get("EMAIL_VERIFY_RESEND_COOLDOWN", "60") or "60")
+# Customer form email verification OTP (6 digits).
+EMAIL_OTP_MAX_AGE = int(os.environ.get("EMAIL_OTP_MAX_AGE", "600") or "600")  # 10 minutes
+EMAIL_OTP_MAX_ATTEMPTS = int(os.environ.get("EMAIL_OTP_MAX_ATTEMPTS", "5") or "5")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 
 CACHES = {

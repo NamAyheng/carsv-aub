@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   X,
   Car,
@@ -20,8 +20,12 @@ import {
   apiPublicAuthConfig,
   apiRegister,
   apiResendVerification,
+  apiVerifyEmail,
 } from '../../api/client';
 import { requestGoogleIdToken } from '../../utils/googleSignIn';
+
+const OTP_LENGTH = 6;
+const RESEND_COOLDOWN_DEFAULT = 60;
 
 interface CustomerAuthModalProps {
   isOpen: boolean;
@@ -75,23 +79,58 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   const [forgotEmail, setForgotEmail] = useState('');
   const [checkEmailAddr, setCheckEmailAddr] = useState('');
+  const [otpDigits, setOtpDigits] = useState<string[]>(() => Array(OTP_LENGTH).fill(''));
+  const [otpError, setOtpError] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
   /** Always start empty — never auto-fill from Google/profile. */
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  const otpCode = otpDigits.join('');
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = window.setTimeout(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendCooldown]);
+
+  const startResendCooldown = (seconds = RESEND_COOLDOWN_DEFAULT) => {
+    setResendCooldown(Math.max(0, Math.floor(seconds)));
+  };
 
   const openCheckEmailStep = (addr: string, detail?: string) => {
     const normalized = addr.trim();
     setCheckEmailAddr(normalized);
     setEmail(normalized);
+    setOtpDigits(Array(OTP_LENGTH).fill(''));
+    setOtpError('');
     setMode('CHECK_EMAIL');
+    startResendCooldown(RESEND_COOLDOWN_DEFAULT);
     addToast({
       type: 'success',
       title: 'Check your email',
       message:
         detail ||
-        'Your account has been created. Please check your email and verify your address before logging in.',
+        'Enter the 6-digit verification code we sent to your email before signing in.',
     });
+    window.setTimeout(() => otpRefs.current[0]?.focus(), 50);
+  };
+
+  const applyOtpValue = (raw: string, startIndex = 0) => {
+    const digits = raw.replace(/\D/g, '').slice(0, OTP_LENGTH - startIndex).split('');
+    if (!digits.length) return;
+    setOtpDigits((prev) => {
+      const next = [...prev];
+      digits.forEach((d, i) => {
+        next[startIndex + i] = d;
+      });
+      return next;
+    });
+    setOtpError('');
+    const focusAt = Math.min(startIndex + digits.length, OTP_LENGTH - 1);
+    window.setTimeout(() => otpRefs.current[focusAt]?.focus(), 0);
   };
 
   if (!isOpen) return null;
@@ -209,7 +248,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       if (error instanceof AuthApiError && error.code === 'VERIFY_EMAIL') {
         openCheckEmailStep(
           error.email || email,
-          'Verify your email before signing in. We sent another link if your account is still waiting.',
+          'Verify your email before signing in. Enter the 6-digit code we sent (or request a new one).',
         );
         return;
       }
@@ -287,19 +326,50 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       .finally(() => setIsSubmitting(false));
   };
 
+  const handleVerifyOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (otpCode.length !== OTP_LENGTH) {
+      setOtpError('Enter the 6-digit code from your email.');
+      return;
+    }
+    setIsSubmitting(true);
+    setOtpError('');
+    try {
+      const result = await apiVerifyEmail(checkEmailAddr, otpCode);
+      addToast({
+        type: 'success',
+        title: 'Email verified',
+        message: result.detail || 'Your email is verified. You can sign in now.',
+      });
+      setPassword('');
+      setMode('LOGIN');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not verify the code.';
+      setOtpError(message);
+      addToast({ type: 'error', title: 'Verification failed', message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleResendVerification = async () => {
     if (!checkEmailAddr.trim()) {
       addToast({ type: 'error', title: 'Email required', message: 'Enter the email used at registration.' });
       return;
     }
+    if (resendCooldown > 0) return;
     setIsSubmitting(true);
     try {
-      await apiResendVerification(checkEmailAddr);
+      const result = await apiResendVerification(checkEmailAddr);
+      startResendCooldown(result.resend_cooldown_seconds || RESEND_COOLDOWN_DEFAULT);
+      setOtpDigits(Array(OTP_LENGTH).fill(''));
+      setOtpError('');
       addToast({
         type: 'success',
-        title: 'Email sent',
-        message: 'If that account is waiting for verification, a new link is on its way.',
+        title: 'Code sent',
+        message: 'If that account is waiting for verification, a new 6-digit code is on its way.',
       });
+      window.setTimeout(() => otpRefs.current[0]?.focus(), 50);
     } catch (error) {
       addToast({
         type: 'error',
@@ -342,14 +412,14 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             {mode === 'LOGIN' && 'Sign In to CarSV'}
             {mode === 'REGISTER' && 'Create Customer Account'}
             {mode === 'FORGOT' && 'Reset Password'}
-            {mode === 'CHECK_EMAIL' && 'Check Your Email'}
+            {mode === 'CHECK_EMAIL' && 'Enter Verification Code'}
             {mode === 'PHONE' && 'Add Your Phone'}
           </h3>
           <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
             {mode === 'LOGIN' && 'Access your vehicles, bookings, and invoices.'}
             {mode === 'REGISTER' && 'Join CarSV to track repairs and manage service history.'}
             {mode === 'FORGOT' && 'Enter your registered email to receive reset instructions.'}
-            {mode === 'CHECK_EMAIL' && 'Open the verification link we sent, then sign in.'}
+            {mode === 'CHECK_EMAIL' && 'Enter the 6-digit code from your email, then sign in.'}
             {mode === 'PHONE' && 'Enter your phone number so we can match Telegram alerts to your account.'}
           </p>
         </div>
@@ -605,17 +675,17 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             </form>
           )}
 
-          {/* D. CHECK EMAIL (after register / unverified login) */}
+          {/* D. VERIFY OTP (after register / unverified login) */}
           {mode === 'CHECK_EMAIL' && (
-            <div className="space-y-4">
+            <form onSubmit={(e) => void handleVerifyOtpSubmit(e)} className="space-y-4">
               <div className="rounded-xl border border-blue-500/30 bg-blue-600/10 px-3.5 py-3 text-left">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-300 flex items-center gap-1.5">
                   <ShieldCheck className="w-3.5 h-3.5" />
                   Verification required
                 </p>
                 <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-                  Your account has been created. Please check your email and verify your address before
-                  logging in.
+                  Enter the 6-digit code we emailed you. Codes expire in 10 minutes and can only be used
+                  once.
                 </p>
                 <p className="text-xs text-slate-400 mt-2">
                   Sent to{' '}
@@ -623,30 +693,80 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <a
-                  href="https://mail.google.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-200 hover:border-slate-600 text-center"
-                >
-                  Open Gmail
-                </a>
-                <a
-                  href="mailto:"
-                  className="py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-200 hover:border-slate-600 text-center"
-                >
-                  Open email app
-                </a>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-2">
+                  6-digit code
+                </label>
+                <div className="flex justify-between gap-1.5 sm:gap-2">
+                  {otpDigits.map((digit, index) => (
+                    <input
+                      key={`otp-${index}`}
+                      ref={(el) => {
+                        otpRefs.current[index] = el;
+                      }}
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete={index === 0 ? 'one-time-code' : 'off'}
+                      maxLength={1}
+                      value={digit}
+                      aria-label={`Digit ${index + 1}`}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value.length > 1) {
+                          applyOtpValue(value, index);
+                          return;
+                        }
+                        const d = value.replace(/\D/g, '').slice(-1);
+                        setOtpDigits((prev) => {
+                          const next = [...prev];
+                          next[index] = d;
+                          return next;
+                        });
+                        setOtpError('');
+                        if (d && index < OTP_LENGTH - 1) {
+                          otpRefs.current[index + 1]?.focus();
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+                          otpRefs.current[index - 1]?.focus();
+                        }
+                      }}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        applyOtpValue(e.clipboardData.getData('text'), index);
+                      }}
+                      className="w-10 h-12 sm:w-11 sm:h-12 text-center text-lg font-bold rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    />
+                  ))}
+                </div>
+                {otpError ? (
+                  <p className="mt-2 text-xs text-rose-400">{otpError}</p>
+                ) : null}
               </div>
 
               <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={() => void handleResendVerification()}
-                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all disabled:opacity-50"
+                type="submit"
+                disabled={isSubmitting || otpCode.length !== OTP_LENGTH}
+                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {isSubmitting ? 'Sending…' : 'Resend verification email'}
+                {isSubmitting ? (
+                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <span>Verify & Continue</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                disabled={isSubmitting || resendCooldown > 0}
+                onClick={() => void handleResendVerification()}
+                className="w-full py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-200 hover:border-slate-600 disabled:opacity-50"
+              >
+                {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}
               </button>
 
               <button
@@ -656,7 +776,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
               >
                 ← Back to Login
               </button>
-            </div>
+            </form>
           )}
 
           {/* E. PHONE (after successful login when profile has no phone) */}
