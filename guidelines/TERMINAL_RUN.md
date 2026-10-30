@@ -7,6 +7,7 @@
 | **Live** website | https://carsv.chayhour.xyz (fallback: https://carsv-web.onrender.com) | Cloudflare: [CLOUDFLARE_DNS_HOUR04.md](CLOUDFLARE_DNS_HOUR04.md) |
 | **Live** admin / API | https://admin.carsv.chayhour.xyz/admin/ (fallback: https://carsv-api.onrender.com/admin/) | [ROLE_IN_DASHBOARD.md](ROLE_IN_DASHBOARD.md) |
 | **Live** deploy / env | Render | [RENDER.md](../RENDER.md) |
+| **Google Sign-In origins** | — | [GOOGLE_OAUTH_ORIGINS.md](GOOGLE_OAUTH_ORIGINS.md) |
 | **Local** | Docker or venv below | this file |
 
 Local DB ≠ live DB. Branch for local work: `ayheng-local`. Live code: `ayheng`.
