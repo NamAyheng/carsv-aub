@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   X,
   Car,
@@ -79,16 +79,13 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   const [forgotEmail, setForgotEmail] = useState('');
   const [checkEmailAddr, setCheckEmailAddr] = useState('');
-  const [otpDigits, setOtpDigits] = useState<string[]>(() => Array(OTP_LENGTH).fill(''));
+  const [otpCode, setOtpCode] = useState('');
   const [otpError, setOtpError] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
   /** Always start empty — never auto-fill from Google/profile. */
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
-  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
-
-  const otpCode = otpDigits.join('');
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -104,7 +101,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     const normalized = addr.trim();
     setCheckEmailAddr(normalized);
     setEmail(normalized);
-    setOtpDigits(Array(OTP_LENGTH).fill(''));
+    setOtpCode('');
     setOtpError('');
     setMode('CHECK_EMAIL');
     startResendCooldown(RESEND_COOLDOWN_DEFAULT);
@@ -115,22 +112,6 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         detail ||
         'Enter the 6-digit verification code we sent to your email before signing in.',
     });
-    window.setTimeout(() => otpRefs.current[0]?.focus(), 50);
-  };
-
-  const applyOtpValue = (raw: string, startIndex = 0) => {
-    const digits = raw.replace(/\D/g, '').slice(0, OTP_LENGTH - startIndex).split('');
-    if (!digits.length) return;
-    setOtpDigits((prev) => {
-      const next = [...prev];
-      digits.forEach((d, i) => {
-        next[startIndex + i] = d;
-      });
-      return next;
-    });
-    setOtpError('');
-    const focusAt = Math.min(startIndex + digits.length, OTP_LENGTH - 1);
-    window.setTimeout(() => otpRefs.current[focusAt]?.focus(), 0);
   };
 
   if (!isOpen) return null;
@@ -328,20 +309,22 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   const handleVerifyOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (otpCode.length !== OTP_LENGTH) {
+    const digits = otpCode.replace(/\D/g, '');
+    if (digits.length !== OTP_LENGTH) {
       setOtpError('Enter the 6-digit code from your email.');
       return;
     }
     setIsSubmitting(true);
     setOtpError('');
     try {
-      const result = await apiVerifyEmail(checkEmailAddr, otpCode);
+      const result = await apiVerifyEmail(checkEmailAddr, digits);
       addToast({
         type: 'success',
         title: 'Email verified',
         message: result.detail || 'Your email is verified. You can sign in now.',
       });
       setPassword('');
+      setOtpCode('');
       setMode('LOGIN');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not verify the code.';
@@ -362,14 +345,13 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     try {
       const result = await apiResendVerification(checkEmailAddr);
       startResendCooldown(result.resend_cooldown_seconds || RESEND_COOLDOWN_DEFAULT);
-      setOtpDigits(Array(OTP_LENGTH).fill(''));
+      setOtpCode('');
       setOtpError('');
       addToast({
         type: 'success',
         title: 'Code sent',
         message: 'If that account is waiting for verification, a new 6-digit code is on its way.',
       });
-      window.setTimeout(() => otpRefs.current[0]?.focus(), 50);
     } catch (error) {
       addToast({
         type: 'error',
@@ -694,60 +676,40 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">
-                  6-digit code
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Verification Code
                 </label>
-                <div className="flex justify-between gap-1.5 sm:gap-2">
-                  {otpDigits.map((digit, index) => (
-                    <input
-                      key={`otp-${index}`}
-                      ref={(el) => {
-                        otpRefs.current[index] = el;
-                      }}
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete={index === 0 ? 'one-time-code' : 'off'}
-                      maxLength={1}
-                      value={digit}
-                      aria-label={`Digit ${index + 1}`}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value.length > 1) {
-                          applyOtpValue(value, index);
-                          return;
-                        }
-                        const d = value.replace(/\D/g, '').slice(-1);
-                        setOtpDigits((prev) => {
-                          const next = [...prev];
-                          next[index] = d;
-                          return next;
-                        });
-                        setOtpError('');
-                        if (d && index < OTP_LENGTH - 1) {
-                          otpRefs.current[index + 1]?.focus();
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
-                          otpRefs.current[index - 1]?.focus();
-                        }
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        applyOtpValue(e.clipboardData.getData('text'), index);
-                      }}
-                      className="w-10 h-12 sm:w-11 sm:h-12 text-center text-lg font-bold rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    />
-                  ))}
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                  <input
+                    type="text"
+                    name="carsv-otp"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    maxLength={OTP_LENGTH}
+                    value={otpCode}
+                    onChange={(e) => {
+                      setOtpCode(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH));
+                      setOtpError('');
+                    }}
+                    placeholder="123456"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 tracking-widest"
+                  />
                 </div>
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Enter the 6-digit code from your email.
+                </p>
                 {otpError ? (
-                  <p className="mt-2 text-xs text-rose-400">{otpError}</p>
+                  <p className="mt-1.5 text-xs text-rose-400">{otpError}</p>
                 ) : null}
               </div>
 
               <button
                 type="submit"
-                disabled={isSubmitting || otpCode.length !== OTP_LENGTH}
+                disabled={isSubmitting || otpCode.replace(/\D/g, '').length !== OTP_LENGTH}
                 className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (
