@@ -116,9 +116,7 @@ class RegisterView(AuthView):
         else:
             detail = (
                 "Your account was created, but the verification email could not be delivered. "
-                "Use Resend on the next screen, or ask an admin to verify the account. "
-                "With Resend’s free sender, mail often only reaches the account owner’s address "
-                "until a custom domain is verified."
+                "Use Resend verification on the next screen, or ask an admin to verify the account."
             )
         return Response(
             {

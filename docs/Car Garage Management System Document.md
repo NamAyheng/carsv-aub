@@ -51,8 +51,8 @@
 |                  | **Live (host)**                                                  | **Local**                                      |
 | ---------------- | ---------------------------------------------------------------- | ---------------------------------------------- |
 | Git branch       | `ayheng`                                                         | `ayheng-local`                                 |
-| Website          | [https://carsv-web.onrender.com](https://carsv-web.onrender.com) | [http://127.0.0.1:3000](http://127.0.0.1:3000) |
-| API / Admin      | [https://carsv-api.onrender.com](https://carsv-api.onrender.com) | [http://127.0.0.1:8000](http://127.0.0.1:8000) |
+| Website          | [https://carsv.chayhour.xyz](https://carsv.chayhour.xyz) (fallback [onrender](https://carsv-web.onrender.com)) | [http://127.0.0.1:3000](http://127.0.0.1:3000) |
+| API / Admin      | [https://admin.carsv.chayhour.xyz](https://admin.carsv.chayhour.xyz) (fallback [onrender](https://carsv-api.onrender.com)) | [http://127.0.0.1:8000](http://127.0.0.1:8000) |
 | Admin login page | `/admin/login/`                                                  | `/admin/login/`                                |
 | Database         | Render PostgreSQL                                                | Docker Postgres (`127.0.0.1:5433`)             |
 | Data shared?     | **No** — separate databases                                      | **No**                                         |
@@ -278,8 +278,8 @@ Cross-site cookies: `DJANGO_COOKIE_SECURE=1`, `DJANGO_REFRESH_COOKIE_SAMESITE=No
 
 Base examples:  
 
-- Live web = `https://carsv-web.onrender.com`  
-- Live API = `https://carsv-api.onrender.com`  
+- Live web = `https://carsv.chayhour.xyz` (fallback `https://carsv-web.onrender.com`)  
+- Live API / admin = `https://admin.carsv.chayhour.xyz` (fallback `https://carsv-api.onrender.com`)  
 - Local web = `http://127.0.0.1:3000`  
 - Local API = `http://127.0.0.1:8000`
 

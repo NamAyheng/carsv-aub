@@ -14,6 +14,19 @@ Local workflow stays in `DOCKER.md` and `README.md`.
 
 Frontend build sets `VITE_API_URL` to the public API URL. The API uses CORS / CSRF / `FRONTEND_URL` pointing at the Static Site URL.
 
+### Custom domains (production)
+
+| Role | Hostname | Render service |
+| --- | --- | --- |
+| Customer site | `https://carsv.chayhour.xyz` | Static Site `carsv-web` |
+| Admin + API | `https://admin.carsv.chayhour.xyz` | Web Service `carsv-api` |
+
+DNS is owned by the Cloudflare account for `chayhour.xyz` — see [guidelines/CLOUDFLARE_DNS_HOUR04.md](guidelines/CLOUDFLARE_DNS_HOUR04.md).
+
+Resend sending domain: `carsv.chayhour.xyz` → `DEFAULT_FROM_EMAIL=CarSV <noreply@carsv.chayhour.xyz>` (required so verification mail reaches any customer, not only the Resend account owner).
+
+Google OAuth (GIS): add Authorized JavaScript origin `https://carsv.chayhour.xyz` (keep the onrender origin during cutover).
+
 ## Before you create services
 
 Code in this repo already includes:
@@ -33,7 +46,7 @@ Code in this repo already includes:
 
 | Variable | Example |
 | --- | --- |
-| `VITE_API_URL` | `https://carsv-api.onrender.com` |
+| `VITE_API_URL` | `https://admin.carsv.chayhour.xyz` (fallback: `https://carsv-api.onrender.com`) |
 
 - **Root Directory:** `web-frontend`
 - **Build Command:** `npm ci && npm run build`
@@ -48,14 +61,14 @@ Code in this repo already includes:
 | `DJANGO_DEBUG` | `0` |
 | `DJANGO_COOKIE_SECURE` | `1` |
 | `DJANGO_REFRESH_COOKIE_SAMESITE` | `None` |
-| `DJANGO_ALLOWED_HOSTS` | `carsv-api.onrender.com` (your API hostname) |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | `https://carsv-web.onrender.com` |
-| `DJANGO_CORS_ORIGINS` | `https://carsv-web.onrender.com` |
-| `FRONTEND_URL` | `https://carsv-web.onrender.com` |
+| `DJANGO_ALLOWED_HOSTS` | `admin.carsv.chayhour.xyz,carsv-api.onrender.com` |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | `https://carsv.chayhour.xyz,https://carsv-web.onrender.com` |
+| `DJANGO_CORS_ORIGINS` | `https://carsv.chayhour.xyz,https://carsv-web.onrender.com` |
+| `FRONTEND_URL` | `https://carsv.chayhour.xyz` |
 | `DATABASE_URL` | From Render Postgres dashboard |
 | `EMAIL_BACKEND` | `django_app.email_backends.ResendAPIBackend` |
 | `RESEND_API_KEY` | From Resend (never commit) |
-| `DEFAULT_FROM_EMAIL` | Verified sender / `onboarding@resend.dev` for tests |
+| `DEFAULT_FROM_EMAIL` | `CarSV <noreply@carsv.chayhour.xyz>` after Resend domain verify (`onboarding@resend.dev` only reaches the Resend owner) |
 | `GOOGLE_CLIENT_ID` / `TELEGRAM_*` | Optional |
 | `DJANGO_SUPERUSER_*` | Optional first boot only — remove password after login |
 | `DJANGO_SEED_DEMO` | Optional: set `1` **once** on first deploy to seed public catalog (services/parts/blog). Leave unset or `0` afterward. Never creates users or private records. |

@@ -4,8 +4,8 @@
 
 | Environment | URL | Guide |
 | --- | --- | --- |
-| **Live** website | https://carsv-web.onrender.com | — |
-| **Live** admin | https://carsv-api.onrender.com/admin/ | [ROLE_IN_DASHBOARD.md](ROLE_IN_DASHBOARD.md) |
+| **Live** website | https://carsv.chayhour.xyz (fallback: https://carsv-web.onrender.com) | Cloudflare: [CLOUDFLARE_DNS_HOUR04.md](CLOUDFLARE_DNS_HOUR04.md) |
+| **Live** admin / API | https://admin.carsv.chayhour.xyz/admin/ (fallback: https://carsv-api.onrender.com/admin/) | [ROLE_IN_DASHBOARD.md](ROLE_IN_DASHBOARD.md) |
 | **Live** deploy / env | Render | [RENDER.md](../RENDER.md) |
 | **Local** | Docker or venv below | this file |
 

@@ -8,7 +8,7 @@ New staff are created by an **Administrator** (role + password). No public staff
 
 ## Login (Render)
 
-- URL: https://carsv-api.onrender.com/admin/
+- URL: https://admin.carsv.chayhour.xyz/admin/ (fallback: https://carsv-api.onrender.com/admin/)
 - Use **username** + password (not email). Case-sensitive.
 
 ---

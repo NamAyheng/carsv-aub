@@ -85,8 +85,8 @@ Primary code you will edit:
 | | Live | Local (Docker Compose) |
 | --- | --- | --- |
 | Branch (typical) | `ayheng` | `ayheng-local` |
-| Website | https://carsv-web.onrender.com | http://127.0.0.1:3000 |
-| API / Admin | https://carsv-api.onrender.com | http://127.0.0.1:8000 |
+| Website | https://carsv.chayhour.xyz (fallback https://carsv-web.onrender.com) | http://127.0.0.1:3000 |
+| API / Admin | https://admin.carsv.chayhour.xyz (fallback https://carsv-api.onrender.com) | http://127.0.0.1:8000 |
 | Admin login | `/admin/login/` | `/admin/login/` |
 | DB | Render Postgres | Compose Postgres on host `5433` |
 
